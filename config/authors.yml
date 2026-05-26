@@ -1,0 +1,17 @@
+# Authors to track. Used in two ways:
+#   1. As a hint to set up Google Scholar alerts manually (one alert per
+#      author or a combined query). Scholar alerts then arrive in Gmail and
+#      the scholar_collector reads them from there.
+#   2. As a bonus signal during classification — papers by listed authors
+#      get treated as "review carefully" regardless of keyword match.
+#
+# Replace this template with your own list.
+
+authors:
+  # Example shape — replace with your actual researchers:
+  # - name: "Jane Doe"
+  #   affiliation: "Anthropic"
+  #   areas: [alignment, interpretability]
+  - name: ""
+    affiliation: ""
+    areas: []

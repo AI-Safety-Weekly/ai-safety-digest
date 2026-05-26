@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Project state + secrets
+state.db
+*.db
+.env
+gmail_token.json
+gmail_credentials.json
+
+# Generated digest output (kept under docs/ for GH Pages, but raw scratch elsewhere)
+/scratch/
+*.log

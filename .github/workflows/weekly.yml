@@ -1,0 +1,48 @@
+name: Weekly digest
+
+on:
+  schedule:
+    # 09:00 America/New_York on Monday (13:00 UTC during EST, 14:00 UTC EDT).
+    # Cron is UTC; pick one — 13:00 = 9am ET in winter, 8am ET in summer.
+    - cron: "0 13 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # to commit the regenerated docs/ site
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run digest pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_CREDENTIALS_JSON: ${{ secrets.GMAIL_CREDENTIALS_JSON }}
+          GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
+        run: |
+          safety-digest --days 7 --config-dir config --out-dir docs
+
+      - name: Commit updated site
+        run: |
+          git config user.name  "ai-safety-digest-bot"
+          git config user.email "ai-safety-digest-bot@users.noreply.github.com"
+          git add docs/ state.db || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Weekly digest: $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+# GitHub Pages serves from /docs on the main branch.
+# Enable at: Settings → Pages → Source = Deploy from branch → main /docs

@@ -1,0 +1,8 @@
+# arXiv categories the collector polls each week.
+# Trim or extend; cs.AI + cs.LG + cs.CY catch the vast majority of safety work.
+categories:
+  - cs.AI    # Artificial Intelligence
+  - cs.LG    # Machine Learning
+  - cs.CY    # Computers and Society (governance / policy)
+  - cs.CR    # Cryptography and Security (some misuse / adversarial work)
+  - stat.ML  # Statistics — Machine Learning

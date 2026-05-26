@@ -1,0 +1,53 @@
+# Keywords used to pre-filter the arXiv firehose BEFORE sending abstracts to
+# Claude for classification. Goal: keep recall high (don't miss papers) and
+# precision modest (Claude is the actual filter).
+#
+# Match is case-insensitive against title + abstract.
+# Phrases are matched as substrings; use multi-word phrases freely.
+#
+# Replace this template with your own list — these are placeholders.
+
+keywords:
+  # --- Core alignment ---
+  - "AI alignment"
+  - "value alignment"
+  - "reward hacking"
+  - "specification gaming"
+  - "goal misgeneralization"
+  - "deceptive alignment"
+  - "mesa-optimization"
+
+  # --- Interpretability ---
+  - "mechanistic interpretability"
+  - "circuit analysis"
+  - "sparse autoencoder"
+  - "feature visualization"
+  - "activation patching"
+
+  # --- Evals + red-teaming ---
+  - "model evaluation"
+  - "dangerous capabilities"
+  - "red teaming"
+  - "jailbreak"
+  - "prompt injection"
+  - "benchmark contamination"
+
+  # --- Governance / policy ---
+  - "AI governance"
+  - "AI policy"
+  - "compute governance"
+  - "model audit"
+  - "responsible scaling"
+
+  # --- Robustness / misuse ---
+  - "adversarial robustness"
+  - "model misuse"
+  - "biosecurity"
+  - "cybersecurity LLM"
+
+  # --- Multi-agent / scalable oversight ---
+  - "scalable oversight"
+  - "debate"
+  - "weak-to-strong generalization"
+  - "constitutional AI"
+  - "RLHF"

@@ -74,6 +74,100 @@ details > summary:hover { color: var(--md-default-fg-color); }
   text-decoration: underline;
 }
 
+/* ─── Feedback modal ──────────────────────────────────────────────── */
+.feedback-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+  backdrop-filter: blur(2px);
+}
+.feedback-modal {
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  border-radius: 0.75em;
+  padding: 1.5em 1.5em 1.25em;
+  width: 100%; max-width: 480px;
+  box-shadow: 0 18px 48px rgba(0,0,0,0.25);
+  font-size: 0.92em;
+}
+.feedback-modal h2 {
+  margin: 0 0 0.8em 0;
+  font-size: 1.15em;
+  border: none; padding: 0;
+}
+.feedback-form label {
+  display: block;
+  margin: 0.7em 0;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--md-default-fg-color--light);
+}
+.feedback-form label.checkbox {
+  display: flex; align-items: center; gap: 0.5em;
+  font-weight: 500;
+}
+.feedback-form input[type="text"],
+.feedback-form input[type="password"],
+.feedback-form select,
+.feedback-form textarea {
+  display: block; width: 100%;
+  margin-top: 0.3em;
+  padding: 0.5em 0.6em;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.35em;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  font-size: 0.95em;
+  font-family: inherit;
+}
+.feedback-form input:focus,
+.feedback-form select:focus,
+.feedback-form textarea:focus {
+  outline: none;
+  border-color: var(--md-primary-fg-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-primary-fg-color) 20%, transparent);
+}
+.feedback-form textarea { resize: vertical; min-height: 5em; }
+.feedback-form small {
+  display: block;
+  font-weight: 400;
+  font-size: 0.78em;
+  color: var(--md-default-fg-color--light);
+  margin-top: 0.2em;
+}
+.feedback-actions {
+  display: flex; gap: 0.5em; justify-content: flex-end;
+  margin-top: 1em;
+}
+.feedback-btn {
+  padding: 0.45em 1em;
+  border-radius: 0.35em;
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.feedback-btn-cancel {
+  background: transparent;
+  color: var(--md-default-fg-color--light);
+  border-color: var(--md-default-fg-color--lightest);
+}
+.feedback-btn-cancel:hover { color: var(--md-default-fg-color); }
+.feedback-btn-submit {
+  background: var(--md-primary-fg-color);
+  color: white;
+}
+.feedback-btn-submit:disabled { opacity: 0.6; cursor: progress; }
+.feedback-status {
+  margin-top: 0.6em;
+  font-size: 0.85em;
+  min-height: 1.2em;
+}
+.feedback-status.ok  { color: #16a34a; }
+.feedback-status.err { color: #dc2626; }
+
 /* ─── Dark-mode tweaks ────────────────────────────────────────────── */
 [data-md-color-scheme="slate"] h2#high-relevance   { color: #ef5350; }
 [data-md-color-scheme="slate"] h2#medium-relevance { color: #ffa726; }

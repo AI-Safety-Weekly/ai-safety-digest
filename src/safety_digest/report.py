@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from html import escape
 from pathlib import Path
 
 from .models import ClassifiedPaper
@@ -26,11 +27,22 @@ def _format_paper(cp: ClassifiedPaper) -> str:
         authors += f", … (+{len(p.authors) - 5})"
     tags = " ".join(f"`{a}`" for a in c.safety_areas) or "_no tag_"
     pill = f'<span class="tier-pill tier-pill-{tier}">{TIER_LABEL[tier]}</span>'
+    # Password-gated feedback link — wired up by docs/javascripts/feedback-gate.js
+    feedback = (
+        f'<div class="feedback">'
+        f'<a class="tier-feedback" href="#"'
+        f' data-url="{escape(p.url, quote=True)}"'
+        f' data-title="{escape(p.title, quote=True)}"'
+        f' data-tier="{TIER_LABEL[tier]}">'
+        f"📝 Disagree with this tier? Tell the bot."
+        f"</a>"
+        f"</div>"
+    )
     return (
         f"### {pill} [{p.title}]({p.url})\n"
         f"{authors} · {p.published.strftime('%Y-%m-%d')} · {tags}\n\n"
         f"{c.summary}\n\n"
-        f"<details><summary>Why?</summary>\n\n{c.rationale}\n\n</details>\n"
+        f"<details><summary>Why?</summary>\n\n{c.rationale}\n\n{feedback}\n\n</details>\n"
     )
 
 

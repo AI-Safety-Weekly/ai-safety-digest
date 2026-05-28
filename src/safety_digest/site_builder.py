@@ -73,6 +73,13 @@ def build_index(out_dir: Path) -> Path:
         "- **Medium relevance** — adjacent or partially relevant; skim-worthy.",
         "- **Low relevance** — included for context only.",
         "",
+        "## Suggest a paper",
+        "",
+        'Spot something the bot missed? '
+        '<a class="missed-paper" href="#">'
+        ':material-email-plus-outline: Send it in</a> '
+        "(password-gated).",
+        "",
         f"_Last updated: {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d')}_",
         "",
     ]

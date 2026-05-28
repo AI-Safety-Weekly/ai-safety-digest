@@ -5,7 +5,16 @@ on:
     # 09:00 America/New_York on Monday (13:00 UTC during EST, 14:00 UTC EDT).
     # Cron is UTC; pick one — 13:00 = 9am ET in winter, 8am ET in summer.
     - cron: "0 13 * * 1"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Look-back window in days"
+        required: false
+        default: "7"
+      max_papers:
+        description: "Cap papers classified (leave blank = no cap). Useful for cheap test runs."
+        required: false
+        default: ""
 
 permissions:
   contents: write   # to commit the regenerated docs/ site
@@ -38,8 +47,15 @@ jobs:
       - name: Run digest pipeline
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DAYS: ${{ github.event.inputs.days || '7' }}
+          MAX_PAPERS: ${{ github.event.inputs.max_papers || '' }}
         run: |
-          safety-digest --days 7 --config-dir config --out-dir docs
+          ARGS="--days ${DAYS} --config-dir config --out-dir docs"
+          if [ -n "${MAX_PAPERS}" ]; then
+            ARGS="${ARGS} --max-papers ${MAX_PAPERS}"
+          fi
+          echo "Running: safety-digest ${ARGS}"
+          safety-digest ${ARGS}
 
       - name: Commit updated site
         run: |

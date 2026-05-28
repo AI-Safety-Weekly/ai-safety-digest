@@ -1,4 +1,10 @@
-"""Collect new arXiv preprints over the last N days, keyword + author filtered."""
+"""Collect new arXiv preprints over the last N days, keyword + author filtered.
+
+Primary fetch path is arXiv's OAI-PMH bulk endpoint (oaipmh.arxiv.org) —
+designed for harvesters, separate hostname/rate-limit pool from the regular
+export.arxiv.org API. The regular API path (via the `arxiv` library) is kept
+only for collect_by_ids() since OAI-PMH doesn't support id-list lookups.
+"""
 
 from __future__ import annotations
 
@@ -6,23 +12,30 @@ import logging
 import re
 import time
 import unicodedata
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 
 import arxiv
+import requests
 
 from .models import Paper
 
 log = logging.getLogger(__name__)
 
-# Backoff schedule (seconds) for arXiv 429s. The library's own retry handles
-# transient blips with 3s delays; this outer loop handles arXiv's longer
-# cooldowns, which can stretch into many minutes — survivable since the
-# weekly cron has hours of budget.
+# ── OAI-PMH config ─────────────────────────────────────────────────────────
+_OAI_URL = "https://oaipmh.arxiv.org/oai"
+_OAI_NS = {
+    "oai": "http://www.openarchives.org/OAI/2.0/",
+    "arxiv": "http://arxiv.org/OAI/arXiv/",
+}
+_OAI_USER_AGENT = "ai-safety-digest/0.1 (https://github.com/benjamintscher/ai-safety-digest)"
+
+# Backoff schedule (seconds) for the fallback regular-API path.
 _RETRY_DELAYS = [60, 300, 900, 1800]
 
 
 def _fetch_with_retry(client: arxiv.Client, search: arxiv.Search) -> list[arxiv.Result]:
-    """Run an arXiv search, retrying on 429 with escalating sleeps."""
+    """Run an arXiv search via the regular API, retrying on 429 with escalating sleeps."""
     last_err: Exception | None = None
     for attempt, delay in enumerate([0, *_RETRY_DELAYS]):
         if delay:
@@ -37,6 +50,158 @@ def _fetch_with_retry(client: arxiv.Client, search: arxiv.Search) -> list[arxiv.
             if getattr(e, "status", None) != 429:
                 raise
     raise RuntimeError("arXiv 429 after all retries exhausted") from last_err
+
+
+# ── OAI-PMH fetch ──────────────────────────────────────────────────────────
+
+
+def _category_to_set(cat: str) -> str:
+    """Convert 'cs.AI' to OAI-PMH set name 'cs:cs:AI'. 'stat.ML' → 'stat:stat:ML'."""
+    if "." in cat:
+        archive, sub = cat.split(".", 1)
+        return f"{archive}:{archive}:{sub}"
+    return cat
+
+
+_ARXIV_YYMM = re.compile(r"^(\d{2})(\d{2})\.")
+
+
+def _is_recent_submission(arxiv_id: str, max_months_old: int = 1) -> bool:
+    """True if the arxiv id encodes a submission in the last `max_months_old` months.
+
+    Used to filter out old papers (e.g. 2407.xxxxx from 2024) whose OAI-PMH
+    metadata got refreshed this week — they show up in our date-windowed query
+    but aren't actually new submissions.
+    """
+    m = _ARXIV_YYMM.match(arxiv_id)
+    if not m:
+        return True  # unknown format — be lenient
+    yy, mm = int(m.group(1)), int(m.group(2))
+    submitted = datetime(2000 + yy, mm, 1, tzinfo=timezone.utc)
+    now = datetime.now(tz=timezone.utc)
+    months_old = (now.year - submitted.year) * 12 + (now.month - submitted.month)
+    return months_old <= max_months_old
+
+
+def _parse_oai_record(record: ET.Element) -> Paper | None:
+    """Parse a single <record> element from OAI-PMH ListRecords. Returns None for deleted records."""
+    header = record.find("oai:header", _OAI_NS)
+    if header is not None and header.get("status") == "deleted":
+        return None
+    meta = record.find("oai:metadata/arxiv:arXiv", _OAI_NS)
+    if meta is None:
+        return None
+
+    arxiv_id = (meta.findtext("arxiv:id", "", _OAI_NS) or "").strip()
+    title = " ".join((meta.findtext("arxiv:title", "", _OAI_NS) or "").split())
+    abstract = " ".join((meta.findtext("arxiv:abstract", "", _OAI_NS) or "").split())
+
+    authors: list[str] = []
+    for a in meta.findall("arxiv:authors/arxiv:author", _OAI_NS):
+        keyname = (a.findtext("arxiv:keyname", "", _OAI_NS) or "").strip()
+        forenames = (a.findtext("arxiv:forenames", "", _OAI_NS) or "").strip()
+        if keyname:
+            authors.append(f"{forenames} {keyname}".strip() if forenames else keyname)
+
+    # OAI-PMH's <arxiv:created> means "record creation in this OAI session" —
+    # for many existing papers it's just today, which would mislabel old papers
+    # as new. Use the OAI-PMH header <datestamp> (last metadata change) for the
+    # display date; the arxiv-id YYMM filter in collect() handles "is this old."
+    datestamp = (header.findtext("oai:datestamp", "", _OAI_NS) or "").strip() if header is not None else ""
+    try:
+        published = datetime.fromisoformat(datestamp).replace(tzinfo=timezone.utc)
+    except ValueError:
+        published = datetime.now(tz=timezone.utc)
+
+    categories = (meta.findtext("arxiv:categories", "", _OAI_NS) or "").split()
+    primary_category = categories[0] if categories else None
+    doi = (meta.findtext("arxiv:doi", "", _OAI_NS) or "").strip() or None
+
+    return Paper(
+        title=title,
+        authors=authors,
+        abstract=abstract,
+        url=f"https://arxiv.org/abs/{arxiv_id}",
+        source="arxiv",
+        published=published,
+        arxiv_id=arxiv_id,
+        doi=doi,
+        raw={"primary_category": primary_category, "all_categories": categories},
+    )
+
+
+def _fetch_oai_set(set_name: str, from_date: str, until_date: str) -> list[Paper]:
+    """Fetch one (set, date-range) page-by-page via OAI-PMH, following resumption tokens."""
+    params: dict[str, str] = {
+        "verb": "ListRecords",
+        "from": from_date,
+        "until": until_date,
+        "set": set_name,
+        "metadataPrefix": "arXiv",
+    }
+    papers: list[Paper] = []
+    page = 0
+    while True:
+        page += 1
+        log.info("OAI-PMH page %d for set=%s", page, set_name)
+        for attempt, delay in enumerate([0, 30, 120, 600]):
+            if delay:
+                log.warning("OAI-PMH retry — sleeping %ds", delay)
+                time.sleep(delay)
+            try:
+                r = requests.get(
+                    _OAI_URL, params=params, timeout=120,
+                    headers={"User-Agent": _OAI_USER_AGENT},
+                    allow_redirects=True,
+                )
+            except requests.RequestException as e:
+                if attempt == 3:
+                    raise
+                log.warning("OAI-PMH network error %s — will retry", e)
+                continue
+            if r.status_code == 503:
+                retry_after = int(r.headers.get("Retry-After", "60"))
+                log.warning("OAI-PMH 503 — Retry-After %ds", retry_after)
+                time.sleep(retry_after)
+                continue
+            if r.status_code == 200:
+                break
+            if attempt == 3:
+                r.raise_for_status()
+        else:
+            raise RuntimeError(f"OAI-PMH exhausted retries for set={set_name}")
+
+        try:
+            root = ET.fromstring(r.text)
+        except ET.ParseError as e:
+            raise RuntimeError(f"OAI-PMH returned invalid XML for set={set_name}: {e}")
+
+        # Check for OAI-PMH-level error (noRecordsMatch etc.)
+        error = root.find("oai:error", _OAI_NS)
+        if error is not None:
+            code = error.get("code", "")
+            if code == "noRecordsMatch":
+                log.info("OAI-PMH: no records for set=%s in window", set_name)
+                return papers
+            raise RuntimeError(f"OAI-PMH error for set={set_name}: {code}: {error.text}")
+
+        list_records = root.find("oai:ListRecords", _OAI_NS)
+        if list_records is None:
+            break
+        for record in list_records.findall("oai:record", _OAI_NS):
+            paper = _parse_oai_record(record)
+            if paper:
+                papers.append(paper)
+
+        token = list_records.find("oai:resumptionToken", _OAI_NS)
+        if token is None or not (token.text and token.text.strip()):
+            break
+        # Follow resumption token — must NOT include other params per OAI-PMH spec
+        params = {"verb": "ListRecords", "resumptionToken": token.text.strip()}
+        time.sleep(2)  # be polite between paginated requests
+
+    log.info("OAI-PMH: %d records for set=%s", len(papers), set_name)
+    return papers
 
 
 def _compile_keyword_pattern(keywords: list[str]) -> re.Pattern[str]:
@@ -102,79 +267,76 @@ def collect(
     max_results: int = 2000,
     tracked_authors: list[str] | None = None,
 ) -> list[Paper]:
-    """Fetch recent arXiv preprints in the given categories.
+    """Fetch recent arXiv preprints in the given categories via OAI-PMH.
 
     A paper is kept if it matches any of the keywords OR has at least one
-    author on the `tracked_authors` list. The arXiv API doesn't support
-    full-text keyword search well combined with date + category, so we pull
-    the last `max_results` submissions in those categories sorted by
-    submitted-date, then filter locally.
+    author on the `tracked_authors` list. Uses arXiv's OAI-PMH bulk endpoint
+    (oaipmh.arxiv.org) which is a separate hostname/rate-limit pool from the
+    regular API and designed for harvesting — far more reliable than the
+    regular query API for scheduled jobs.
+
+    `max_results` is accepted for backward-compat but ignored; OAI-PMH returns
+    all records in the date window via resumption tokens.
     """
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    _ = max_results
+    now = datetime.now(tz=timezone.utc)
+    cutoff = now - timedelta(days=days)
+    # OAI-PMH 'from' and 'until' filter by record datestamp (last update); we
+    # apply a tighter created-date filter locally to drop papers that are
+    # merely updates of older work.
+    from_date = cutoff.date().isoformat()
+    # OAI-PMH rejects 'until' dates in the future — use today (inclusive).
+    until_date = now.date().isoformat()
+
     pattern = _compile_keyword_pattern(keywords)
     author_index = _build_author_index(tracked_authors or [])
-    query = " OR ".join(f"cat:{c}" for c in categories)
 
     log.info(
-        "Querying arXiv: %s (last %d days, %d tracked authors)",
-        query, days, len(author_index),
+        "Querying arXiv OAI-PMH: %d sets, %s → %s, %d tracked authors",
+        len(categories), from_date, until_date, len(author_index),
     )
-    search = arxiv.Search(
-        query=query,
-        max_results=max_results,
-        sort_by=arxiv.SortCriterion.SubmittedDate,
-        sort_order=arxiv.SortOrder.Descending,
-    )
-    client = arxiv.Client(page_size=200, delay_seconds=3.0, num_retries=3)
 
-    results = _fetch_with_retry(client, search)
+    # Fetch each category as a separate OAI-PMH set, dedupe by arxiv_id.
+    seen: dict[str, Paper] = {}
+    for cat in categories:
+        set_name = _category_to_set(cat)
+        for paper in _fetch_oai_set(set_name, from_date, until_date):
+            if paper.arxiv_id and paper.arxiv_id not in seen:
+                seen[paper.arxiv_id] = paper
+
+    log.info("OAI-PMH: %d unique papers across %d sets", len(seen), len(categories))
+
     papers: list[Paper] = []
     kw_only = author_only = both = 0
-    for result in results:
-        published = result.published
-        if published.tzinfo is None:
-            published = published.replace(tzinfo=timezone.utc)
-        if published < cutoff:
-            # Results are sorted by submitted-date desc, so once we're past
-            # the window we're done.
-            break
-
-        text = f"{result.title}\n{result.summary}"
+    dropped_old = 0
+    for paper in seen.values():
+        if not _is_recent_submission(paper.arxiv_id, max_months_old=1):
+            dropped_old += 1
+            continue  # arxiv id YYMM is from >1 month ago — this is an update, not a new paper
+        if paper.published < cutoff:
+            continue  # OAI-PMH datestamp is outside the requested window
+        text = f"{paper.title}\n{paper.abstract}"
         matched_kw = _matched_keywords(text, pattern)
-        paper_authors = [a.name for a in result.authors]
-        matched_authors = _matched_tracked_authors(paper_authors, author_index)
+        matched_authors = _matched_tracked_authors(paper.authors, author_index)
 
         if not matched_kw and not matched_authors:
             continue
+        # Annotate the paper with match info so classifier + report see it
+        paper.raw["matched_keywords"] = matched_kw
+        paper.raw["matched_authors"] = matched_authors
         if matched_kw and matched_authors:
             both += 1
         elif matched_kw:
             kw_only += 1
         else:
             author_only += 1
+        papers.append(paper)
 
-        arxiv_id = result.get_short_id().split("v")[0]
-        papers.append(
-            Paper(
-                title=result.title.strip(),
-                authors=paper_authors,
-                abstract=result.summary.strip(),
-                url=result.entry_id,
-                source="arxiv",
-                published=published,
-                arxiv_id=arxiv_id,
-                doi=result.doi,
-                raw={
-                    "matched_keywords": matched_kw,
-                    "matched_authors": matched_authors,
-                    "primary_category": result.primary_category,
-                },
-            )
-        )
-
+    # Newest first
+    papers.sort(key=lambda p: p.published, reverse=True)
     log.info(
-        "arXiv: kept %d papers (keyword-only: %d, author-only: %d, both: %d)",
-        len(papers), kw_only, author_only, both,
+        "arXiv: kept %d papers (keyword-only: %d, author-only: %d, both: %d; dropped %d as old-paper updates)",
+        len(papers), kw_only, author_only, both, dropped_old,
     )
     return papers
 

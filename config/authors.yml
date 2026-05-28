@@ -5,13 +5,301 @@
 #   2. As a bonus signal during classification — papers by listed authors
 #      get treated as "review carefully" regardless of keyword match.
 #
-# Replace this template with your own list.
+# Each entry needs at least `name`. `affiliation` and `areas` are optional
+# and can be filled in over time.
 
 authors:
-  # Example shape — replace with your actual researchers:
-  # - name: "Jane Doe"
-  #   affiliation: "Anthropic"
-  #   areas: [alignment, interpretability]
-  - name: ""
-    affiliation: ""
-    areas: []
+  - name: Victoria Krakovna
+  - name: Tom Everitt
+  - name: Rohin Shah
+  - name: Laurent Orseau
+  - name: Shane Legg
+  - name: Pedro Ortega
+  - name: Murray Shanahan
+  - name: Ramana Kumar
+  - name: Geoffrey Irving
+  - name: Zac Kenton
+  - name: Tim Genewein
+  - name: Jordi Grau-Moya
+  - name: Joel Z Leibo
+  - name: Mary Phuong
+  - name: Michael Dennis
+  - name: Neel Nanda
+  - name: Marcus Hutter
+  - name: Tom McGrath
+  - name: Ian Goodfellow
+  - name: Rif A. Saurous
+  - name: Kimin Lee
+  - name: Max Vladymyrov
+  - name: Alexander D'Amour
+  - name: Karan Singhal
+  - name: Jascha Sohl-Dickstein
+  - name: Ivan Vendrov
+  - name: Louis Martin
+  - name: Jason Weston
+  - name: Jan Leike
+  - name: William Saunders
+  - name: Jacob Hilton
+  - name: Josh Achiam
+  - name: John Schulman
+  - name: Ryan Lowe
+  - name: Collin Burns
+  - name: Dario Amodei
+  - name: Chris Olah
+  - name: Sam McCandlish
+  - name: Tom Brown
+  - name: Stanislav Fort
+  - name: Tom Henighan
+  - name: Danny Hernandez
+  - name: Jared Kaplan
+  - name: Ethan Perez
+  - name: Paul Christiano
+  - name: Nisan Stiennon
+  - name: Stuart Russell
+  - name: Pieter Abbeel
+  - name: Anca Dragan
+  - name: Dawn Song
+  - name: Daniel Filan
+  - name: Sam Toyer
+  - name: Rachel Freedman
+  - name: Lawrence Chan
+  - name: Siddharth Reddy
+  - name: Scott Emmons
+  - name: Micah Carroll
+  - name: Cassidy Laidlaw
+  - name: Anand Siththaranjan
+  - name: Arnaud Fickinger
+  - name: Erik Jenner
+  - name: Johannes Treutlein
+  - name: Andrew Critch
+  - name: Jacob Steinhardt
+  - name: Sergey Levine
+  - name: Frances Ding
+  - name: Kaylene Stocking
+  - name: Yaodong Yu
+  - name: Alex Pan
+  - name: Dan Hendrycks
+  - name: Mantas Mazeika
+  - name: Adam Gleave
+  - name: Adria Garriga Alonso
+  - name: Daniel S Brown
+  - name: Nate Thomas
+  - name: Paul Knott
+  - name: Andreas Stuhlmüller
+  - name: Noah Goodman
+  - name: Percy Liang
+  - name: Emma Brunskill
+  - name: Dorsa Sadigh
+  - name: Chelsea Finn
+  - name: Vael Gates
+  - name: Chris Cundy
+  - name: Alex Tamkin
+  - name: Maxinder Kanwal
+  - name: Kush Bhatia
+  - name: Daniel Kunin
+  - name: Scott Viteri
+  - name: Jonathan Cefalu
+  - name: Dylan Hadfield-Menell
+  - name: Philip Isola
+  - name: Joshua Tenenbaum
+  - name: Max Kleiman-Weiner
+  - name: Sydney Levine
+  - name: Vikash Mansinghka
+  - name: Aleksander Madry
+  - name: Tan Zhi-Xuan
+  - name: Stephen Casper
+  - name: Max Tegmark
+  - name: Eric Michaud
+  - name: Elad Hazan
+  - name: Jaime Fisac
+  - name: Jovana Kondic
+  - name: Erdem Biyik
+  - name: Claudia Shi
+  - name: Chad DeChant
+  - name: Jeff Clune
+  - name: Jimmy Ba
+  - name: David "davidad" Duvenaud
+  - name: Roger Grosse
+  - name: Chris Maddison
+  - name: Sheila McIlraith
+  - name: Maayan Shvo
+  - name: Toryn Klassen
+  - name: Eric Langlois
+  - name: Silviu Pitis
+  - name: Richard Zemel
+  - name: Ron Bodkin
+  - name: Florian Shkurti
+  - name: Tegan Maharaj
+  - name: Sam Bowman
+  - name: Alexander Lyzhov
+  - name: David Rein
+  - name: Miles Turpin
+  - name: Yoshua Bengio
+  - name: Alan Chan
+  - name: Niki Howe
+  - name: Sharon Li
+  - name: Neil Crawford
+  - name: Nick Cohen
+  - name: Josiah Lopez-Wild
+  - name: Gemma Moran
+  - name: Luciano Cavalcante Siebert
+  - name: Amos Azaria
+  - name: Doina Precup
+  - name: Joelle Pineau
+  - name: Satinder Singh
+  - name: Michael Wellman
+  - name: Anthony DiGiovanni
+  - name: Spencer Frazier
+  - name: Mark Riedl
+  - name: Michael Littman
+  - name: Victor Veitch
+  - name: David McAllester
+  - name: Brian Ziebart
+  - name: Vincent Conitzer
+  - name: Andy Zou
+  - name: Leqi Liu
+  - name: Caspar Oesterheld
+  - name: Vojtěch Kovařík
+  - name: Chris van Merwijk
+  - name: Joseph Halpern
+  - name: Bart Selman
+  - name: Aaron Tucker
+  - name: Meir Friedenberg
+  - name: Lionel Levine
+  - name: Stuart Armstrong
+  - name: Jelena Luketina
+  - name: Ryan Carey
+  - name: Owain Evans
+  - name: Phillip Torr
+  - name: Michael Osborne
+  - name: Stephen Roberts
+  - name: Marta Kwiatkowska
+  - name: Alessandro Abate
+  - name: Andrea Vedaldi
+  - name: Shimon Whiteson
+  - name: Yarin Gal
+  - name: Jakob Foerster
+  - name: Chris Summerfield
+  - name: Michael Cohen
+  - name: Jan Brauner
+  - name: Mrinank Sharma
+  - name: Seb Farquhar
+  - name: Sören Mindermann
+  - name: Clare Lyle
+  - name: Thomas Orton
+  - name: Lewis Hammond
+  - name: Joar Skalse
+  - name: Hjalmar Wijk
+  - name: Isaac Dunn
+  - name: Ondrej Bajgar
+  - name: James Fox
+  - name: Fazl Barez
+  - name: Freddie Bickford Smith
+  - name: Lorenz Kuhn
+  - name: Julian D'Costa
+  - name: Carlo Attubato
+  - name: Bogdan-Ionut Cirstea
+  - name: Eleonora Giunchiglia
+  - name: David Krueger
+  - name: Samuel Albanie
+  - name: Lauro Langosco
+  - name: Dmitrii Krasheninnikov
+  - name: Adrian Weller
+  - name: Neel Alex
+  - name: Daniel Jarrett
+  - name: Alihan Hüyük
+  - name: Charlotte Roman
+  - name: Tom Lenaerts
+  - name: The Anh Han
+  - name: Luís Moniz Pereira
+  - name: Francisco C Santos
+  - name: José Hernández Orallo
+  - name: Ariel Procaccia
+  - name: Dominik Peters
+  - name: El Mahdi El Mhamdi
+  - name: Le Nguyên Hoang
+  - name: Rachid Guerraoui
+  - name: Steve Kommrusch
+  - name: Shiri Dori-Hacohen
+  - name: Aidan Kierans
+  - name: Shai Shalev-Schwartz
+  - name: Max Chiswick
+  - name: Alexandre Maurer
+  - name: Bas Steunebrink
+  - name: Benjamin Rubinstein
+  - name: Daniel Murfet
+  - name: Ben Smith
+  - name: Alexander Turner
+  - name: Neale Ratzlaff
+  - name: Quintin Pope
+  - name: Roman Yampolsky
+  - name: Carl Henrik Rolf Åslund
+  - name: Herbert Wiklicky
+  - name: Francis Rhys Ward
+  - name: Nandi Schoots
+  - name: Tobias Baumann
+  - name: Isak Falk
+  - name: Robert Kirk
+  - name: Akbir Khan
+  - name: Reuben Adams
+  - name: Lee Sharkey
+  - name: Marius Hobbhahn
+  - name: Zhijing Jin
+  - name: Julian Stastny
+  - name: Benedikt Höltgen
+  - name: Florian Droner
+  - name: Florian Tramer
+  - name: Andreas Krause
+  - name: Cynthia Xin Chen
+  - name: David Lindner
+  - name: Montaser Mohammedalamen
+  - name: Scott Niekum
+  - name: David Dalrymple
+  - name: Peter Hase
+  - name: Dylan Losey
+  - name: Phil Thomas
+  - name: Jordan Schneider
+  - name: Herke van Hoof
+  - name: Jan A. Bergstra
+  - name: Aaron M. Roth
+  - name: Jesse Clifton
+  - name: John Wentworth
+  - name: Pavel Osinenko
+  - name: Oliver De Candido
+  - name: Richard Mallah
+  - name: Koen Holtman
+  - name: Eleanor Nell Watson
+  - name: Matthias Samwald
+  - name: Gavin Leech
+  - name: Richard Dazeley
+  - name: Haddie Harland
+  - name: Gavan Muler
+  - name: Peter Vamplew
+  - name: Tomasz Korbak
+  - name: Jessica Rumbelow
+  - name: Sammy Martin
+  - name: Richard Willis
+  - name: Alexander Oldenziel Gietelink
+  - name: Tiago Vhana
+  - name: Steve Petersen
+  - name: Olle Häggstrom
+  - name: Frans A. Oliehoek
+  - name: Yaodong Yang
+  - name: Xiting Wang
+  - name: Jindong Wang
+  - name: Huishuai Zhang
+  - name: Minlie Huang
+  - name: Hang Su
+  - name: Yingjie Zhang
+  - name: Shanghang Zhang
+  - name: Xin Zhang
+  - name: Meng Sun
+  - name: Di He
+  - name: Yi Wu
+  - name: Jianyu Chen
+  - name: Han Qiu
+  - name: Jun Zhu
+  - name: Peng Cui
+  - name: Yanan Sui
+  - name: Liwei Wang
+  - name: Jie Fu

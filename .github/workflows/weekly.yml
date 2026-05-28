@@ -10,9 +10,18 @@ on:
 permissions:
   contents: write   # to commit the regenerated docs/ site
 
+# Don't run a second weekly job (or manual trigger) while one is still going
+# — they'd race on the git push.
+concurrency:
+  group: weekly-digest
+  cancel-in-progress: false
+
 jobs:
   digest:
     runs-on: ubuntu-latest
+    # Cap worst-case runtime. Normal run is <10 min; full arXiv 429-retry
+    # backoff (60s → 5m → 15m → 30m) plus classification can stretch to ~70 min.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -29,8 +38,6 @@ jobs:
       - name: Run digest pipeline
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GMAIL_CREDENTIALS_JSON: ${{ secrets.GMAIL_CREDENTIALS_JSON }}
-          GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
         run: |
           safety-digest --days 7 --config-dir config --out-dir docs
 

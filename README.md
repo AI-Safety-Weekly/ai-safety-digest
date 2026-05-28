@@ -1,86 +1,86 @@
 # AI Safety Digest
 
-A weekly automated digest of new AI safety research. Collects papers from
-arXiv and Google Scholar alerts, classifies each one for AI-safety relevance
-using Claude, and publishes a browsable dashboard on GitHub Pages.
+A weekly automated digest of new AI safety research. Pulls papers from arXiv,
+classifies each one for AI-safety relevance using Claude, and publishes a
+browsable dashboard on GitHub Pages.
+
+**Live site:** https://benjamintscher.github.io/ai-safety-digest/
 
 ## What it does
 
-Every Monday morning a GitHub Actions job runs and:
+Every Monday at 9am ET a GitHub Actions job runs and:
 
 1. **Pulls new arXiv preprints** from the last 7 days in the relevant CS
-   categories, then keyword-filters to a tractable shortlist.
-2. **Reads Google Scholar alert emails** from your Gmail to catch papers
-   the keyword filter missed — specifically the ones from known safety
-   authors.
-3. **Deduplicates** across both sources by normalized title + arXiv ID.
-4. **Classifies each paper** with Claude reading the abstract: relevance
-   tier, safety subarea tag, one-line summary, rationale.
-5. **Publishes a dashboard** at `https://<you>.github.io/ai-safety-digest/`
-   with that week's papers grouped by relevance, browsable and searchable.
+   categories (`cs.AI`, `cs.LG`, `cs.CY`, `cs.CR`, `stat.ML`).
+2. **Filters by keyword OR tracked author** — a paper survives if it matches
+   any safety-related keyword *or* has at least one author on the curated
+   list of ~300 safety researchers.
+3. **Classifies each paper** with Claude (Sonnet 4.6) reading the abstract:
+   relevance tier (`high` / `medium` / `low`), safety subarea tag(s), a
+   one-sentence summary, and rationale. Papers by tracked authors get
+   surfaced to Claude as a "review carefully" signal.
+4. **Publishes** the digest as a markdown file in `docs/`, then regenerates
+   the landing page to link to all weekly archives. GitHub Pages serves it.
 
-## Roadmap — plain English
+## Roadmap status
 
-- **Week 1.** Get a basic version pulling new arXiv papers and having Claude
-  tell you which look relevant. Output: one markdown file you can open.
-- **Week 2.** Hook up Gmail so it also reads your Google Scholar alerts.
-  Combine both sources and remove duplicates.
-- **Week 3.** Set it to run automatically every Monday morning. Result lands
-  on a public web page.
-- **Week 4.** Polish: better summaries, tag papers by safety subarea,
-  search + filter on the dashboard.
+### Phase 1 — arXiv MVP ✅ done
+- `arxiv_collector.py` queries arXiv with keyword + tracked-author filtering,
+  with retry-on-429 backoff for resilience against arXiv rate limits.
+- `classifier.py` calls Claude with prompt caching on the static rubric;
+  surfaces matched tracked authors as a bonus signal.
+- `report.py` writes `digest-YYYY-WW.md` grouped by relevance tier.
+- Validated end-to-end on real papers against the live API.
 
-## Roadmap — technical
+### Phase 2 — Scholar via Gmail ⏳ not started
+- Gmail API OAuth + `scholar_collector.py` parsing alert HTML.
+- SQLite (`state.db`) for cross-run deduplication.
+- Hooks (config + dedupe stub) are in place; implementation pending.
 
-### Phase 1 — arXiv MVP (single-run CLI)
-- `arxiv_collector.py` — query arXiv API for `cs.AI`, `cs.LG`, `cs.CY`,
-  `cs.CR`, `stat.ML` over last 7 days
-- Keyword pre-filter from `config/keywords.yml` to narrow before LLM
-- `classifier.py` — Claude (Sonnet 4.6) reads abstract → returns
-  `{relevance, safety_area, summary, rationale}` as structured JSON
-- `report.py` — writes `digest-YYYY-WW.md` grouped by relevance tier
-- Validate classifier prompt against ~20 hand-labeled papers
+### Phase 3 — Automation + dashboard ✅ done (minimal)
+- `.github/workflows/weekly.yml` — cron `0 13 * * 1` with 90-min timeout
+  and `concurrency` guard.
+- `site_builder.py` rewrites `docs/index.md` listing all weekly digests;
+  GitHub Pages' built-in Jekyll renders markdown → HTML.
 
-### Phase 2 — Scholar via Gmail
-- Gmail API OAuth (one-time consent, refresh token stored as GH secret)
-- `scholar_collector.py` — fetches messages from `scholaralerts-noreply@google.com`
-  in the last 7 days, parses the alert HTML for title / authors / link
-- SQLite (`state.db`) tracks seen papers across runs — no re-summarizing
-
-### Phase 3 — Automation + dashboard
-- `.github/workflows/weekly.yml` — cron `0 13 * * 1` (Mon 9am ET)
-- `site_builder.py` — emits a static site into `docs/` (served by GH Pages)
-- Per-week archive pages + a landing page showing the latest digest
-
-### Phase 4 — Polish
-- Safety subarea tagging (alignment / interp / evals / governance /
-  robustness / misuse / capability evals / multi-agent)
-- Optional translation pass for non-English abstracts before classification
-- Client-side search + tag filter on the dashboard
-- Configurable author + keyword lists in `config/*.yml`
+### Phase 4 — Polish (backlog)
+- Per-tag pages (alignment / interp / evals / etc.) and client-side search.
+- Translation pass for non-English abstracts before classification.
+- Per-paper "seen before" suppression once Phase 2 lands.
 
 ## Repo layout
 
 ```
 ai-safety-digest/
 ├── src/safety_digest/
-│   ├── arxiv_collector.py
-│   ├── scholar_collector.py
-│   ├── classifier.py
-│   ├── dedupe.py
-│   ├── report.py
-│   └── site_builder.py
+│   ├── arxiv_collector.py    # arXiv fetch + keyword/author filter
+│   ├── classifier.py         # Claude classifier with tracked-author signal
+│   ├── config.py             # YAML loader
+│   ├── report.py             # Markdown digest writer
+│   ├── site_builder.py       # docs/index.md generator
+│   ├── scholar_collector.py  # Phase 2 stub
+│   ├── dedupe.py             # Phase 2 stub
+│   └── models.py
 ├── config/
-│   ├── authors.yml          # safety researchers to track
-│   ├── keywords.yml         # keywords for arXiv pre-filter
+│   ├── authors.yml           # 294 tracked safety researchers
+│   ├── keywords.yml          # arXiv pre-filter keywords
 │   └── arxiv_categories.yml
-├── docs/                    # GitHub Pages site (generated)
+├── docs/                     # GitHub Pages site (generated)
 ├── tests/
 ├── .github/workflows/weekly.yml
 ├── pyproject.toml
 └── README.md
 ```
 
+## Running locally
+
+```bash
+uv venv && uv pip install -e .
+export ANTHROPIC_API_KEY=sk-ant-...
+safety-digest --days 7 --out-dir docs           # full weekly run
+safety-digest --dry-run --max-arxiv-results 200 # smoke test, no Claude calls
+safety-digest --arxiv-ids 2605.27354,2605.27355 # replay specific papers
+```
+
 ## Stack
-Python 3.11 · `arxiv` · Google API Python Client (Gmail) · `anthropic` ·
-SQLite · Jinja2 (site) · GitHub Actions
+Python 3.11 · `arxiv` · `anthropic` · GitHub Actions · Jekyll (Pages default)

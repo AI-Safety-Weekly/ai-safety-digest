@@ -15,6 +15,11 @@ on:
         description: "Cap papers classified (leave blank = no cap). Useful for cheap test runs."
         required: false
         default: ""
+      build_only:
+        description: "Skip pipeline + commit, only rebuild and deploy the site from existing docs/"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # commit the regenerated docs/
@@ -49,6 +54,7 @@ jobs:
           pip install -e .
 
       - name: Run digest pipeline
+        if: ${{ github.event.inputs.build_only != 'true' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DAYS: ${{ github.event.inputs.days || '7' }}
@@ -63,6 +69,7 @@ jobs:
 
       - name: Commit updated digest markdown
         id: commit
+        if: ${{ github.event.inputs.build_only != 'true' }}
         run: |
           set -e
           git config user.name  "ai-safety-digest-bot"

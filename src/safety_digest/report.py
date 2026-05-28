@@ -8,25 +8,29 @@ from pathlib import Path
 from .models import ClassifiedPaper
 
 TIER_ORDER = ("high", "medium", "low")
+# Explicit {#id} on H2s so the stylesheet can color-code tiers (high=red etc).
 TIER_HEADING = {
-    "high": "## High relevance — read these",
-    "medium": "## Medium relevance — worth a skim",
-    "low": "## Low relevance — context only",
+    "high":   "## High relevance — read these { #high-relevance }",
+    "medium": "## Medium relevance — worth a skim { #medium-relevance }",
+    "low":    "## Low relevance — context only { #low-relevance }",
 }
+TIER_LABEL = {"high": "High", "medium": "Medium", "low": "Low"}
 
 
 def _format_paper(cp: ClassifiedPaper) -> str:
     p = cp.paper
     c = cp.classification
+    tier = c.relevance
     authors = ", ".join(p.authors[:5])
     if len(p.authors) > 5:
         authors += f", … (+{len(p.authors) - 5})"
     tags = " ".join(f"`{a}`" for a in c.safety_areas) or "_no tag_"
+    pill = f'<span class="tier-pill tier-pill-{tier}">{TIER_LABEL[tier]}</span>'
     return (
-        f"### [{p.title}]({p.url})\n"
+        f"### {pill} [{p.title}]({p.url})\n"
         f"{authors} · {p.published.strftime('%Y-%m-%d')} · {tags}\n\n"
         f"{c.summary}\n\n"
-        f"<details><summary>Why this tier</summary>\n\n{c.rationale}\n\n</details>\n"
+        f"<details><summary>Why?</summary>\n\n{c.rationale}\n\n</details>\n"
     )
 
 

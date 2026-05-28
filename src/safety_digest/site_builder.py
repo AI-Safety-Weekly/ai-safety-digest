@@ -1,8 +1,7 @@
 """Regenerate the GitHub Pages landing page (docs/index.md) to list all digests.
 
-Minimal Phase 3 implementation — Jekyll (GitHub Pages' default) renders the
-markdown files to HTML automatically, so the landing page only needs to link
-to each weekly digest.
+MkDocs Material renders this through Jekyll-like flow — we just emit markdown
+that links to each weekly digest page. Newest week is featured.
 """
 
 from __future__ import annotations
@@ -40,10 +39,11 @@ def build_index(out_dir: Path) -> Path:
     lines = [
         "# AI Safety Digest",
         "",
-        "A weekly auto-generated reading list of new AI-safety research, "
-        "pulled from arXiv and classified with Claude.",
-        "",
-        f"_Last updated: {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d')}_",
+        "A weekly auto-generated reading list of new AI-safety research. "
+        "Papers are pulled from arXiv every Monday morning, filtered against a "
+        "curated list of safety keywords and ~300 tracked researchers, then "
+        "classified by Claude into high / medium / low relevance with a "
+        "one-sentence summary.",
         "",
     ]
 
@@ -53,18 +53,29 @@ def build_index(out_dir: Path) -> Path:
         year, week, latest = entries[0]
         counts = _counts_line(latest.read_text(encoding="utf-8"))
         lines += [
-            f"## Latest — {year} week {week:02d}",
+            f'!!! tip "Latest digest — {year}, week {week:02d}"',
+            f"    **{counts.strip('_')}**" if counts else "",
             "",
-            counts,
+            f"    [Read the full digest :material-arrow-right:]"
+            f"({latest.name}){{ .md-button .md-button--primary }}",
             "",
-            f"[Read the full digest →]({latest.name.replace('.md', '.html')})",
-            "",
-            "## All weekly digests",
+            "## Recent weeks",
             "",
         ]
         for y, w, path in entries:
-            lines.append(f"- [{y} week {w:02d}]({path.name.replace('.md', '.html')})")
+            lines.append(f"- [**{y} · Week {w:02d}**]({path.name})")
         lines.append("")
+
+    lines += [
+        "## What's in a digest",
+        "",
+        "- **High relevance** — papers a safety researcher would genuinely want to read this week.",
+        "- **Medium relevance** — adjacent or partially relevant; skim-worthy.",
+        "- **Low relevance** — included for context only.",
+        "",
+        f"_Last updated: {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d')}_",
+        "",
+    ]
 
     index_path = out_dir / "index.md"
     index_path.write_text("\n".join(lines), encoding="utf-8")

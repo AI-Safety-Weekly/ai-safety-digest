@@ -17,7 +17,9 @@ on:
         default: ""
 
 permissions:
-  contents: write   # to commit the regenerated docs/ site
+  contents: write   # commit the regenerated docs/
+  pages: write      # deploy via Pages Actions
+  id-token: write   # ditto (OIDC)
 
 # Don't run a second weekly job (or manual trigger) while one is still going
 # — they'd race on the git push.
@@ -29,8 +31,10 @@ jobs:
   digest:
     runs-on: ubuntu-latest
     # Cap worst-case runtime. Normal run is <10 min; full arXiv 429-retry
-    # backoff (60s → 5m → 15m → 30m) plus classification can stretch to ~70 min.
+    # backoff plus classification can stretch to ~70 min.
     timeout-minutes: 90
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,22 +61,40 @@ jobs:
           echo "Running: safety-digest ${ARGS}"
           safety-digest ${ARGS}
 
-      - name: Commit updated site
+      - name: Commit updated digest markdown
+        id: commit
         run: |
           set -e
           git config user.name  "ai-safety-digest-bot"
           git config user.email "ai-safety-digest-bot@users.noreply.github.com"
           git add docs/
-          # state.db is Phase 2 (cross-run dedupe), may not exist yet
           [ -f state.db ] && git add state.db || true
           if git diff --cached --quiet; then
             echo "No changes to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git commit -m "Weekly digest: $(date -u +%Y-%m-%d)"
-          # Pull-rebase in case main moved while we were classifying (workflow can run ~45 min)
           git pull --rebase origin main
           git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
-# GitHub Pages serves from /docs on the main branch.
-# Enable at: Settings → Pages → Source = Deploy from branch → main /docs
+      - name: Build site (mkdocs)
+        run: |
+          mkdocs build --strict
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: digest
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

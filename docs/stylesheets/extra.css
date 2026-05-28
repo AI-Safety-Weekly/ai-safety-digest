@@ -1,0 +1,83 @@
+/* ─── Tier section headings — colored bar for instant scanning ────── */
+h2#high-relevance,
+h2#medium-relevance,
+h2#low-relevance {
+  padding-left: 0.6em;
+  padding-top: 1.5em;
+  margin-top: 2.5em;
+  border-left: 5px solid currentColor;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+h2#high-relevance:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 1em;
+}
+h2#high-relevance   { color: #d32f2f; }   /* red    */
+h2#medium-relevance { color: #ed6c02; }   /* orange */
+h2#low-relevance    { color: #6b7280; }   /* gray   */
+
+/* ─── Tier pill on each paper title ───────────────────────────────── */
+.tier-pill {
+  display: inline-block;
+  padding: 0.1em 0.55em;
+  border-radius: 0.35em;
+  font-size: 0.65em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-right: 0.4em;
+  vertical-align: middle;
+  text-transform: uppercase;
+  color: white;
+}
+.tier-pill-high   { background: #d32f2f; }
+.tier-pill-medium { background: #ed6c02; }
+.tier-pill-low    { background: #6b7280; }
+
+/* ─── "Why?" disclosure — small and quiet ─────────────────────────── */
+details {
+  margin: 0.4em 0 1.2em 0;
+  font-size: 0.88em;
+  color: var(--md-default-fg-color--light);
+}
+details > summary {
+  font-size: 0.82em;
+  font-weight: 500;
+  color: var(--md-default-fg-color--light);
+  cursor: pointer;
+  padding: 0.15em 0;
+  list-style: none;
+}
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  width: 0.9em;
+  font-size: 0.85em;
+}
+details[open] > summary::before { content: "▾ "; }
+details > summary:hover { color: var(--md-default-fg-color); }
+
+/* ─── Feedback link — subtle, lives inside the "Why?" disclosure ──── */
+.feedback {
+  font-size: 0.85em;
+  margin-top: 0.6em;
+  padding-top: 0.5em;
+  border-top: 1px dashed var(--md-default-fg-color--lightest);
+}
+.feedback a {
+  color: var(--md-default-fg-color--light);
+  text-decoration: none;
+}
+.feedback a:hover {
+  color: var(--md-primary-fg-color);
+  text-decoration: underline;
+}
+
+/* ─── Dark-mode tweaks ────────────────────────────────────────────── */
+[data-md-color-scheme="slate"] h2#high-relevance   { color: #ef5350; }
+[data-md-color-scheme="slate"] h2#medium-relevance { color: #ffa726; }
+[data-md-color-scheme="slate"] h2#low-relevance    { color: #9ca3af; }
+[data-md-color-scheme="slate"] .tier-pill-high   { background: #ef5350; }
+[data-md-color-scheme="slate"] .tier-pill-medium { background: #ffa726; }
+[data-md-color-scheme="slate"] .tier-pill-low    { background: #9ca3af; color: #1f2937; }

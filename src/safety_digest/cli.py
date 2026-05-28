@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import arxiv_collector, classifier, config, report
+from . import arxiv_collector, classifier, config, report, site_builder
 
 
 def main() -> None:
@@ -108,7 +108,8 @@ def main() -> None:
     iso = run_at.isocalendar()
     fname = f"digest-{iso.year}-W{iso.week:02d}.md"
     out_path = report.write_markdown(classified, args.out_dir / fname, run_at)
-    print(f"Wrote {out_path} ({len(classified)} papers)")
+    index_path = site_builder.build_index(args.out_dir)
+    print(f"Wrote {out_path} ({len(classified)} papers); updated {index_path}")
 
 
 if __name__ == "__main__":

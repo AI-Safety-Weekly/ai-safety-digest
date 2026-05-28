@@ -54,6 +54,12 @@ def main() -> None:
         default=None,
         help="Comma-separated arXiv IDs to fetch (bypasses category sweep — useful for dev/replay)",
     )
+    parser.add_argument(
+        "--backend",
+        choices=["gemini", "claude"],
+        default="gemini",
+        help="LLM backend: gemini (free tier, default) or claude (paid Sonnet 4.6)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -94,7 +100,11 @@ def main() -> None:
     if args.dry_run:
         log.info("Dry run: using stub classifier (no API calls)")
         classified = classifier.stub_classify(papers)
+    elif args.backend == "gemini":
+        log.info("Classifying via Gemini 2.5 Flash (free tier)")
+        classified = classifier.gemini_classify(papers)
     else:
+        log.info("Classifying via Claude Sonnet 4.6")
         classified = classifier.classify(papers)
 
     classified.sort(

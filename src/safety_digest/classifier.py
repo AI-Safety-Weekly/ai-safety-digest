@@ -1,15 +1,21 @@
-"""LLM classifier — Claude reads each abstract and tags relevance + subarea.
+"""LLM classifier — reads each abstract and tags relevance + subarea.
 
-Uses Anthropic's tool-use mechanism for structured output and prompt caching
-on the static system prompt (the rubric is reused across all papers in a run).
+Two backends:
+- `classify()` — Claude Sonnet 4.6 via Anthropic, structured output via tool-use
+- `gemini_classify()` — Gemini 2.5 Flash via Google AI Studio, structured output via responseSchema (free tier)
+
+Both honor the same SYSTEM_PROMPT and emit ClassifiedPaper objects.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import time
 from typing import Any
 
+import requests
 from anthropic import Anthropic
 
 from .models import Classification, ClassifiedPaper, Paper, Relevance, SafetyArea
@@ -17,6 +23,8 @@ from .models import Classification, ClassifiedPaper, Paper, Relevance, SafetyAre
 log = logging.getLogger(__name__)
 
 MODEL = "claude-sonnet-4-6"
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 SYSTEM_PROMPT = """\
 You are an AI-safety research analyst. Your job is to read paper abstracts \
@@ -156,6 +164,89 @@ def classify(papers: list[Paper], api_key: str | None = None) -> list[Classified
         )
         results.append(ClassifiedPaper(paper=paper, classification=classification))
 
+    return results
+
+
+# ── Gemini backend (free tier) ─────────────────────────────────────────────
+
+# JSON Schema for structured output. Matches CLASSIFY_TOOL's input_schema.
+_GEMINI_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "relevance": {"type": "string", "enum": ["high", "medium", "low"]},
+        "safety_areas": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "alignment", "interpretability", "evals", "governance",
+                    "robustness", "misuse", "capability_evals", "multi_agent", "other",
+                ],
+            },
+        },
+        "summary": {"type": "string"},
+        "rationale": {"type": "string"},
+    },
+    "required": ["relevance", "safety_areas", "summary", "rationale"],
+}
+
+
+def gemini_classify(papers: list[Paper], api_key: str | None = None) -> list[ClassifiedPaper]:
+    """Classify each paper via Gemini 2.5 Flash. Free tier: 15 RPM, 1500 RPD."""
+    if not papers:
+        return []
+    api_key = api_key or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not set")
+    url = GEMINI_URL.format(model=GEMINI_MODEL)
+
+    results: list[ClassifiedPaper] = []
+    for i, paper in enumerate(papers, 1):
+        log.info("Classifying %d/%d via Gemini: %s", i, len(papers), paper.title[:80])
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": _user_message(paper)}]}],
+            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": _GEMINI_RESPONSE_SCHEMA,
+                "temperature": 0.1,
+            },
+        }
+        # Retry on transient failures (rate limit, 5xx)
+        last_err: Exception | None = None
+        for attempt, delay in enumerate([0, 5, 20, 60, 180]):
+            if delay:
+                log.warning("Gemini retry %d, sleeping %ds", attempt, delay)
+                time.sleep(delay)
+            try:
+                r = requests.post(url, params={"key": api_key}, json=body, timeout=60)
+            except requests.RequestException as e:
+                last_err = e
+                continue
+            if r.status_code in (429, 500, 502, 503, 504):
+                last_err = RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:200]}")
+                continue
+            r.raise_for_status()
+            break
+        else:
+            raise RuntimeError(f"Gemini exhausted retries on paper {i}: {last_err}")
+
+        data = r.json()
+        try:
+            json_text = data["candidates"][0]["content"]["parts"][0]["text"]
+            parsed = json.loads(json_text)
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            raise RuntimeError(f"Gemini unparseable response: {e}; raw: {str(data)[:400]}")
+
+        classification = Classification(
+            relevance=parsed["relevance"],
+            safety_areas=list(parsed.get("safety_areas", [])),
+            summary=parsed["summary"].strip(),
+            rationale=parsed["rationale"].strip(),
+        )
+        results.append(ClassifiedPaper(paper=paper, classification=classification))
+        # Free tier: 15 RPM = 4 s/call. Pad a bit.
+        time.sleep(4.2)
     return results
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
 
@@ -12,6 +13,30 @@ import arxiv
 from .models import Paper
 
 log = logging.getLogger(__name__)
+
+# Backoff schedule (seconds) for arXiv 429s. The library's own retry handles
+# transient blips with 3s delays; this outer loop handles arXiv's longer
+# cooldowns, which can stretch into many minutes — survivable since the
+# weekly cron has hours of budget.
+_RETRY_DELAYS = [60, 300, 900, 1800]
+
+
+def _fetch_with_retry(client: arxiv.Client, search: arxiv.Search) -> list[arxiv.Result]:
+    """Run an arXiv search, retrying on 429 with escalating sleeps."""
+    last_err: Exception | None = None
+    for attempt, delay in enumerate([0, *_RETRY_DELAYS]):
+        if delay:
+            log.warning(
+                "arXiv 429 — sleeping %ds before retry %d/%d", delay, attempt, len(_RETRY_DELAYS)
+            )
+            time.sleep(delay)
+        try:
+            return list(client.results(search))
+        except arxiv.HTTPError as e:
+            last_err = e
+            if getattr(e, "status", None) != 429:
+                raise
+    raise RuntimeError("arXiv 429 after all retries exhausted") from last_err
 
 
 def _compile_keyword_pattern(keywords: list[str]) -> re.Pattern[str]:
@@ -102,9 +127,10 @@ def collect(
     )
     client = arxiv.Client(page_size=200, delay_seconds=3.0, num_retries=3)
 
+    results = _fetch_with_retry(client, search)
     papers: list[Paper] = []
     kw_only = author_only = both = 0
-    for result in client.results(search):
+    for result in results:
         published = result.published
         if published.tzinfo is None:
             published = published.replace(tzinfo=timezone.utc)
@@ -172,8 +198,9 @@ def collect_by_ids(
     search = arxiv.Search(id_list=arxiv_ids)
     client = arxiv.Client(page_size=100, delay_seconds=3.0, num_retries=3)
 
+    results = _fetch_with_retry(client, search)
     papers: list[Paper] = []
-    for result in client.results(search):
+    for result in results:
         published = result.published
         if published.tzinfo is None:
             published = published.replace(tzinfo=timezone.utc)

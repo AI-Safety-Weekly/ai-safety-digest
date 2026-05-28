@@ -56,7 +56,7 @@ function isoWeekTag(d) {
   date.setUTCDate(date.getUTCDate() - dayNum + 3);
   const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
   const weekNum = 1 + Math.round(
-    ((date - firstThursday) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7,
+    ((date.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7,
   );
   return `${date.getUTCFullYear()}-W${String(weekNum).padStart(2, "0")}`;
 }

@@ -22,12 +22,21 @@ def _format_paper(cp: ClassifiedPaper) -> str:
     p = cp.paper
     c = cp.classification
     tier = c.relevance
-    authors = ", ".join(p.authors[:5])
-    if len(p.authors) > 5:
-        authors += f", … (+{len(p.authors) - 5})"
     tags = " ".join(f"`{a}`" for a in c.safety_areas) or "_no tag_"
     pill = f'<span class="tier-pill tier-pill-{tier}">{TIER_LABEL[tier]}</span>'
-    # Password-gated feedback link — wired up by docs/javascripts/feedback-gate.js
+
+    is_lab = p.source == "lab"
+    if is_lab:
+        label = p.raw.get("lab_label", "Lab")
+        lab_badge = f'<span class="lab-badge">{escape(label)}</span> '
+        meta_line = f"{p.published.strftime('%Y-%m-%d')} · {tags}"
+    else:
+        lab_badge = ""
+        authors = ", ".join(p.authors[:5])
+        if len(p.authors) > 5:
+            authors += f", … (+{len(p.authors) - 5})"
+        meta_line = f"{authors} · {p.published.strftime('%Y-%m-%d')} · {tags}"
+
     feedback = (
         f'<div class="feedback">'
         f'<a class="tier-feedback" href="#"'
@@ -39,8 +48,8 @@ def _format_paper(cp: ClassifiedPaper) -> str:
         f"</div>"
     )
     return (
-        f"### {pill} [{p.title}]({p.url})\n"
-        f"{authors} · {p.published.strftime('%Y-%m-%d')} · {tags}\n\n"
+        f"### {pill} {lab_badge}[{p.title}]({p.url})\n"
+        f"{meta_line}\n\n"
         f"{c.summary}\n\n"
         f"<details><summary>Why?</summary>\n\n{c.rationale}\n\n{feedback}\n\n</details>\n"
     )

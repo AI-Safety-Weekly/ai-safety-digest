@@ -1,0 +1,92 @@
+# Lab safety blogs / system cards / risk reports to poll weekly.
+#
+# Two strategies:
+#   rss     — parse RSS/Atom feed at `feed_url`.
+#   sitemap — pull `sitemap_url`, filter by `url_prefix` + lastmod, fetch
+#             each surviving page for title + description meta tags.
+#
+# filter:
+#   loose  — keep everything in the date window (use for sources that are
+#            almost entirely safety-relevant — METR, Apollo, Anthropic).
+#   strict — also require a hit on the built-in safety keyword list. Use
+#            for sources that mix capability/product news (OpenAI, DeepMind).
+#
+# auto_admit:
+#   true  — set matched_auto_admit on each item (classifier defaults to high)
+#   false — set matched_review instead (classifier judges normally)
+
+sources:
+  - name: openai
+    label: "OpenAI"
+    strategy: rss
+    feed_url: "https://openai.com/news/rss.xml"
+    filter: strict
+    auto_admit: false
+
+  - name: deepmind
+    label: "DeepMind"
+    strategy: rss
+    feed_url: "https://deepmind.google/blog/rss.xml"
+    filter: strict
+    auto_admit: false
+
+  - name: metr
+    label: "METR"
+    strategy: rss
+    feed_url: "https://metr.org/feed.xml"
+    filter: loose
+    auto_admit: true
+
+  # TODO(v2): Apollo's /rss endpoint serves HTML despite advertising RSS in
+  # Content-Type. Their sitemap_index lives at /sitemap_index.xml with
+  # sub-sitemaps (post-sitemap.xml etc) — needs sitemap-index traversal
+  # support before we can re-enable.
+  - name: apollo
+    label: "Apollo Research"
+    strategy: rss
+    feed_url: "https://www.apolloresearch.ai/rss"
+    filter: loose
+    auto_admit: true
+    disabled: true
+
+  - name: anthropic
+    label: "Anthropic"
+    strategy: sitemap
+    sitemap_url: "https://www.anthropic.com/sitemap.xml"
+    url_prefix: "https://www.anthropic.com/news/"
+    # /news/ also covers funding, hiring, office openings, product launches.
+    # Strict keeps system cards, RSP updates, eval reports, red-team posts.
+    filter: strict
+    auto_admit: true
+
+  # TODO(v2): UK AISI and CAIS sitemaps don't expose <lastmod> dates, so the
+  # cutoff filter rejects everything. To re-enable, either fetch each candidate
+  # URL and read `article:published_time` from meta tags (one HTTP call per
+  # post; cap at top-N by sitemap order) or switch to a feed if they add one.
+  - name: uk-aisi
+    label: "UK AISI"
+    strategy: sitemap
+    sitemap_url: "https://www.aisi.gov.uk/sitemap.xml"
+    url_prefix: "https://www.aisi.gov.uk/blog/"
+    filter: loose
+    auto_admit: true
+    disabled: true
+
+  - name: cais
+    label: "CAIS"
+    strategy: sitemap
+    sitemap_url: "https://www.safe.ai/sitemap.xml"
+    url_prefix: "https://safe.ai/work/"
+    filter: strict
+    auto_admit: true
+    disabled: true
+
+  # TODO: Redwood Research — neither RSS nor sitemap is exposed. Skipping
+  # until a feed appears or we add HTML-scraping logic for their blog index.
+  - name: redwood
+    label: "Redwood Research"
+    strategy: rss
+    feed_url: ""
+    disabled: true
+    filter: loose
+    auto_admit: true

@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import arxiv_collector, classifier, config, report, site_builder
+from . import arxiv_collector, classifier, config, lab_collector, report, site_builder
 
 
 def main() -> None:
@@ -95,15 +95,21 @@ def main() -> None:
             auto_admit_authors=auto_admit_authors,
             review_authors=review_authors,
         )
+    log.info("Collected %d papers from arXiv", len(papers))
+
+    if cfg.lab_sources and not args.arxiv_ids:
+        lab_papers = lab_collector.collect(cfg.lab_sources, days=args.days)
+        log.info("Collected %d items from lab feeds", len(lab_papers))
+        papers = papers + lab_papers
+
     if args.max_papers:
         papers = papers[: args.max_papers]
-    log.info("Collected %d papers from arXiv", len(papers))
 
     if not args.skip_scholar:
         log.warning("Scholar collector not yet implemented (Phase 2) — skipping")
 
     if not papers:
-        print("No papers matched the keyword filter this run.", file=sys.stderr)
+        print("No papers or lab items matched filters this run.", file=sys.stderr)
         return
 
     if args.dry_run:

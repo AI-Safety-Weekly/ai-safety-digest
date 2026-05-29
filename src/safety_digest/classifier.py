@@ -84,7 +84,23 @@ If both signals are present, treat the paper as auto-admit.
 
 Always mention the matched author(s) by name in the rationale, and note \
 which signal triggered (e.g. "auto-admit author Chris Olah" or \
-"tracked-list co-author Y. Smith")."""
+"tracked-list co-author Y. Smith").
+
+Source signal: each input is either an arXiv paper or a lab post (blog \
+announcement, system card, evaluation report, RSP / responsible scaling \
+update). For lab posts:
+- Do not penalise for missing academic methodology — system cards and \
+risk reports are not papers but can be highly safety-relevant.
+- Be skeptical of pure product/capability announcements that mention \
+"safety" only as marketing — those are NOT high. A safety-flavoured blog \
+post describing a new feature without concrete eval results is at most \
+medium.
+- System cards, dangerous-capability evaluations, red-team write-ups, \
+RSP / responsible scaling updates, and concrete risk assessments with \
+findings ARE candidates for high.
+- For lab posts, "Auto-admit lab" means the lab itself (Anthropic, METR, \
+Apollo, etc.) is treated as an auto-admit signal — same strong inclusion \
+prior as auto-admit authors."""
 
 CLASSIFY_TOOL: dict[str, Any] = {
     "name": "classify_paper",
@@ -130,16 +146,27 @@ CLASSIFY_TOOL: dict[str, Any] = {
 
 
 def _user_message(paper: Paper) -> str:
-    authors = ", ".join(paper.authors[:8])
-    if len(paper.authors) > 8:
-        authors += f", … ({len(paper.authors)} authors)"
-    lines = [f"Title: {paper.title}", f"Authors: {authors}"]
+    is_lab = paper.source == "lab"
     auto_admit = paper.raw.get("matched_auto_admit") or []
     review = paper.raw.get("matched_review") or []
-    if auto_admit:
-        lines.append("Auto-admit author on this paper: " + ", ".join(auto_admit))
-    if review:
-        lines.append("Tracked-list author on this paper: " + ", ".join(review))
+
+    lines = [f"Title: {paper.title}"]
+    if is_lab:
+        label = paper.raw.get("lab_label", "")
+        lines.append(f"Source: lab post / report from {label}")
+        if auto_admit:
+            lines.append("Auto-admit lab: " + ", ".join(auto_admit))
+        if review:
+            lines.append("Tracked-list lab: " + ", ".join(review))
+    else:
+        authors = ", ".join(paper.authors[:8])
+        if len(paper.authors) > 8:
+            authors += f", … ({len(paper.authors)} authors)"
+        lines += [f"Authors: {authors}", "Source: arXiv paper"]
+        if auto_admit:
+            lines.append("Auto-admit author on this paper: " + ", ".join(auto_admit))
+        if review:
+            lines.append("Tracked-list author on this paper: " + ", ".join(review))
     lines.append(f"Abstract:\n{paper.abstract}")
     return "\n".join(lines)
 

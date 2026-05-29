@@ -34,6 +34,21 @@ h2#low-relevance    { color: #6b7280; }   /* gray   */
 .tier-pill-medium { background: #ed6c02; }
 .tier-pill-low    { background: #6b7280; }
 
+.lab-badge {
+  display: inline-block;
+  padding: 0.1em 0.55em;
+  border-radius: 0.35em;
+  font-size: 0.65em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-right: 0.4em;
+  vertical-align: middle;
+  text-transform: uppercase;
+  color: var(--md-default-fg-color);
+  background: transparent;
+  border: 1px solid var(--md-default-fg-color--lighter);
+}
+
 /* ─── "Why?" disclosure — small and quiet ─────────────────────────── */
 details {
   margin: 0.4em 0 1.2em 0;

@@ -86,21 +86,30 @@ Always mention the matched author(s) by name in the rationale, and note \
 which signal triggered (e.g. "auto-admit author Chris Olah" or \
 "tracked-list co-author Y. Smith").
 
-Source signal: each input is either an arXiv paper or a lab post (blog \
-announcement, system card, evaluation report, RSP / responsible scaling \
-update). For lab posts:
-- Do not penalise for missing academic methodology — system cards and \
-risk reports are not papers but can be highly safety-relevant.
-- Be skeptical of pure product/capability announcements that mention \
-"safety" only as marketing — those are NOT high. A safety-flavoured blog \
-post describing a new feature without concrete eval results is at most \
-medium.
-- System cards, dangerous-capability evaluations, red-team write-ups, \
-RSP / responsible scaling updates, and concrete risk assessments with \
-findings ARE candidates for high.
-- For lab posts, "Auto-admit lab" means the lab itself (Anthropic, METR, \
-Apollo, etc.) is treated as an auto-admit signal — same strong inclusion \
-prior as auto-admit authors."""
+Source signal: each input is either an arXiv paper, a lab post, or a \
+forum post (LessWrong, Alignment Forum). Adjust your judgement to the \
+source:
+
+- arXiv: standard academic abstract. Existing rubric applies.
+
+- Lab post (blog announcement, system card, eval report, RSP update): \
+do not penalise for missing academic methodology. Be skeptical of pure \
+product/capability announcements that mention "safety" only as marketing \
+— those are NOT high. System cards, dangerous-capability evaluations, \
+red-team write-ups, RSP / responsible scaling updates, and concrete risk \
+assessments with findings ARE candidates for high. "Auto-admit lab" \
+means the lab itself (Anthropic, METR, Apollo, etc.) gets the same \
+strong inclusion prior as auto-admit authors.
+
+- Forum post (Alignment Forum, LessWrong): community discussion / \
+analysis / threat-model posts. The author byline is a person. Judge by \
+whether the post substantively advances safety thinking — a novel \
+argument, a careful threat model, an empirical writeup, a critical \
+analysis of an existing paper. Skeptical of: short hot takes, news \
+commentary, beginner questions, link-only posts. Forum posts get NO \
+auto-admit signal — author fame alone does not earn high. Authors are \
+not cross-checked against the tracked-authors list (it's tuned for arXiv \
+bylines)."""
 
 CLASSIFY_TOOL: dict[str, Any] = {
     "name": "classify_paper",
@@ -146,18 +155,22 @@ CLASSIFY_TOOL: dict[str, Any] = {
 
 
 def _user_message(paper: Paper) -> str:
-    is_lab = paper.source == "lab"
     auto_admit = paper.raw.get("matched_auto_admit") or []
     review = paper.raw.get("matched_review") or []
-
     lines = [f"Title: {paper.title}"]
-    if is_lab:
+
+    if paper.source == "lab":
         label = paper.raw.get("lab_label", "")
         lines.append(f"Source: lab post / report from {label}")
         if auto_admit:
             lines.append("Auto-admit lab: " + ", ".join(auto_admit))
         if review:
             lines.append("Tracked-list lab: " + ", ".join(review))
+    elif paper.source == "forum":
+        venue = paper.raw.get("lab_label", "")
+        byline = ", ".join(paper.authors[:5]) or "(anonymous)"
+        lines.append(f"Source: forum post on {venue}")
+        lines.append(f"Author: {byline}")
     else:
         authors = ", ".join(paper.authors[:8])
         if len(paper.authors) > 8:

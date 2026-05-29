@@ -90,3 +90,28 @@ sources:
     disabled: true
     filter: loose
     auto_admit: true
+
+  # ── Discussion forums ──────────────────────────────────────────────
+  # `source_type: forum` means the byline is a human, not the venue
+  # itself. Treated as review_carefully (not auto-admit) since forum
+  # posts are discussion/analysis, not vetted research output.
+
+  - name: alignment-forum
+    label: "Alignment Forum"
+    source_type: forum
+    strategy: rss
+    feed_url: "https://www.alignmentforum.org/feed.xml"
+    # Alignment Forum is already topic-filtered by the community — every
+    # post is on-topic for AI safety. No further keyword filtering.
+    filter: loose
+    auto_admit: false
+
+  - name: lesswrong
+    label: "LessWrong"
+    source_type: forum
+    strategy: rss
+    feed_url: "https://www.lesswrong.com/feed.xml"
+    # LessWrong is much broader (rationality, life advice, etc.) — require
+    # safety keywords in the title to surface only AI-safety discussion.
+    filter: strict
+    auto_admit: false

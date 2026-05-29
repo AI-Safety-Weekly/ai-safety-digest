@@ -109,9 +109,12 @@ def _make_paper(
     published: datetime,
     src: dict,
     matched_kw: list[str],
+    authors: list[str] | None = None,
 ) -> Paper:
     label = src["label"]
     auto_admit = bool(src.get("auto_admit"))
+    source_type = src.get("source_type", "lab")  # "lab" or "forum"
+    paper_authors = authors if authors else [label]
     raw: dict[str, Any] = {
         "matched_keywords": matched_kw,
         "matched_auto_admit": [label] if auto_admit else [],
@@ -122,10 +125,10 @@ def _make_paper(
     }
     return Paper(
         title=title.strip(),
-        authors=[label],
+        authors=paper_authors,
         abstract=(abstract or title).strip(),
         url=url,
-        source="lab",
+        source=source_type,
         published=published,
         arxiv_id=None,
         doi=None,
@@ -160,9 +163,20 @@ def _from_rss(src: dict, cutoff: datetime) -> list[Paper]:
         # unreliable (often boilerplate company taglines).
         if src.get("filter") == "strict" and not _matches_safety(title):
             continue
+        # For forum posts the byline is the actual human author, not the
+        # forum itself — surface that as Paper.authors.
+        post_authors: list[str] | None = None
+        if src.get("source_type") == "forum":
+            byline_list = entry.get("authors") or []
+            names = [a.get("name", "").strip() for a in byline_list if a.get("name")]
+            if names:
+                post_authors = names
+            elif entry.get("author"):
+                post_authors = [entry["author"].strip()]
         out.append(_make_paper(
             title=title, abstract=abstract, url=url,
             published=published, src=src, matched_kw=matched_kw,
+            authors=post_authors,
         ))
     return out
 

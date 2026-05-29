@@ -26,10 +26,16 @@ def _format_paper(cp: ClassifiedPaper) -> str:
     pill = f'<span class="tier-pill tier-pill-{tier}">{TIER_LABEL[tier]}</span>'
 
     is_lab = p.source == "lab"
+    is_forum = p.source == "forum"
     if is_lab:
         label = p.raw.get("lab_label", "Lab")
         lab_badge = f'<span class="lab-badge">{escape(label)}</span> '
         meta_line = f"{p.published.strftime('%Y-%m-%d')} · {tags}"
+    elif is_forum:
+        venue = p.raw.get("lab_label", "Forum")
+        lab_badge = f'<span class="lab-badge">{escape(venue)}</span> '
+        byline = ", ".join(p.authors[:3]) or "(anonymous)"
+        meta_line = f"{byline} · {p.published.strftime('%Y-%m-%d')} · {tags}"
     else:
         lab_badge = ""
         authors = ", ".join(p.authors[:5])

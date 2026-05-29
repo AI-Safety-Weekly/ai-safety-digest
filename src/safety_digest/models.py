@@ -18,7 +18,7 @@ SafetyArea = Literal[
     "multi_agent",
     "other",
 ]
-Source = Literal["arxiv", "scholar", "lab"]
+Source = Literal["arxiv", "scholar", "lab", "forum"]
 
 
 @dataclass

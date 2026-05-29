@@ -115,3 +115,31 @@ sources:
     # safety keywords in the title to surface only AI-safety discussion.
     filter: strict
     auto_admit: false
+
+  # ── Curated AI-safety newsletters ──────────────────────────────────
+  # All loose-filtered because each newsletter is already topic-curated
+  # by its author. Surfacing as forum posts since the byline is a person.
+
+  - name: substack-zvi
+    label: "Don't Worry About the Vase"
+    source_type: forum
+    strategy: rss
+    feed_url: "https://thezvi.substack.com/feed"
+    filter: loose
+    auto_admit: false
+
+  - name: substack-import-ai
+    label: "Import AI"
+    source_type: forum
+    strategy: rss
+    feed_url: "https://importai.substack.com/feed"
+    filter: loose
+    auto_admit: false
+
+  - name: substack-aisn
+    label: "AI Safety Newsletter"
+    source_type: forum
+    strategy: rss
+    feed_url: "https://newsletter.safe.ai/feed"
+    filter: loose
+    auto_admit: false

@@ -265,15 +265,15 @@ def collect(
     keywords: list[str],
     days: int = 7,
     max_results: int = 2000,
-    tracked_authors: list[str] | None = None,
+    auto_admit_authors: list[str] | None = None,
+    review_authors: list[str] | None = None,
 ) -> list[Paper]:
     """Fetch recent arXiv preprints in the given categories via OAI-PMH.
 
     A paper is kept if it matches any of the keywords OR has at least one
-    author on the `tracked_authors` list. Uses arXiv's OAI-PMH bulk endpoint
-    (oaipmh.arxiv.org) which is a separate hostname/rate-limit pool from the
-    regular API and designed for harvesting — far more reliable than the
-    regular query API for scheduled jobs.
+    author on either tracked-author tier. Uses arXiv's OAI-PMH bulk endpoint
+    (oaipmh.arxiv.org) — separate hostname/rate-limit pool from the regular
+    API, designed for harvesting and far more reliable for scheduled jobs.
 
     `max_results` is accepted for backward-compat but ignored; OAI-PMH returns
     all records in the date window via resumption tokens.
@@ -281,22 +281,18 @@ def collect(
     _ = max_results
     now = datetime.now(tz=timezone.utc)
     cutoff = now - timedelta(days=days)
-    # OAI-PMH 'from' and 'until' filter by record datestamp (last update); we
-    # apply a tighter created-date filter locally to drop papers that are
-    # merely updates of older work.
     from_date = cutoff.date().isoformat()
-    # OAI-PMH rejects 'until' dates in the future — use today (inclusive).
     until_date = now.date().isoformat()
 
     pattern = _compile_keyword_pattern(keywords)
-    author_index = _build_author_index(tracked_authors or [])
+    auto_index = _build_author_index(auto_admit_authors or [])
+    review_index = _build_author_index(review_authors or [])
 
     log.info(
-        "Querying arXiv OAI-PMH: %d sets, %s → %s, %d tracked authors",
-        len(categories), from_date, until_date, len(author_index),
+        "Querying arXiv OAI-PMH: %d sets, %s → %s, %d auto-admit + %d review-carefully authors",
+        len(categories), from_date, until_date, len(auto_index), len(review_index),
     )
 
-    # Fetch each category as a separate OAI-PMH set, dedupe by arxiv_id.
     seen: dict[str, Paper] = {}
     for cat in categories:
         set_name = _category_to_set(cat)
@@ -312,19 +308,24 @@ def collect(
     for paper in seen.values():
         if not _is_recent_submission(paper.arxiv_id, max_months_old=1):
             dropped_old += 1
-            continue  # arxiv id YYMM is from >1 month ago — this is an update, not a new paper
+            continue
         if paper.published < cutoff:
-            continue  # OAI-PMH datestamp is outside the requested window
+            continue
         text = f"{paper.title}\n{paper.abstract}"
         matched_kw = _matched_keywords(text, pattern)
-        matched_authors = _matched_tracked_authors(paper.authors, author_index)
+        matched_auto = _matched_tracked_authors(paper.authors, auto_index)
+        matched_review = _matched_tracked_authors(paper.authors, review_index)
+        matched_any_author = matched_auto or matched_review
 
-        if not matched_kw and not matched_authors:
+        if not matched_kw and not matched_any_author:
             continue
-        # Annotate the paper with match info so classifier + report see it
         paper.raw["matched_keywords"] = matched_kw
-        paper.raw["matched_authors"] = matched_authors
-        if matched_kw and matched_authors:
+        paper.raw["matched_auto_admit"] = matched_auto
+        paper.raw["matched_review"] = matched_review
+        # Combined list kept for backward-compat with downstream consumers
+        # (report.py, stub_classify) that don't yet distinguish tiers.
+        paper.raw["matched_authors"] = matched_auto + matched_review
+        if matched_kw and matched_any_author:
             both += 1
         elif matched_kw:
             kw_only += 1
@@ -332,7 +333,6 @@ def collect(
             author_only += 1
         papers.append(paper)
 
-    # Newest first
     papers.sort(key=lambda p: p.published, reverse=True)
     log.info(
         "arXiv: kept %d papers (keyword-only: %d, author-only: %d, both: %d; dropped %d as old-paper updates)",
@@ -344,17 +344,20 @@ def collect(
 def collect_by_ids(
     arxiv_ids: list[str],
     keywords: list[str] | None = None,
-    tracked_authors: list[str] | None = None,
+    auto_admit_authors: list[str] | None = None,
+    review_authors: list[str] | None = None,
 ) -> list[Paper]:
     """Fetch specific arXiv papers by ID. Lightweight — useful for dev/replay.
 
-    Still annotates each paper with matched_keywords / matched_authors so the
-    classifier and report get the same signals as the full collect() path.
+    Annotates each paper with matched_keywords / matched_auto_admit /
+    matched_review so the classifier sees the same signals as the full
+    collect() path.
     """
     if not arxiv_ids:
         return []
     pattern = _compile_keyword_pattern(keywords or [])
-    author_index = _build_author_index(tracked_authors or [])
+    auto_index = _build_author_index(auto_admit_authors or [])
+    review_index = _build_author_index(review_authors or [])
 
     log.info("Fetching %d arXiv papers by id_list", len(arxiv_ids))
     search = arxiv.Search(id_list=arxiv_ids)
@@ -368,6 +371,8 @@ def collect_by_ids(
             published = published.replace(tzinfo=timezone.utc)
         text = f"{result.title}\n{result.summary}"
         paper_authors = [a.name for a in result.authors]
+        matched_auto = _matched_tracked_authors(paper_authors, auto_index)
+        matched_review = _matched_tracked_authors(paper_authors, review_index)
         papers.append(
             Paper(
                 title=result.title.strip(),
@@ -380,7 +385,9 @@ def collect_by_ids(
                 doi=result.doi,
                 raw={
                     "matched_keywords": _matched_keywords(text, pattern),
-                    "matched_authors": _matched_tracked_authors(paper_authors, author_index),
+                    "matched_auto_admit": matched_auto,
+                    "matched_review": matched_review,
+                    "matched_authors": matched_auto + matched_review,
                     "primary_category": result.primary_category,
                 },
             )

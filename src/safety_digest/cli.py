@@ -70,13 +70,21 @@ def main() -> None:
     log = logging.getLogger("safety-digest")
 
     cfg = config.load(args.config_dir)
-    log.info("Loaded %d categories, %d keywords", len(cfg.categories), len(cfg.keywords))
+    log.info(
+        "Loaded %d categories, %d keywords, %d auto-admit + %d review-carefully authors",
+        len(cfg.categories), len(cfg.keywords),
+        len(cfg.auto_admit_authors), len(cfg.review_authors),
+    )
 
-    tracked_authors = [a["name"] for a in cfg.authors if a.get("name")]
+    auto_admit_authors = [a["name"] for a in cfg.auto_admit_authors if a.get("name")]
+    review_authors = [a["name"] for a in cfg.review_authors if a.get("name")]
     if args.arxiv_ids:
         ids = [s.strip() for s in args.arxiv_ids.split(",") if s.strip()]
         papers = arxiv_collector.collect_by_ids(
-            ids, keywords=cfg.keywords, tracked_authors=tracked_authors
+            ids,
+            keywords=cfg.keywords,
+            auto_admit_authors=auto_admit_authors,
+            review_authors=review_authors,
         )
     else:
         papers = arxiv_collector.collect(
@@ -84,7 +92,8 @@ def main() -> None:
             cfg.keywords,
             days=args.days,
             max_results=args.max_arxiv_results,
-            tracked_authors=tracked_authors,
+            auto_admit_authors=auto_admit_authors,
+            review_authors=review_authors,
         )
     if args.max_papers:
         papers = papers[: args.max_papers]

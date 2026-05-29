@@ -1,30 +1,61 @@
-# Authors to track. Used in two ways:
-#   1. As a hint to set up Google Scholar alerts manually (one alert per
-#      author or a combined query). Scholar alerts then arrive in Gmail and
-#      the scholar_collector reads them from there.
-#   2. As a bonus signal during classification — papers by listed authors
-#      get treated as "review carefully" regardless of keyword match.
+# Authors split into two tiers.
 #
-# Each entry needs at least `name`. `affiliation` and `areas` are optional
-# and can be filled in over time.
+#   auto_admit       — short list of unambiguous frontier-safety researchers.
+#                      Papers by these authors get a STRONG inclusion prior
+#                      in the classifier prompt; default toward "high".
+#   review_carefully — broader list of safety-adjacent researchers.
+#                      Papers still get surfaced to the classifier, but with
+#                      a more skeptical framing — the paper must actually be
+#                      about AI safety to earn high/medium.
+#
+# Each entry needs at least `name`. `affiliation` and `areas` are optional.
 
-authors:
+auto_admit:
   - name: Victoria Krakovna
   - name: Tom Everitt
   - name: Rohin Shah
+  - name: Geoffrey Irving
+  - name: Zac Kenton
+  - name: Mary Phuong
+  - name: Neel Nanda
+  - name: Jan Leike
+  - name: Jacob Hilton
+  - name: Collin Burns
+  - name: Dario Amodei
+  - name: Chris Olah
+  - name: Sam McCandlish
+  - name: Jared Kaplan
+  - name: Ethan Perez
+  - name: Paul Christiano
+  - name: Stuart Russell
+  - name: Daniel Filan
+  - name: Lawrence Chan
+  - name: Micah Carroll
+  - name: Jacob Steinhardt
+  - name: Dan Hendrycks
+  - name: Adam Gleave
+  - name: Stephen Casper
+  - name: 'David "davidad" Duvenaud'
+  - name: Sam Bowman
+  - name: Stuart Armstrong
+  - name: Owain Evans
+  - name: Mrinank Sharma
+  - name: Hjalmar Wijk
+  - name: David Krueger
+  - name: Lee Sharkey
+  - name: Marius Hobbhahn
+  - name: Tomasz Korbak
+
+review_carefully:
   - name: Laurent Orseau
   - name: Shane Legg
   - name: Pedro Ortega
   - name: Murray Shanahan
   - name: Ramana Kumar
-  - name: Geoffrey Irving
-  - name: Zac Kenton
   - name: Tim Genewein
   - name: Jordi Grau-Moya
   - name: Joel Z Leibo
-  - name: Mary Phuong
   - name: Michael Dennis
-  - name: Neel Nanda
   - name: Marcus Hutter
   - name: Tom McGrath
   - name: Ian Goodfellow
@@ -37,50 +68,34 @@ authors:
   - name: Ivan Vendrov
   - name: Louis Martin
   - name: Jason Weston
-  - name: Jan Leike
   - name: William Saunders
-  - name: Jacob Hilton
   - name: Josh Achiam
   - name: John Schulman
   - name: Ryan Lowe
-  - name: Collin Burns
-  - name: Dario Amodei
-  - name: Chris Olah
-  - name: Sam McCandlish
   - name: Tom Brown
   - name: Stanislav Fort
   - name: Tom Henighan
   - name: Danny Hernandez
-  - name: Jared Kaplan
-  - name: Ethan Perez
-  - name: Paul Christiano
   - name: Nisan Stiennon
-  - name: Stuart Russell
   - name: Pieter Abbeel
   - name: Anca Dragan
   - name: Dawn Song
-  - name: Daniel Filan
   - name: Sam Toyer
   - name: Rachel Freedman
-  - name: Lawrence Chan
   - name: Siddharth Reddy
   - name: Scott Emmons
-  - name: Micah Carroll
   - name: Cassidy Laidlaw
   - name: Anand Siththaranjan
   - name: Arnaud Fickinger
   - name: Erik Jenner
   - name: Johannes Treutlein
   - name: Andrew Critch
-  - name: Jacob Steinhardt
   - name: Sergey Levine
   - name: Frances Ding
   - name: Kaylene Stocking
   - name: Yaodong Yu
   - name: Alex Pan
-  - name: Dan Hendrycks
   - name: Mantas Mazeika
-  - name: Adam Gleave
   - name: Adria Garriga Alonso
   - name: Daniel S Brown
   - name: Nate Thomas
@@ -107,7 +122,6 @@ authors:
   - name: Vikash Mansinghka
   - name: Aleksander Madry
   - name: Tan Zhi-Xuan
-  - name: Stephen Casper
   - name: Max Tegmark
   - name: Eric Michaud
   - name: Elad Hazan
@@ -118,7 +132,6 @@ authors:
   - name: Chad DeChant
   - name: Jeff Clune
   - name: Jimmy Ba
-  - name: David "davidad" Duvenaud
   - name: Roger Grosse
   - name: Chris Maddison
   - name: Sheila McIlraith
@@ -130,7 +143,6 @@ authors:
   - name: Ron Bodkin
   - name: Florian Shkurti
   - name: Tegan Maharaj
-  - name: Sam Bowman
   - name: Alexander Lyzhov
   - name: David Rein
   - name: Miles Turpin
@@ -166,10 +178,8 @@ authors:
   - name: Aaron Tucker
   - name: Meir Friedenberg
   - name: Lionel Levine
-  - name: Stuart Armstrong
   - name: Jelena Luketina
   - name: Ryan Carey
-  - name: Owain Evans
   - name: Phillip Torr
   - name: Michael Osborne
   - name: Stephen Roberts
@@ -182,14 +192,12 @@ authors:
   - name: Chris Summerfield
   - name: Michael Cohen
   - name: Jan Brauner
-  - name: Mrinank Sharma
   - name: Seb Farquhar
   - name: Sören Mindermann
   - name: Clare Lyle
   - name: Thomas Orton
   - name: Lewis Hammond
   - name: Joar Skalse
-  - name: Hjalmar Wijk
   - name: Isaac Dunn
   - name: Ondrej Bajgar
   - name: James Fox
@@ -200,7 +208,6 @@ authors:
   - name: Carlo Attubato
   - name: Bogdan-Ionut Cirstea
   - name: Eleonora Giunchiglia
-  - name: David Krueger
   - name: Samuel Albanie
   - name: Lauro Langosco
   - name: Dmitrii Krasheninnikov
@@ -242,8 +249,6 @@ authors:
   - name: Robert Kirk
   - name: Akbir Khan
   - name: Reuben Adams
-  - name: Lee Sharkey
-  - name: Marius Hobbhahn
   - name: Zhijing Jin
   - name: Julian Stastny
   - name: Benedikt Höltgen
@@ -275,7 +280,6 @@ authors:
   - name: Haddie Harland
   - name: Gavan Muler
   - name: Peter Vamplew
-  - name: Tomasz Korbak
   - name: Jessica Rumbelow
   - name: Sammy Martin
   - name: Richard Willis

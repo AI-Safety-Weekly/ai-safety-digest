@@ -62,12 +62,29 @@ what the paper actually does — avoid vague phrases like "improves performance"
 Be conservative with "high" — reserve it for papers a safety researcher \
 would genuinely want to read this week.
 
-Tracked-author signal: if the user message includes a "Tracked safety \
-authors on this paper" line, at least one author is on the user's curated \
-list of AI-safety researchers. Treat this as a strong prior that the paper \
-deserves attention — default to "high" or "medium" unless the abstract is \
-clearly off-topic (e.g. the researcher published in an unrelated area this \
-week). Mention the tracked author(s) by name in the rationale."""
+Tracked-author signals (two tiers):
+
+1. "Auto-admit author on this paper": at least one author is on a short, \
+curated list of unambiguous frontier-safety researchers (Anthropic alignment, \
+DeepMind safety, ARC, METR, Apollo, CHAI, etc.). This is a STRONG inclusion \
+prior. Default to "high". Drop to "medium" only if the abstract is clearly \
+about a tangential topic. Drop to "low" only if the abstract is wholly \
+unrelated to AI / ML / AI safety.
+
+2. "Tracked-list author on this paper": at least one author is on a broader \
+list of safety-adjacent researchers who have published safety work in the \
+past. This is a WEAKER prior — being on the list alone is NOT enough to \
+earn "high" or "medium". Judge the abstract on its actual safety relevance, \
+the same way you would for a paper with no author signal. Be skeptical if \
+the abstract reads like a general capability, benchmark, or applied-ML \
+paper — even one tracked-list author co-authoring such a paper does not \
+make it safety-relevant.
+
+If both signals are present, treat the paper as auto-admit.
+
+Always mention the matched author(s) by name in the rationale, and note \
+which signal triggered (e.g. "auto-admit author Chris Olah" or \
+"tracked-list co-author Y. Smith")."""
 
 CLASSIFY_TOOL: dict[str, Any] = {
     "name": "classify_paper",
@@ -117,9 +134,12 @@ def _user_message(paper: Paper) -> str:
     if len(paper.authors) > 8:
         authors += f", … ({len(paper.authors)} authors)"
     lines = [f"Title: {paper.title}", f"Authors: {authors}"]
-    matched_authors = paper.raw.get("matched_authors") or []
-    if matched_authors:
-        lines.append("Tracked safety authors on this paper: " + ", ".join(matched_authors))
+    auto_admit = paper.raw.get("matched_auto_admit") or []
+    review = paper.raw.get("matched_review") or []
+    if auto_admit:
+        lines.append("Auto-admit author on this paper: " + ", ".join(auto_admit))
+    if review:
+        lines.append("Tracked-list author on this paper: " + ", ".join(review))
     lines.append(f"Abstract:\n{paper.abstract}")
     return "\n".join(lines)
 
@@ -255,19 +275,23 @@ def stub_classify(papers: list[Paper]) -> list[ClassifiedPaper]:
     out: list[ClassifiedPaper] = []
     for paper in papers:
         matched_kw: list[str] = list(paper.raw.get("matched_keywords", []))
-        matched_authors: list[str] = list(paper.raw.get("matched_authors", []))
-        if matched_authors:
+        matched_auto: list[str] = list(paper.raw.get("matched_auto_admit", []))
+        matched_review: list[str] = list(paper.raw.get("matched_review", []))
+        if matched_auto:
             relevance: Relevance = "high"
         elif len(matched_kw) >= 2:
             relevance = "high"
-        elif matched_kw:
+        elif matched_kw or matched_review:
             relevance = "medium"
         else:
             relevance = "low"
-        areas: list[SafetyArea] = ["other"] if (matched_kw or matched_authors) else []
+        any_signal = matched_kw or matched_auto or matched_review
+        areas: list[SafetyArea] = ["other"] if any_signal else []
         rationale = f"[dry-run] matched keywords: {', '.join(matched_kw) or 'none'}"
-        if matched_authors:
-            rationale += f"; tracked authors: {', '.join(matched_authors)}"
+        if matched_auto:
+            rationale += f"; auto-admit: {', '.join(matched_auto)}"
+        if matched_review:
+            rationale += f"; tracked-list: {', '.join(matched_review)}"
         out.append(
             ClassifiedPaper(
                 paper=paper,

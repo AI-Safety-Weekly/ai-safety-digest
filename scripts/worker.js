@@ -11,15 +11,15 @@
  *   GH_TOKEN   — fine-grained GitHub PAT with Contents read+write on this repo only
  *
  * Optional:
- *   REPO       — defaults to "benjamintscher/ai-safety-digest"
+ *   REPO       — defaults to "ai-safety-weekly/ai-safety-digest"
  *   BRANCH     — defaults to "main"
- *   ALLOWED_ORIGIN — defaults to "https://benjamintscher.github.io"
+ *   ALLOWED_ORIGIN — defaults to "https://ai-safety-weekly.github.io"
  */
 
 const DEFAULTS = {
-  REPO: "benjamintscher/ai-safety-digest",
+  REPO: "ai-safety-weekly/ai-safety-digest",
   BRANCH: "main",
-  ALLOWED_ORIGIN: "https://benjamintscher.github.io",
+  ALLOWED_ORIGIN: "https://ai-safety-weekly.github.io",
 };
 
 function cfg(env, key) {

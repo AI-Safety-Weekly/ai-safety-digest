@@ -1,6 +1,6 @@
 site_name: AI Safety Digest
 site_description: Weekly auto-generated reading list of new AI safety research
-site_url: https://benjamintscher.github.io/ai-safety-digest/
+site_url: https://ai-safety-weekly.github.io/ai-safety-digest/
 
 theme:
   name: material
@@ -28,7 +28,7 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
-repo_url: https://github.com/benjamintscher/ai-safety-digest
+repo_url: https://github.com/ai-safety-weekly/ai-safety-digest
 
 nav:
   - Home: index.md
@@ -58,7 +58,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/benjamintscher/ai-safety-digest
+      link: https://github.com/ai-safety-weekly/ai-safety-digest
 
 extra_css:
   - stylesheets/extra.css

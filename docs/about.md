@@ -1,7 +1,7 @@
 # About
 
 This site is built and published automatically every Monday morning by a
-GitHub Actions cron job. The pipeline is open source — [browse the code](https://github.com/benjamintscher/ai-safety-digest).
+GitHub Actions cron job. The pipeline is open source — [browse the code](https://github.com/ai-safety-weekly/ai-safety-digest).
 
 ## Pipeline
 

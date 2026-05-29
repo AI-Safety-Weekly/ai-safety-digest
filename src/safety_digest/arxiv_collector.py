@@ -28,7 +28,7 @@ _OAI_NS = {
     "oai": "http://www.openarchives.org/OAI/2.0/",
     "arxiv": "http://arxiv.org/OAI/arXiv/",
 }
-_OAI_USER_AGENT = "ai-safety-digest/0.1 (https://github.com/benjamintscher/ai-safety-digest)"
+_OAI_USER_AGENT = "ai-safety-digest/0.1 (https://github.com/ai-safety-weekly/ai-safety-digest)"
 
 # Backoff schedule (seconds) for the fallback regular-API path.
 _RETRY_DELAYS = [60, 300, 900, 1800]

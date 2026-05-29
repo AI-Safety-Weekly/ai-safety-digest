@@ -4,7 +4,7 @@ A weekly automated digest of new AI safety research. Pulls papers from arXiv,
 classifies each one for AI-safety relevance using Claude, and publishes a
 browsable dashboard on GitHub Pages.
 
-**Live site:** https://benjamintscher.github.io/ai-safety-digest/
+**Live site:** https://ai-safety-weekly.github.io/ai-safety-digest/
 
 ## What it does
 

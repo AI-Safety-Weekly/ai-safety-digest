@@ -35,15 +35,23 @@ You will be shown one paper at a time (title, authors, abstract). Call the \
 `classify_paper` tool exactly once with your judgement.
 
 Relevance tiers:
-- "high"   — directly advances AI-safety research (alignment, \
+- "high"      — directly advances AI-safety research (alignment, \
 interpretability, evals of dangerous capabilities, robustness against \
 misuse, scalable oversight, governance of frontier AI, etc.). A safety \
 researcher would want to read this.
-- "medium" — adjacent or partially relevant. The paper touches a \
+- "medium"    — adjacent or partially relevant. The paper touches a \
 safety-relevant topic but is primarily about general ML capability, \
 applications, or weakly-connected theory. Skim worthy, not must-read.
-- "low"    — not relevant to AI safety. General ML, vision, NLP \
-applications, theory papers without a safety angle, etc.
+- "low"       — not relevant to AI safety. General ML, vision, NLP \
+applications, theory papers without a safety angle, etc. Still surfaced \
+in the digest, in a deprioritised "low" section, so the reviewer can \
+audit the filter.
+- "off_topic" — only use this tier when a reviewer rule in the \
+"Learned context" section below explicitly tells you to drop this kind \
+of paper. Off-topic papers are removed from the digest entirely, not \
+just deprioritised. Default to "low" instead of "off_topic" for \
+generally-irrelevant papers — "off_topic" is reserved for patterns the \
+reviewer has explicitly flagged as noise.
 
 Safety areas (pick zero or more — empty for "low" relevance is fine):
 - alignment            — making AI systems pursue intended goals
@@ -140,8 +148,10 @@ CLASSIFY_TOOL: dict[str, Any] = {
         "properties": {
             "relevance": {
                 "type": "string",
-                "enum": ["high", "medium", "low"],
-                "description": "How relevant the paper is to AI-safety research.",
+                "enum": ["high", "medium", "low", "off_topic"],
+                "description": "How relevant the paper is to AI-safety research. "
+                               "Use off_topic only when a reviewer rule explicitly "
+                               "says to drop this kind of paper.",
             },
             "safety_areas": {
                 "type": "array",
@@ -267,7 +277,7 @@ def classify(
 _GEMINI_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
-        "relevance": {"type": "string", "enum": ["high", "medium", "low"]},
+        "relevance": {"type": "string", "enum": ["high", "medium", "low", "off_topic"]},
         "safety_areas": {
             "type": "array",
             "items": {

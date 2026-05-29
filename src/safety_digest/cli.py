@@ -234,9 +234,10 @@ def main() -> None:
         log.info("Classifying via Claude Sonnet 4.6")
         classified = classifier.classify(papers, extra_system_text=learned_context)
 
+    _tier_order = {"high": 0, "medium": 1, "low": 2, "off_topic": 3}
     classified.sort(
         key=lambda cp: (
-            {"high": 0, "medium": 1, "low": 2}[cp.classification.relevance],
+            _tier_order.get(cp.classification.relevance, 2),
             -cp.paper.published.timestamp(),
         )
     )

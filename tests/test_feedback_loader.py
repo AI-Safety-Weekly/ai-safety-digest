@@ -141,3 +141,47 @@ def test_build_learned_context_assembles_sections(tmp_path: Path) -> None:
 
 def test_build_learned_context_empty_returns_none() -> None:
     assert feedback_prompt.build_learned_context([]) is None
+
+
+_OFF_TOPIC_SAMPLE = """\
+### 2026-05-20T10:00:00.000Z
+
+**Type:** tier-disagreement
+**Paper:** https://arxiv.org/abs/2605.55555
+**Title:** Financial-data agent benchmark
+**Claude's tier:** medium
+**Suggested tier:** off_topic
+**Make permanent rule:** yes
+
+Domain-specific agent benchmarks (finance, sales, customer support) aren't
+AI safety — they shouldn't appear in the digest at all.
+
+---
+"""
+
+
+def test_off_topic_permanent_rule_is_framed_as_exclusion(tmp_path: Path) -> None:
+    (tmp_path / "fb.md").write_text(_OFF_TOPIC_SAMPLE, encoding="utf-8")
+    entries = feedback_loader.load_feedback(tmp_path)
+    now = datetime(2026, 5, 21, tzinfo=timezone.utc)
+    ctx = feedback_prompt.build_learned_context(entries, now=now)
+    assert ctx is not None
+    # Phrased as exclusion, not as tier swap:
+    assert "Exclusion rule" in ctx
+    assert "off_topic" in ctx
+    assert "drop from digest" in ctx
+    # Should NOT use the standard "Tier rule (you said X, reviewer wants Y)" framing
+    assert "reviewer wants `off_topic`" not in ctx
+
+
+def test_off_topic_recent_correction_has_distinct_framing(tmp_path: Path) -> None:
+    # Strip the "Make permanent rule" line so this is a recent (non-permanent) entry.
+    recent = _OFF_TOPIC_SAMPLE.replace("**Make permanent rule:** yes\n", "")
+    (tmp_path / "fb.md").write_text(recent, encoding="utf-8")
+    entries = feedback_loader.load_feedback(tmp_path)
+    now = datetime(2026, 5, 21, tzinfo=timezone.utc)
+    ctx = feedback_prompt.build_learned_context(entries, now=now)
+    assert ctx is not None
+    assert "Recent tier corrections" in ctx
+    assert "off-topic" in ctx
+    assert "future papers like this should be classified `off_topic`" in ctx

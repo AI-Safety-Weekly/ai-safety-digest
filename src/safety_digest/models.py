@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-Relevance = Literal["high", "medium", "low"]
+Relevance = Literal["high", "medium", "low", "off_topic"]
 SafetyArea = Literal[
     "alignment",
     "interpretability",

@@ -38,7 +38,15 @@ def _trim(text: str, limit: int = _MAX_BODY_CHARS) -> str:
 
 def _format_permanent_rule(e: FeedbackEntry) -> str:
     bits: list[str] = []
-    if e.type == "tier-disagreement" and e.suggested_tier:
+    if e.type == "tier-disagreement" and e.suggested_tier == "off_topic":
+        # Exclusion rule: tell the classifier to return relevance=off_topic for
+        # future papers matching this pattern. Off-topic papers are dropped
+        # from the digest entirely (report.py skips them).
+        prefix = "Exclusion rule (classify matching future papers as `off_topic` — drop from digest)"
+        if e.paper_title:
+            prefix += f" — triggered on “{e.paper_title}”"
+        bits.append(prefix + ":")
+    elif e.type == "tier-disagreement" and e.suggested_tier:
         ctx = []
         if e.claude_tier:
             ctx.append(f"you said `{e.claude_tier}`")
@@ -59,7 +67,14 @@ def _format_recent_correction(e: FeedbackEntry) -> str:
     parts: list[str] = []
     title = e.paper_title or e.paper_url or "(no title)"
     parts.append(f"- On “{_trim(title, 140)}”")
-    if e.claude_tier and e.suggested_tier:
+    if e.suggested_tier == "off_topic":
+        # Distinct framing: this isn't "lower the tier", it's "don't surface at all".
+        if e.claude_tier:
+            parts.append(f"you classified `{e.claude_tier}`, reviewer said this is off-topic")
+        else:
+            parts.append("reviewer said this is off-topic")
+        parts.append("(future papers like this should be classified `off_topic`)")
+    elif e.claude_tier and e.suggested_tier:
         parts.append(f"you classified `{e.claude_tier}`, reviewer said `{e.suggested_tier}`")
     elif e.suggested_tier:
         parts.append(f"reviewer said `{e.suggested_tier}`")

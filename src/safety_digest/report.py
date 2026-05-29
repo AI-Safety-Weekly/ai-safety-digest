@@ -62,19 +62,38 @@ def _format_paper(cp: ClassifiedPaper) -> str:
 
 
 def write_markdown(papers: list[ClassifiedPaper], out_path: Path, run_at: datetime) -> Path:
-    """Write a markdown digest. Returns the path written."""
+    """Write a markdown digest. Returns the path written.
+
+    Papers classified as `off_topic` (by a reviewer-set exclusion rule) are
+    dropped from the digest entirely — they don't appear in any tier section.
+    A small footnote near the header reports the count so the reviewer can
+    audit what's being suppressed.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     grouped: dict[str, list[ClassifiedPaper]] = {t: [] for t in TIER_ORDER}
+    dropped: list[ClassifiedPaper] = []
     for cp in papers:
-        grouped.setdefault(cp.classification.relevance, []).append(cp)
+        tier = cp.classification.relevance
+        if tier == "off_topic":
+            dropped.append(cp)
+        elif tier in grouped:
+            grouped[tier].append(cp)
+        else:
+            # Unknown tier — render as low rather than silently lose.
+            grouped["low"].append(cp)
 
+    visible = sum(len(grouped[t]) for t in TIER_ORDER)
     counts = " · ".join(f"{t}: {len(grouped[t])}" for t in TIER_ORDER)
     lines: list[str] = [
         f"# AI Safety Digest — week of {run_at.strftime('%Y-%m-%d')}",
         "",
-        f"_{counts} · {len(papers)} papers total_",
-        "",
+        f"_{counts} · {visible} papers total_",
     ]
+    if dropped:
+        lines.append(
+            f"_+ {len(dropped)} paper(s) dropped as off-topic per reviewer rules._"
+        )
+    lines.append("")
     for tier in TIER_ORDER:
         bucket = grouped[tier]
         if not bucket:

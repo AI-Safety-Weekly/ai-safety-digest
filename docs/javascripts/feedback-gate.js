@@ -199,6 +199,7 @@ function tierFeedback(paperUrl, paperTitle, claudeTier) {
           { value: "high", label: "High" },
           { value: "medium", label: "Medium" },
           { value: "low", label: "Low" },
+          { value: "off_topic", label: "Off-topic (not AI safety) — drop it" },
         ],
       },
       {

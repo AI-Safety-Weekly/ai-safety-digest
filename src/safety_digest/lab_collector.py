@@ -101,6 +101,8 @@ def _collect_one(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
         return _from_rss(src, cutoff, until)
     if strategy == "sitemap":
         return _from_sitemap(src, cutoff, until)
+    if strategy == "sitemap_index":
+        return _from_sitemap_index(src, cutoff, until)
     raise ValueError(f"unknown strategy: {strategy}")
 
 
@@ -192,13 +194,88 @@ def _from_rss(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
 def _from_sitemap(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     r = requests.get(src["sitemap_url"], timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
     r.raise_for_status()
+    return _papers_from_sitemap_xml(r.content, src, cutoff, until)
+
+
+def _from_sitemap_index(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
+    """Follow a top-level sitemap index, fetch each selected sub-sitemap, merge results.
+
+    Wordpress / Yoast / Ghost commonly publish a sitemap_index.xml whose only
+    children are <sitemap><loc> pointers to topic-segregated sub-sitemaps
+    (post-sitemap.xml, page-sitemap.xml, …). `_from_sitemap` would parse the
+    index, find zero <url> elements, and silently return [].
+
+    Config knobs:
+      - sitemap_url          — the index URL
+      - sub_sitemap_pattern  — optional regex (re.search) applied to each
+                               sub-sitemap URL; only matching sub-sitemaps
+                               are fetched. Use this to skip page/product/
+                               category sitemaps and keep blog/research ones.
+      - url_prefix           — optional; further filter URLs *within* each
+                               sub-sitemap. Often unnecessary when the
+                               sub-sitemap is already topic-segregated.
+
+    Skips any sub-sitemap whose own <lastmod> in the index is older than
+    the cutoff — if the sub-sitemap hasn't been touched since cutoff, none
+    of its URLs could have been either.
+    """
+    r = requests.get(src["sitemap_url"], timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
+    r.raise_for_status()
     root = ET.fromstring(r.content)
 
-    prefix = src["url_prefix"]
+    pattern = re.compile(src["sub_sitemap_pattern"]) if src.get("sub_sitemap_pattern") else None
+
+    sub_urls: list[str] = []
+    for sm_el in root.findall(".//sm:sitemap", SITEMAP_NS):
+        loc = (sm_el.findtext("sm:loc", "", SITEMAP_NS) or "").strip()
+        if not loc:
+            continue
+        if pattern and not pattern.search(loc):
+            continue
+        lm = (sm_el.findtext("sm:lastmod", "", SITEMAP_NS) or "").strip()
+        if lm:
+            try:
+                lm_dt = datetime.fromisoformat(lm.replace("Z", "+00:00"))
+                if lm_dt < cutoff:
+                    continue
+            except ValueError:
+                pass
+        sub_urls.append(loc)
+
+    log.info(
+        "sitemap_index %s: %d sub-sitemaps to follow", src.get("name"), len(sub_urls)
+    )
+    out: list[Paper] = []
+    for sub_url in sub_urls:
+        try:
+            sub_r = requests.get(sub_url, timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
+            sub_r.raise_for_status()
+        except Exception as e:
+            log.warning("sub-sitemap fetch failed for %s: %s", sub_url, e)
+            continue
+        out.extend(_papers_from_sitemap_xml(sub_r.content, src, cutoff, until))
+    return out
+
+
+def _papers_from_sitemap_xml(
+    content: bytes, src: dict, cutoff: datetime, until: datetime
+) -> list[Paper]:
+    """Parse a single sitemap XML doc, filter <url> entries, fetch each page.
+
+    Shared core between `_from_sitemap` (one sitemap) and `_from_sitemap_index`
+    (many sub-sitemaps). `url_prefix` is optional: when set, only URLs starting
+    with it pass; when unset, all URLs pass (relying on the caller having
+    selected an already-topic-segregated sub-sitemap).
+    """
+    root = ET.fromstring(content)
+    prefix = src.get("url_prefix") or ""
+
     candidates: list[tuple[str, datetime]] = []
     for url_el in root.findall(".//sm:url", SITEMAP_NS):
         loc = (url_el.findtext("sm:loc", "", SITEMAP_NS) or "").strip()
-        if not loc.startswith(prefix) or loc == prefix:
+        if not loc:
+            continue
+        if prefix and (not loc.startswith(prefix) or loc == prefix):
             continue
         lastmod = (url_el.findtext("sm:lastmod", "", SITEMAP_NS) or "").strip()
         if not lastmod:

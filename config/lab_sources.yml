@@ -37,17 +37,16 @@ sources:
     filter: loose
     auto_admit: true
 
-  # TODO(v2): Apollo's /rss endpoint serves HTML despite advertising RSS in
-  # Content-Type. Their sitemap_index lives at /sitemap_index.xml with
-  # sub-sitemaps (post-sitemap.xml etc) — needs sitemap-index traversal
-  # support before we can re-enable.
   - name: apollo
     label: "Apollo Research"
-    strategy: rss
-    feed_url: "https://www.apolloresearch.ai/rss"
+    strategy: sitemap_index
+    sitemap_url: "https://www.apolloresearch.ai/sitemap_index.xml"
+    # Yoast-style WP install. /blog (general), /science (technical research),
+    # /governance (policy work) — all directly safety-relevant. Skip /page,
+    # /products, /member_group, /job_category, /research_category, etc.
+    sub_sitemap_pattern: "(post|science|governance)-sitemap\\.xml$"
     filter: loose
     auto_admit: true
-    disabled: true
 
   - name: anthropic
     label: "Anthropic"

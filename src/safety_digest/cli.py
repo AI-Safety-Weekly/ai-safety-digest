@@ -13,11 +13,13 @@ from . import (
     bluesky_collector,
     classifier,
     config,
+    dedupe,
     feedback_loader,
     feedback_prompt,
     hn_collector,
     lab_collector,
     report,
+    s2_collector,
     site_builder,
 )
 
@@ -38,9 +40,15 @@ def main() -> None:
         help="Where to write the digest markdown (default: docs/)",
     )
     parser.add_argument(
-        "--skip-scholar",
+        "--skip-s2",
         action="store_true",
-        help="Skip the Gmail/Scholar collector (Phase 2 — not yet implemented)",
+        help="Skip the Semantic Scholar collector for this run",
+    )
+    parser.add_argument(
+        "--s2-author-cache",
+        type=Path,
+        default=Path("config/s2_author_ids.yml"),
+        help="Path to the cached {author name → S2 id} YAML",
     )
     parser.add_argument(
         "--feedback-dir",
@@ -163,11 +171,30 @@ def main() -> None:
         log.info("Collected %d items from Bluesky", len(bsky_papers))
         papers = papers + bsky_papers
 
+    if not args.skip_s2 and not args.arxiv_ids:
+        cache = s2_collector.load_author_id_cache(args.s2_author_cache)
+        if not cache:
+            log.warning(
+                "S2 author-id cache %s is empty — run scripts/resolve_s2_authors.py to populate it",
+                args.s2_author_cache,
+            )
+        s2_papers = s2_collector.collect(
+            tracked_authors=auto_admit_authors + review_authors,
+            author_id_cache=cache,
+            days=args.days,
+            auto_admit_authors=auto_admit_authors,
+            review_authors=review_authors,
+        )
+        log.info("Collected %d papers from Semantic Scholar", len(s2_papers))
+        papers = papers + s2_papers
+
+    before_dedupe = len(papers)
+    papers = dedupe.dedupe_papers(papers)
+    if before_dedupe != len(papers):
+        log.info("Dedupe: %d → %d papers", before_dedupe, len(papers))
+
     if args.max_papers:
         papers = papers[: args.max_papers]
-
-    if not args.skip_scholar:
-        log.warning("Scholar collector not yet implemented (Phase 2) — skipping")
 
     if not papers:
         print("No papers or lab items matched filters this run.", file=sys.stderr)

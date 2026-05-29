@@ -58,9 +58,21 @@ Every Monday at 9am ET a GitHub Actions job runs and:
   review-carefully gets skeptical framing.
 - `report.py` writes `digest-YYYY-WW.md` grouped by relevance tier.
 
-### Phase 2 — Scholar via Gmail ⏳ not started
-- Stubs exist (`scholar_collector.py`, `dedupe.py`, SQLite `state.db` hook).
-- Implementation pending Google OAuth app registration on the user side.
+### Phase 2 — Tracked-author paper fetch ✅ done (via Semantic Scholar, not Gmail)
+- `s2_collector.py` resolves tracked-author names to Semantic Scholar
+  author IDs (cached in `config/s2_author_ids.yml`), then pulls each
+  author's recent papers across all venues S2 indexes — not just arXiv
+  categories. Catches venue-published work that the arXiv sweep misses.
+- `dedupe.py` does intra-run dedupe on `paper.dedupe_key` (arxiv id, then
+  DOI, then normalized title). Source priority arxiv > lab > forum >
+  scholar, with `matched_*` annotation merging so the classifier sees
+  the full signal when collectors overlap.
+- Original plan was Google Scholar via Gmail OAuth — pivoted to S2
+  because it covers the same goal (catch new papers by tracked authors,
+  venue-agnostic) without any inbox/OAuth dependency. Cross-week
+  "seen before" suppression via SQLite is still backlog.
+- One-time setup: `python scripts/resolve_s2_authors.py` (takes ~15
+  minutes for the full author list on the free tier).
 
 ### Phase 2.5 — Beyond arXiv ✅ done
 - **Lab feeds** (`lab_collector.py` + `config/lab_sources.yml`): RSS for
@@ -113,13 +125,14 @@ ai-safety-digest/
 │   ├── config.py              # YAML loader (authors, keywords, lab sources)
 │   ├── report.py              # Markdown digest writer with feedback links
 │   ├── site_builder.py        # docs/index.md generator
-│   ├── scholar_collector.py   # Phase 2 stub
-│   ├── dedupe.py              # Phase 2 stub
+│   ├── s2_collector.py        # Semantic Scholar — tracked-author fetch
+│   ├── dedupe.py              # cross-collector dedupe with annotation merge
 │   ├── feedback_loader.py     # parse feedback/*.md
 │   ├── feedback_prompt.py     # build learned-context for the classifier
 │   └── models.py
 ├── config/
 │   ├── authors.yml            # auto_admit (34) + review_carefully (260)
+│   ├── s2_author_ids.yml      # cached {name → Semantic Scholar id} (one-time)
 │   ├── keywords.yml           # arXiv pre-filter keywords
 │   ├── arxiv_categories.yml
 │   └── lab_sources.yml        # lab / forum / substack feed definitions
@@ -129,7 +142,8 @@ ai-safety-digest/
 │   ├── javascripts/feedback-gate.js  # in-page modal
 │   └── stylesheets/extra.css
 ├── scripts/
-│   └── worker.js              # Cloudflare Worker — feedback receiver
+│   ├── worker.js              # Cloudflare Worker — feedback receiver
+│   └── resolve_s2_authors.py  # one-time: populate config/s2_author_ids.yml
 ├── feedback/                  # weekly feedback markdown files (appended by Worker)
 ├── tests/
 ├── .github/workflows/weekly.yml
@@ -143,10 +157,13 @@ ai-safety-digest/
 uv venv && uv pip install -e .
 export GEMINI_API_KEY=...                       # default backend
 export ANTHROPIC_API_KEY=sk-ant-...              # only needed for --backend claude
+export S2_API_KEY=...                            # optional — raises S2 rate limit
+python scripts/resolve_s2_authors.py             # one-time: build the S2 id cache
 safety-digest --days 7 --out-dir docs            # full weekly run
 safety-digest --dry-run --max-arxiv-results 200  # smoke test, no API calls
 safety-digest --arxiv-ids 2605.27354,2605.27355  # replay specific arXiv papers
 safety-digest --backend claude                   # opt in to Claude classifier
+safety-digest --skip-s2                          # arxiv + labs only, no S2
 ```
 
 ## Stack

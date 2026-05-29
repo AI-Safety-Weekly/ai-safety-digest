@@ -39,8 +39,13 @@ Every Monday at 9am ET a GitHub Actions job runs and:
 7. **Feedback path** — each paper's "Why?" expander includes a "Disagree
    with this tier?" button that opens a password-gated modal. Submissions
    POST to a Cloudflare Worker which appends to `feedback/YYYY-WW.md` in
-   the repo. Monday's cron is intended to read those entries and bias the
-   next classification (planned, not yet wired).
+   the repo. Monday's cron then:
+   - promotes entries ticked "Make this a permanent rule" into a
+     permanent rulebook section appended to the classifier system prompt,
+   - appends the last 4 weeks of non-permanent tier disagreements as a
+     soft calibration hint,
+   - extracts arXiv IDs from "missed paper" submissions and force-includes
+     them in the next run via `collect_by_ids`.
 
 ## Roadmap status
 
@@ -80,13 +85,20 @@ Every Monday at 9am ET a GitHub Actions job runs and:
 - MkDocs Material theme; GitHub Pages deploy via `actions/deploy-pages`.
 - Cloudflare Worker (`scripts/worker.js`) handles in-page feedback.
 
-### Phase 4 — Polish (backlog)
-- Per-tag pages (alignment / interp / evals / etc.) and client-side search.
-- Translation pass for non-English abstracts before classification.
-- Per-paper "seen before" suppression once Phase 2 lands.
-- Wire feedback file (`feedback/YYYY-WW.md`) entries into Monday's
-  classifier prompt so the bot actually learns from corrections.
-- Re-enable Apollo / UK AISI / CAIS via per-page meta-date scraping.
+### Phase 4 — Polish
+- ✅ Feedback → classifier: `feedback_loader.py` + `feedback_prompt.py`
+  parse weekly `feedback/*.md`, build a learned-context block
+  (permanent rules + last-4-weeks soft hints), and append it to the
+  classifier system prompt as an uncached block (so the static rubric's
+  Anthropic prompt cache stays valid). Missed-paper arXiv IDs are
+  force-included via `collect_by_ids` alongside the normal sweep.
+  Override with `--skip-feedback` for a clean baseline run.
+- Per-tag pages (alignment / interp / evals / etc.) and client-side
+  search — backlog.
+- Translation pass for non-English abstracts — backlog.
+- Per-paper "seen before" suppression once Phase 2 lands — backlog.
+- Re-enable Apollo / UK AISI / CAIS via per-page meta-date scraping —
+  backlog.
 
 ## Repo layout
 
@@ -103,6 +115,8 @@ ai-safety-digest/
 │   ├── site_builder.py        # docs/index.md generator
 │   ├── scholar_collector.py   # Phase 2 stub
 │   ├── dedupe.py              # Phase 2 stub
+│   ├── feedback_loader.py     # parse feedback/*.md
+│   ├── feedback_prompt.py     # build learned-context for the classifier
 │   └── models.py
 ├── config/
 │   ├── authors.yml            # auto_admit (34) + review_carefully (260)

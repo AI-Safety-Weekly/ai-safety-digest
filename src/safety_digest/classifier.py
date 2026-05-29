@@ -212,26 +212,39 @@ def _extract_tool_input(response: Any) -> dict[str, Any]:
     raise ValueError("Model did not call classify_paper tool")
 
 
-def classify(papers: list[Paper], api_key: str | None = None) -> list[ClassifiedPaper]:
-    """Classify each paper. Returns one ClassifiedPaper per input (in order)."""
+def classify(
+    papers: list[Paper],
+    api_key: str | None = None,
+    extra_system_text: str | None = None,
+) -> list[ClassifiedPaper]:
+    """Classify each paper. Returns one ClassifiedPaper per input (in order).
+
+    `extra_system_text`, if provided, is appended as a second (uncached)
+    system block so the static rubric's prompt cache stays valid week to
+    week even as feedback accumulates.
+    """
     if not papers:
         return []
 
     client = Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
     results: list[ClassifiedPaper] = []
 
+    system_blocks: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": SYSTEM_PROMPT,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    if extra_system_text:
+        system_blocks.append({"type": "text", "text": extra_system_text})
+
     for i, paper in enumerate(papers, 1):
         log.info("Classifying %d/%d: %s", i, len(papers), paper.title[:80])
         response = client.messages.create(
             model=MODEL,
             max_tokens=600,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
+            system=system_blocks,
             tools=[CLASSIFY_TOOL],
             tool_choice={"type": "tool", "name": "classify_paper"},
             messages=[{"role": "user", "content": _user_message(paper)}],
@@ -272,7 +285,11 @@ _GEMINI_RESPONSE_SCHEMA = {
 }
 
 
-def gemini_classify(papers: list[Paper], api_key: str | None = None) -> list[ClassifiedPaper]:
+def gemini_classify(
+    papers: list[Paper],
+    api_key: str | None = None,
+    extra_system_text: str | None = None,
+) -> list[ClassifiedPaper]:
     """Classify each paper via Gemini 2.5 Flash. Free tier: 15 RPM, 1500 RPD."""
     if not papers:
         return []
@@ -281,12 +298,16 @@ def gemini_classify(papers: list[Paper], api_key: str | None = None) -> list[Cla
         raise RuntimeError("GEMINI_API_KEY not set")
     url = GEMINI_URL.format(model=GEMINI_MODEL)
 
+    system_text = SYSTEM_PROMPT
+    if extra_system_text:
+        system_text = SYSTEM_PROMPT + "\n\n" + extra_system_text
+
     results: list[ClassifiedPaper] = []
     for i, paper in enumerate(papers, 1):
         log.info("Classifying %d/%d via Gemini: %s", i, len(papers), paper.title[:80])
         body = {
             "contents": [{"role": "user", "parts": [{"text": _user_message(paper)}]}],
-            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "systemInstruction": {"parts": [{"text": system_text}]},
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": _GEMINI_RESPONSE_SCHEMA,

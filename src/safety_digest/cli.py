@@ -13,6 +13,8 @@ from . import (
     bluesky_collector,
     classifier,
     config,
+    feedback_loader,
+    feedback_prompt,
     hn_collector,
     lab_collector,
     report,
@@ -39,6 +41,17 @@ def main() -> None:
         "--skip-scholar",
         action="store_true",
         help="Skip the Gmail/Scholar collector (Phase 2 — not yet implemented)",
+    )
+    parser.add_argument(
+        "--feedback-dir",
+        type=Path,
+        default=Path("feedback"),
+        help="Directory with weekly feedback files written by the Worker (default: feedback/)",
+    )
+    parser.add_argument(
+        "--skip-feedback",
+        action="store_true",
+        help="Don't load reviewer feedback into the classifier prompt for this run",
     )
     parser.add_argument(
         "--dry-run",
@@ -87,8 +100,17 @@ def main() -> None:
 
     auto_admit_authors = [a["name"] for a in cfg.auto_admit_authors if a.get("name")]
     review_authors = [a["name"] for a in cfg.review_authors if a.get("name")]
+
+    feedback_entries = (
+        [] if args.skip_feedback else feedback_loader.load_feedback(args.feedback_dir)
+    )
+    missed_ids = feedback_loader.missed_paper_arxiv_ids(feedback_entries)
+    if missed_ids:
+        log.info("Force-including %d arxiv id(s) from missed-paper feedback", len(missed_ids))
+
     if args.arxiv_ids:
         ids = [s.strip() for s in args.arxiv_ids.split(",") if s.strip()]
+        # Honor --arxiv-ids as the *only* set when explicitly requested (dev/replay).
         papers = arxiv_collector.collect_by_ids(
             ids,
             keywords=cfg.keywords,
@@ -104,6 +126,18 @@ def main() -> None:
             auto_admit_authors=auto_admit_authors,
             review_authors=review_authors,
         )
+        if missed_ids:
+            already = {p.arxiv_id for p in papers if p.arxiv_id}
+            new_ids = [aid for aid in missed_ids if aid not in already]
+            if new_ids:
+                forced = arxiv_collector.collect_by_ids(
+                    new_ids,
+                    keywords=cfg.keywords,
+                    auto_admit_authors=auto_admit_authors,
+                    review_authors=review_authors,
+                )
+                log.info("Added %d papers from missed-paper feedback", len(forced))
+                papers = papers + forced
     log.info("Collected %d papers from arXiv", len(papers))
 
     if cfg.lab_sources and not args.arxiv_ids:
@@ -139,15 +173,19 @@ def main() -> None:
         print("No papers or lab items matched filters this run.", file=sys.stderr)
         return
 
+    learned_context = feedback_prompt.build_learned_context(feedback_entries)
+    if learned_context:
+        log.info("Appending %d-char learned-context block to classifier system prompt", len(learned_context))
+
     if args.dry_run:
         log.info("Dry run: using stub classifier (no API calls)")
         classified = classifier.stub_classify(papers)
     elif args.backend == "gemini":
         log.info("Classifying via Gemini 2.5 Flash (free tier)")
-        classified = classifier.gemini_classify(papers)
+        classified = classifier.gemini_classify(papers, extra_system_text=learned_context)
     else:
         log.info("Classifying via Claude Sonnet 4.6")
-        classified = classifier.classify(papers)
+        classified = classifier.classify(papers, extra_system_text=learned_context)
 
     classified.sort(
         key=lambda cp: (

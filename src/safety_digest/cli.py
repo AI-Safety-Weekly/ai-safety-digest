@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import (
     arxiv_collector,
+    bluesky_collector,
     classifier,
     config,
     hn_collector,
@@ -114,6 +115,19 @@ def main() -> None:
         hn_papers = hn_collector.collect(days=args.days)
         log.info("Collected %d items from Hacker News", len(hn_papers))
         papers = papers + hn_papers
+
+    # Bluesky collector is implemented but disabled: as of 2026-05, the AI
+    # safety research community is barely active there. Search returns the
+    # wrong community (anti-AI activism, not safety research); handle-based
+    # collection from the few known researcher accounts (Neel Nanda, Ryan
+    # Greenblatt, etc.) returns ~0 items/week because most haven't posted
+    # in 6+ months. See bluesky_collector.py for the working code; flip
+    # this flag when the safety community actually migrates to Bluesky.
+    enable_bluesky = False
+    if enable_bluesky and not args.arxiv_ids:
+        bsky_papers = bluesky_collector.collect(days=args.days)
+        log.info("Collected %d items from Bluesky", len(bsky_papers))
+        papers = papers + bsky_papers
 
     if args.max_papers:
         papers = papers[: args.max_papers]

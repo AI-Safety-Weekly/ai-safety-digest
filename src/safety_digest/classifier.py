@@ -119,6 +119,14 @@ report, system card, frontier eval, well-known safety author's essay). \
 Drop to low only if the title turns out to misuse "AI safety" terminology \
 (surveillance, content moderation, enterprise compliance, AI products \
 that aren't about safety research).
+  * Bluesky: short posts (max ~300 chars) by named accounts. The \
+engagement (likes + reposts + replies, shown in the abstract) is the \
+traction signal. Default to medium for substantive AI-safety takes; \
+bump to high only if 100+ total engagement AND the post itself contains \
+a real argument or pointer to a substantive primary source (not just \
+"this is great [link]"). Drop to low for hot takes without analysis, \
+news-of-the-day reactions, or off-topic content that mentions AI in \
+passing.
 
 Forum posts get NO auto-admit signal — author fame alone does not earn \
 high. Authors are not cross-checked against the tracked-authors list \

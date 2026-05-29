@@ -101,15 +101,28 @@ assessments with findings ARE candidates for high. "Auto-admit lab" \
 means the lab itself (Anthropic, METR, Apollo, etc.) gets the same \
 strong inclusion prior as auto-admit authors.
 
-- Forum post (Alignment Forum, LessWrong): community discussion / \
-analysis / threat-model posts. The author byline is a person. Judge by \
-whether the post substantively advances safety thinking — a novel \
-argument, a careful threat model, an empirical writeup, a critical \
-analysis of an existing paper. Skeptical of: short hot takes, news \
-commentary, beginner questions, link-only posts. Forum posts get NO \
-auto-admit signal — author fame alone does not earn high. Authors are \
-not cross-checked against the tracked-authors list (it's tuned for arXiv \
-bylines)."""
+- Forum / discourse post: community-surfaced content. Adjust by venue:
+  * Alignment Forum, LessWrong: discussion / analysis / threat-model \
+posts. Judge by whether the post substantively advances safety thinking \
+— novel argument, careful threat model, empirical writeup, critical \
+analysis of an existing paper. Skeptical of short hot takes, news \
+commentary, beginner questions, link-only posts.
+  * Substack newsletters (Don't Worry About the Vase, Import AI, AI \
+Safety Newsletter): curated weekly digests by recognised safety writers. \
+Default to medium or high based on the issue's substance.
+  * Hacker News: the engagement count IS the signal — the community \
+has flagged the link as worth attention. You will mostly have just the \
+title and the points/comments count to go on; default to medium for any \
+legitimate AI-safety story with 30+ points. Bump to high at 150+ points \
+OR when the title indicates a substantive primary source (lab safety \
+report, system card, frontier eval, well-known safety author's essay). \
+Drop to low only if the title turns out to misuse "AI safety" terminology \
+(surveillance, content moderation, enterprise compliance, AI products \
+that aren't about safety research).
+
+Forum posts get NO auto-admit signal — author fame alone does not earn \
+high. Authors are not cross-checked against the tracked-authors list \
+(it's tuned for arXiv bylines)."""
 
 CLASSIFY_TOOL: dict[str, Any] = {
     "name": "classify_paper",

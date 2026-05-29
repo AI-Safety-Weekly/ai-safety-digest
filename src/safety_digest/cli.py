@@ -8,7 +8,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import arxiv_collector, classifier, config, lab_collector, report, site_builder
+from . import (
+    arxiv_collector,
+    classifier,
+    config,
+    hn_collector,
+    lab_collector,
+    report,
+    site_builder,
+)
 
 
 def main() -> None:
@@ -101,6 +109,11 @@ def main() -> None:
         lab_papers = lab_collector.collect(cfg.lab_sources, days=args.days)
         log.info("Collected %d items from lab feeds", len(lab_papers))
         papers = papers + lab_papers
+
+    if not args.arxiv_ids:
+        hn_papers = hn_collector.collect(days=args.days)
+        log.info("Collected %d items from Hacker News", len(hn_papers))
+        papers = papers + hn_papers
 
     if args.max_papers:
         papers = papers[: args.max_papers]

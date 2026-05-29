@@ -10,7 +10,7 @@
  */
 
 // {{ Replace with the Worker URL after Cloudflare deploy. }}
-const FEEDBACK_WORKER_URL = "https://PLACEHOLDER.workers.dev/";
+const FEEDBACK_WORKER_URL = "https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev/";
 
 const PW_KEY = "feedback-pw";
 

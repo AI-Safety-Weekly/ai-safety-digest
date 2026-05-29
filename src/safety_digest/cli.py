@@ -28,6 +28,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="AI Safety Digest — weekly pipeline runner")
     parser.add_argument("--days", type=int, default=7, help="Look back N days (default: 7)")
     parser.add_argument(
+        "--until",
+        type=str,
+        default=None,
+        help="Right edge of the collection window as YYYY-MM-DD (default: today). "
+             "Use for backfill runs targeting a historical week — every collector's "
+             "window becomes [until-days, until]. The digest filename and content "
+             "are anchored to this date too.",
+    )
+    parser.add_argument(
         "--config-dir",
         type=Path,
         default=Path("config"),
@@ -99,6 +108,15 @@ def main() -> None:
     )
     log = logging.getLogger("safety-digest")
 
+    if args.until:
+        try:
+            until_dt = datetime.strptime(args.until, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            parser.error(f"--until must be YYYY-MM-DD, got {args.until!r}")
+        log.info("Backfill run: anchoring window at --until=%s", args.until)
+    else:
+        until_dt = None
+
     cfg = config.load(args.config_dir)
     log.info(
         "Loaded %d categories, %d keywords, %d auto-admit + %d review-carefully authors",
@@ -133,6 +151,7 @@ def main() -> None:
             max_results=args.max_arxiv_results,
             auto_admit_authors=auto_admit_authors,
             review_authors=review_authors,
+            until=until_dt,
         )
         if missed_ids:
             already = {p.arxiv_id for p in papers if p.arxiv_id}
@@ -149,12 +168,12 @@ def main() -> None:
     log.info("Collected %d papers from arXiv", len(papers))
 
     if cfg.lab_sources and not args.arxiv_ids:
-        lab_papers = lab_collector.collect(cfg.lab_sources, days=args.days)
+        lab_papers = lab_collector.collect(cfg.lab_sources, days=args.days, until=until_dt)
         log.info("Collected %d items from lab feeds", len(lab_papers))
         papers = papers + lab_papers
 
     if not args.arxiv_ids:
-        hn_papers = hn_collector.collect(days=args.days)
+        hn_papers = hn_collector.collect(days=args.days, until=until_dt)
         log.info("Collected %d items from Hacker News", len(hn_papers))
         papers = papers + hn_papers
 
@@ -184,6 +203,7 @@ def main() -> None:
             days=args.days,
             auto_admit_authors=auto_admit_authors,
             review_authors=review_authors,
+            until=until_dt,
         )
         log.info("Collected %d papers from Semantic Scholar", len(s2_papers))
         papers = papers + s2_papers
@@ -221,7 +241,7 @@ def main() -> None:
         )
     )
 
-    run_at = datetime.now(tz=timezone.utc)
+    run_at = until_dt or datetime.now(tz=timezone.utc)
     iso = run_at.isocalendar()
     fname = f"digest-{iso.year}-W{iso.week:02d}.md"
     out_path = report.write_markdown(classified, args.out_dir / fname, run_at)

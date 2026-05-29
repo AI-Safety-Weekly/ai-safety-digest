@@ -69,16 +69,24 @@ SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 SITEMAP_PAGE_CAP = 25
 
 
-def collect(sources: list[dict], days: int = 7) -> list[Paper]:
-    """Pull recent safety-relevant lab posts. Returns Paper objects."""
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+def collect(
+    sources: list[dict], days: int = 7, until: datetime | None = None
+) -> list[Paper]:
+    """Pull safety-relevant lab posts in `[until - days, until]`. Returns Paper objects.
+
+    `until` defaults to now. RSS / sitemap feeds typically only retain ~last
+    month of entries, so backfills more than 30 days back may silently return
+    nothing from some sources.
+    """
+    until_dt = until or datetime.now(tz=timezone.utc)
+    cutoff = until_dt - timedelta(days=days)
     out: list[Paper] = []
     for src in sources:
         if src.get("disabled"):
             log.info("lab source %s: disabled, skipping", src.get("name"))
             continue
         try:
-            items = _collect_one(src, cutoff)
+            items = _collect_one(src, cutoff, until_dt)
         except Exception as e:
             log.error("lab source %s failed: %s", src.get("name"), e)
             continue
@@ -87,12 +95,12 @@ def collect(sources: list[dict], days: int = 7) -> list[Paper]:
     return out
 
 
-def _collect_one(src: dict, cutoff: datetime) -> list[Paper]:
+def _collect_one(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     strategy = src.get("strategy")
     if strategy == "rss":
-        return _from_rss(src, cutoff)
+        return _from_rss(src, cutoff, until)
     if strategy == "sitemap":
-        return _from_sitemap(src, cutoff)
+        return _from_sitemap(src, cutoff, until)
     raise ValueError(f"unknown strategy: {strategy}")
 
 
@@ -136,7 +144,7 @@ def _make_paper(
     )
 
 
-def _from_rss(src: dict, cutoff: datetime) -> list[Paper]:
+def _from_rss(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     # Fetch via requests (uses certifi for SSL); feedparser's stdlib urllib
     # can't verify certs on system Pythons without manual cert install.
     r = requests.get(src["feed_url"], timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
@@ -150,7 +158,7 @@ def _from_rss(src: dict, cutoff: datetime) -> list[Paper]:
         if not struct:
             continue
         published = datetime(*struct[:6], tzinfo=timezone.utc)
-        if published < cutoff:
+        if published < cutoff or published > until:
             continue
         title = (entry.get("title") or "").strip()
         if not title:
@@ -181,7 +189,7 @@ def _from_rss(src: dict, cutoff: datetime) -> list[Paper]:
     return out
 
 
-def _from_sitemap(src: dict, cutoff: datetime) -> list[Paper]:
+def _from_sitemap(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     r = requests.get(src["sitemap_url"], timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
     r.raise_for_status()
     root = ET.fromstring(r.content)
@@ -199,7 +207,7 @@ def _from_sitemap(src: dict, cutoff: datetime) -> list[Paper]:
             mod_dt = datetime.fromisoformat(lastmod.replace("Z", "+00:00"))
         except ValueError:
             continue
-        if mod_dt < cutoff:
+        if mod_dt < cutoff or mod_dt > until:
             continue
         candidates.append((loc, mod_dt))
 

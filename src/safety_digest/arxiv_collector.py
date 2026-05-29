@@ -66,20 +66,23 @@ def _category_to_set(cat: str) -> str:
 _ARXIV_YYMM = re.compile(r"^(\d{2})(\d{2})\.")
 
 
-def _is_recent_submission(arxiv_id: str, max_months_old: int = 1) -> bool:
-    """True if the arxiv id encodes a submission in the last `max_months_old` months.
+def _is_recent_submission(
+    arxiv_id: str, reference: datetime | None = None, max_months_old: int = 1
+) -> bool:
+    """True if the arxiv id encodes a submission within `max_months_old` of `reference`.
 
     Used to filter out old papers (e.g. 2407.xxxxx from 2024) whose OAI-PMH
     metadata got refreshed this week — they show up in our date-windowed query
-    but aren't actually new submissions.
+    but aren't actually new submissions. For backfill runs `reference` is the
+    `--until` date, so the "is this old" check moves with the target window.
     """
     m = _ARXIV_YYMM.match(arxiv_id)
     if not m:
         return True  # unknown format — be lenient
     yy, mm = int(m.group(1)), int(m.group(2))
     submitted = datetime(2000 + yy, mm, 1, tzinfo=timezone.utc)
-    now = datetime.now(tz=timezone.utc)
-    months_old = (now.year - submitted.year) * 12 + (now.month - submitted.month)
+    ref = reference or datetime.now(tz=timezone.utc)
+    months_old = (ref.year - submitted.year) * 12 + (ref.month - submitted.month)
     return months_old <= max_months_old
 
 
@@ -267,22 +270,26 @@ def collect(
     max_results: int = 2000,
     auto_admit_authors: list[str] | None = None,
     review_authors: list[str] | None = None,
+    until: datetime | None = None,
 ) -> list[Paper]:
-    """Fetch recent arXiv preprints in the given categories via OAI-PMH.
+    """Fetch arXiv preprints in `[until - days, until]` via OAI-PMH.
 
     A paper is kept if it matches any of the keywords OR has at least one
     author on either tracked-author tier. Uses arXiv's OAI-PMH bulk endpoint
     (oaipmh.arxiv.org) — separate hostname/rate-limit pool from the regular
     API, designed for harvesting and far more reliable for scheduled jobs.
 
+    `until` defaults to now. Pass a past datetime to run a backfill against
+    a historical window (useful for comparing against a hand-curated list).
+
     `max_results` is accepted for backward-compat but ignored; OAI-PMH returns
     all records in the date window via resumption tokens.
     """
     _ = max_results
-    now = datetime.now(tz=timezone.utc)
-    cutoff = now - timedelta(days=days)
+    until_dt = until or datetime.now(tz=timezone.utc)
+    cutoff = until_dt - timedelta(days=days)
     from_date = cutoff.date().isoformat()
-    until_date = now.date().isoformat()
+    until_date = until_dt.date().isoformat()
 
     pattern = _compile_keyword_pattern(keywords)
     auto_index = _build_author_index(auto_admit_authors or [])
@@ -306,10 +313,10 @@ def collect(
     kw_only = author_only = both = 0
     dropped_old = 0
     for paper in seen.values():
-        if not _is_recent_submission(paper.arxiv_id, max_months_old=1):
+        if not _is_recent_submission(paper.arxiv_id, reference=until_dt, max_months_old=1):
             dropped_old += 1
             continue
-        if paper.published < cutoff:
+        if paper.published < cutoff or paper.published > until_dt:
             continue
         text = f"{paper.title}\n{paper.abstract}"
         matched_kw = _matched_keywords(text, pattern)

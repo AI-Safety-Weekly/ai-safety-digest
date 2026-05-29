@@ -44,8 +44,9 @@ def main() -> int:
     parser.add_argument(
         "--sleep",
         type=float,
-        default=1.1,
-        help="Sleep seconds between S2 calls (default: 1.1 — fits unauthenticated rate limit)",
+        default=3.5,
+        help="Sleep seconds between S2 calls (default: 3.5 — empirically the floor for the "
+             "unauthenticated tier; bump lower if S2_API_KEY is set)",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()

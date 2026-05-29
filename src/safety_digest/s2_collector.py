@@ -41,7 +41,7 @@ S2_AUTHOR_PAPERS = f"{S2_BASE}/author/{{author_id}}/papers"
 _PAPER_FIELDS = (
     "title,abstract,authors,externalIds,publicationDate,year,venue,url"
 )
-_DEFAULT_SLEEP_SEC = 1.1
+_DEFAULT_SLEEP_SEC = 3.5
 _RETRY_DELAYS = [5, 20, 60]
 
 # An HTTPClient is a callable that takes (method, url, **kwargs) → Response.
@@ -110,13 +110,24 @@ def _name_matches(query: str, candidate: str) -> bool:
 def resolve_author(
     name: str, http: HTTPClient | None = None, api_key: str | None = None
 ) -> str | None:
-    """Resolve a full name to a single S2 author id, or None if ambiguous/missing."""
+    """Resolve a full name to a single S2 author id.
+
+    S2 frequently has 2+ author records for the same person (e.g. one
+    keyed as "G. Irving", another as "Geoffrey Irving" — both DeepMind).
+    For our purposes "wrong person but matching name" produces classifier
+    noise that the rubric drops; "no result" silently loses a tracked
+    author forever. So we prefer recall over precision: take the top
+    name-matching candidate by paperCount and accept it.
+
+    Returns None only when no candidate's name matches the query (the
+    response was unrelated people).
+    """
     http = http or _default_http
     resp = _request_with_retry(
         http,
         "GET",
         S2_AUTHOR_SEARCH,
-        params={"query": name, "fields": "name,affiliations,paperCount", "limit": 5},
+        params={"query": name, "fields": "name,affiliations,paperCount", "limit": 10},
         headers=_headers(api_key),
     )
     if resp is None or resp.status_code != 200:
@@ -127,23 +138,14 @@ def resolve_author(
     if not matches:
         log.info("S2: no name-matching candidates for %s", name)
         return None
+    matches.sort(key=lambda d: d.get("paperCount") or 0, reverse=True)
+    top = matches[0]
     if len(matches) > 1:
-        # Prefer the one with the most papers — usually the actual researcher
-        # vs. a same-named author with 1-2 papers.
-        matches.sort(key=lambda d: d.get("paperCount") or 0, reverse=True)
-        top, second = matches[0], matches[1]
-        top_pc = top.get("paperCount") or 0
-        second_pc = second.get("paperCount") or 0
-        # Ambiguous if the next candidate is within 2x of the top — too risky
-        # to auto-pick. Skip and let the user disambiguate manually.
-        if second_pc > 0 and top_pc < 2 * second_pc:
-            log.warning(
-                "S2: %s ambiguous — top=%s (%d papers) vs next=%s (%d). Skipping; add manually.",
-                name, top.get("name"), top_pc, second.get("name"), second_pc,
-            )
-            return None
-        return str(top["authorId"])
-    return str(matches[0]["authorId"])
+        log.info(
+            "S2: %s → %s (%dp); %d other name-matching record(s) merged into top pick",
+            name, top.get("name"), top.get("paperCount") or 0, len(matches) - 1,
+        )
+    return str(top["authorId"])
 
 
 # ── Paper fetch ────────────────────────────────────────────────────────────
@@ -280,21 +282,23 @@ def collect(
     http: HTTPClient | None = None,
     api_key: str | None = None,
     sleep_sec: float = _DEFAULT_SLEEP_SEC,
+    until: datetime | None = None,
 ) -> list[Paper]:
-    """Fetch recent papers for tracked authors that have a cached S2 id.
+    """Fetch papers for tracked authors published in `[until - days, until]`.
 
     Authors missing from the cache are skipped silently — run the
     `resolve_s2_authors` script to populate them. We don't lazily resolve
     here because resolution is slow and a missing ID means the user
     needs to look at the warning log from the resolver, not silently
-    skip a paper week after week.
+    skip a paper week after week. `until` defaults to now.
     """
     if not tracked_authors:
         return []
     api_key = api_key or os.environ.get("S2_API_KEY")
     auto_set = set(auto_admit_authors or [])
     review_set = set(review_authors or [])
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    until_dt = until or datetime.now(tz=timezone.utc)
+    cutoff = until_dt - timedelta(days=days)
 
     seen_paper_ids: set[str] = set()
     papers: list[Paper] = []
@@ -311,7 +315,7 @@ def collect(
             if not pid or pid in seen_paper_ids:
                 continue
             pub = _parse_pub_date(rp.get("publicationDate") or rp.get("year"))
-            if pub is None or pub < cutoff:
+            if pub is None or pub < cutoff or pub > until_dt:
                 continue
             paper = _build_paper(rp, triggering_author=name, auto_admit=auto_set, review=review_set)
             if paper:

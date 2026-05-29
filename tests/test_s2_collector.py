@@ -53,19 +53,18 @@ def test_resolve_author_returns_none_for_unrelated_names() -> None:
     assert s2_collector.resolve_author("Chris Olah", http=http) is None
 
 
-def test_resolve_author_handles_ambiguity_by_paper_count() -> None:
-    """Two name-matching candidates with comparable paper counts → ambiguous → None."""
+def test_resolve_author_takes_top_when_s2_split_same_person() -> None:
+    """S2 often has duplicate records for the same researcher — take top by paperCount."""
     http = _fake_http_factory({
         "author/search": (200, {"data": [
             {"authorId": "AAA", "name": "Chris Olah", "paperCount": 30},
             {"authorId": "BBB", "name": "Chris Olah", "paperCount": 25},
         ]}),
     })
-    assert s2_collector.resolve_author("Chris Olah", http=http) is None
+    assert s2_collector.resolve_author("Chris Olah", http=http) == "AAA"
 
 
-def test_resolve_author_picks_dominant_candidate() -> None:
-    """When one candidate dominates by paper count, accept it even if there's a tie on name."""
+def test_resolve_author_picks_top_by_paper_count() -> None:
     http = _fake_http_factory({
         "author/search": (200, {"data": [
             {"authorId": "AAA", "name": "Chris Olah", "paperCount": 100},
@@ -142,6 +141,48 @@ def test_collect_returns_recent_papers_with_correct_annotations(monkeypatch) -> 
     assert p.raw["matched_auto_admit"] == ["Chris Olah"]
     assert p.raw["matched_review"] == []
     assert p.raw["venue"] == "NeurIPS"
+
+
+def test_collect_respects_until_window() -> None:
+    """When `until` is given, papers published after it are dropped."""
+    inside_window = "2026-04-10"  # 5 days before until=2026-04-15
+    outside_window = "2026-04-20"  # 5 days after until=2026-04-15
+    http = _fake_http_factory({
+        "author/AAA/papers": (200, {"data": [
+            {
+                "paperId": "in",
+                "title": "Inside window",
+                "abstract": "",
+                "authors": [{"name": "X"}],
+                "externalIds": {},
+                "publicationDate": inside_window,
+                "venue": "",
+                "url": "https://x",
+            },
+            {
+                "paperId": "out",
+                "title": "After window",
+                "abstract": "",
+                "authors": [{"name": "X"}],
+                "externalIds": {},
+                "publicationDate": outside_window,
+                "venue": "",
+                "url": "https://x",
+            },
+        ]}),
+    })
+    papers = s2_collector.collect(
+        tracked_authors=["X"],
+        author_id_cache={"X": "AAA"},
+        days=7,
+        auto_admit_authors=["X"],
+        review_authors=[],
+        until=datetime(2026, 4, 15, tzinfo=timezone.utc),
+        http=http,
+        sleep_sec=0,
+    )
+    assert len(papers) == 1
+    assert papers[0].title == "Inside window"
 
 
 def test_collect_dedupes_same_paper_across_coauthors() -> None:

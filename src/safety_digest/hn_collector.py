@@ -46,21 +46,25 @@ def collect(
     days: int = 7,
     min_points: int = DEFAULT_MIN_POINTS,
     queries: list[str] | None = None,
+    until: datetime | None = None,
 ) -> list[Paper]:
-    """Pull HN stories from the last N days matching AI-safety queries.
+    """Pull HN stories from `[until - days, until]` matching AI-safety queries.
 
     Deduplicates across queries by HN story id. Skips entries that link
-    directly to arxiv.org (already covered by arxiv_collector).
+    directly to arxiv.org (already covered by arxiv_collector). `until`
+    defaults to now.
     """
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    until_dt = until or datetime.now(tz=timezone.utc)
+    cutoff = until_dt - timedelta(days=days)
     cutoff_ts = int(cutoff.timestamp())
+    until_ts = int(until_dt.timestamp())
     queries = queries or DEFAULT_QUERIES
 
     seen: set[str] = set()
     papers: list[Paper] = []
     for q in queries:
         try:
-            hits = _search(q, cutoff_ts, min_points)
+            hits = _search(q, cutoff_ts, until_ts, min_points)
         except Exception as e:
             log.warning("HN query %r failed: %s", q, e)
             continue
@@ -77,11 +81,11 @@ def collect(
     return papers
 
 
-def _search(query: str, after_ts: int, min_points: int) -> list[dict]:
+def _search(query: str, after_ts: int, before_ts: int, min_points: int) -> list[dict]:
     params = {
         "query": query,
         "tags": "story",
-        "numericFilters": f"created_at_i>{after_ts},points>={min_points}",
+        "numericFilters": f"created_at_i>{after_ts},created_at_i<{before_ts},points>={min_points}",
         "hitsPerPage": HITS_PER_QUERY,
         # Match against title only — comment text matches generate massive
         # false positives (e.g. "system card" appearing in YC launch threads).

@@ -316,17 +316,26 @@ def _papers_from_sitemap_xml(
 
 
 _MONTH_DAY_YEAR_RE = re.compile(
+    # Full month names first so they win when both could match (e.g. "May",
+    # "July" — both forms are identical for these so it doesn't matter, but
+    # for "Jan" vs "January" the full form should consume more of the string).
     r"(?:January|February|March|April|May|June|July|August|"
-    r"September|October|November|December)\s+\d{1,2},?\s+\d{4}"
+    r"September|October|November|December|"
+    r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}"
 )
 
 
 def _parse_card_date(text: str) -> datetime | None:
-    """Find a 'Month D[,] YYYY' date inside arbitrary card text. None if absent."""
+    """Find a 'Month D[,] YYYY' date inside arbitrary card text. None if absent.
+
+    Handles both full ("September 15, 2024") and abbreviated ("Sep 15, 2024")
+    month names, with or without the comma. Different listing-page templates
+    pick one or the other.
+    """
     m = _MONTH_DAY_YEAR_RE.search(text)
     if not m:
         return None
-    for fmt in ("%B %d, %Y", "%B %d %Y"):
+    for fmt in ("%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"):
         try:
             return datetime.strptime(m.group(0), fmt).replace(tzinfo=timezone.utc)
         except ValueError:
@@ -363,11 +372,16 @@ def _from_index_page(src: dict, cutoff: datetime, until: datetime) -> list[Paper
     candidates: list[tuple[str, datetime]] = []
     seen: set[str] = set()
     for card in soup.find_all("div", class_=card_class):
-        link = card.find("a", href=True)
-        if not link:
-            continue
-        url = urljoin(src["index_url"], link["href"])
-        if prefix and not url.startswith(prefix):
+        # Pick the first <a> whose absolute URL matches the prefix. Cards
+        # frequently have one or more category/tag links before the actual
+        # post link (CAIS does this), so we can't just take card.find("a").
+        url: str | None = None
+        for a in card.find_all("a", href=True):
+            candidate = urljoin(src["index_url"], a["href"])
+            if not prefix or candidate.startswith(prefix):
+                url = candidate
+                break
+        if not url:
             continue
         if url in seen:
             continue

@@ -250,10 +250,46 @@ def test_index_page_respects_until_window(monkeypatch) -> None:
     assert papers[0].url.endswith("in-window")
 
 
+def test_index_page_skips_non_prefix_links_before_post_link(monkeypatch) -> None:
+    """CAIS regression: each card has a /category/... link BEFORE the /blog/... link.
+    The collector must walk past links that don't match the url_prefix.
+    """
+    now = datetime(2026, 5, 25, tzinfo=timezone.utc)
+    index_html = """
+    <html><body>
+    <div class="card">
+      <a href="/category/ai-risks">AI Risks</a>
+      <a href="/blog/the-actual-post">The Actual Post</a>
+      <p>May 20, 2026</p>
+    </div>
+    </body></html>
+    """.strip()
+    monkeypatch.setattr(lab_collector.requests, "get", _fake_get({
+        "https://x.test/blog": index_html.encode(),
+    }))
+    monkeypatch.setattr(lab_collector, "_scrape_meta", lambda url: ("T", "A"))
+    papers = lab_collector._from_index_page(
+        {
+            "name": "x", "label": "X",
+            "index_url": "https://x.test/blog",
+            "url_prefix": "https://x.test/blog/",
+            "filter": "loose", "auto_admit": True,
+        },
+        cutoff=now - timedelta(days=7),
+        until=now,
+    )
+    assert len(papers) == 1
+    assert papers[0].url == "https://x.test/blog/the-actual-post"
+
+
 def test_parse_card_date_handles_formats() -> None:
     assert lab_collector._parse_card_date("Posted May 25, 2026 at 9am").date().isoformat() == "2026-05-25"
     assert lab_collector._parse_card_date("May 5 2026").date().isoformat() == "2026-05-05"
     assert lab_collector._parse_card_date("no date here") is None
+    # Abbreviated months (CAIS-style)
+    assert lab_collector._parse_card_date("Sep 15, 2024").date().isoformat() == "2024-09-15"
+    assert lab_collector._parse_card_date("Jan 3 2026").date().isoformat() == "2026-01-03"
+    assert lab_collector._parse_card_date("AI Risks • Mar 13, 2024 • 9 min read").date().isoformat() == "2024-03-13"
 
 
 def test_single_sitemap_strategy_still_works(monkeypatch) -> None:

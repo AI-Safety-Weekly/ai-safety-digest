@@ -72,14 +72,22 @@ sources:
     filter: loose
     auto_admit: true
 
+  # CAIS originally pointed at /work/ (a static 6-page hub, not a publishing
+  # stream). Their actual time-stamped output lives at /blog/. Webflow site
+  # like AISI, but better: every card has a visible date (abbreviated month
+  # format, "Sep 15, 2024"). Low cadence (~5-10 posts/year), so this source
+  # is often quiet — when it does fire, the post is usually a substantive
+  # original CAIS framing (Humanity's Last Exam, policy proposals, threat
+  # analyses) rather than newsletter aggregation (covered separately via
+  # substack-aisn). Loose filter since everything CAIS posts is on-topic.
   - name: cais
     label: "CAIS"
-    strategy: sitemap
-    sitemap_url: "https://www.safe.ai/sitemap.xml"
-    url_prefix: "https://safe.ai/work/"
-    filter: strict
+    strategy: index_page
+    index_url: "https://www.safe.ai/blog"
+    url_prefix: "https://www.safe.ai/blog/"
+    card_class: "blog-card-padding"
+    filter: loose
     auto_admit: true
-    disabled: true
 
   # TODO: Redwood Research — neither RSS nor sitemap is exposed. Skipping
   # until a feed appears or we add HTML-scraping logic for their blog index.

@@ -18,6 +18,10 @@ class _FakeResp:
         self.content = content
         self.status_code = status
 
+    @property
+    def text(self) -> str:
+        return self.content.decode("utf-8", errors="replace")
+
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise RuntimeError(f"HTTP {self.status_code}")
@@ -167,6 +171,89 @@ def test_url_prefix_is_optional_for_topic_segregated_sub_sitemaps(monkeypatch) -
         until=now,
     )
     assert len(papers) == 1
+
+
+def test_index_page_picks_dated_cards(monkeypatch) -> None:
+    """Per-card date scraping: each card has its own date string."""
+    now = datetime(2026, 5, 25, tzinfo=timezone.utc)
+    index_html = """
+    <html><body>
+    <div class="other-stuff"><a href="/about">About</a></div>
+    <div class="card">
+      <a href="/blog/recent-post">Recent post</a>
+      <p>Tagged something • May 24, 2026</p>
+    </div>
+    <div class="card">
+      <a href="/blog/last-week">Last week</a>
+      <p>May 20, 2026</p>
+    </div>
+    <div class="card">
+      <a href="/blog/old-post">Old post</a>
+      <p>January 5, 2025</p>
+    </div>
+    <div class="card">
+      <a href="/blog/dateless">No date here</a>
+    </div>
+    <div class="card">
+      <a href="/about/skip-me">Wrong prefix</a>
+      <p>May 24, 2026</p>
+    </div>
+    </body></html>
+    """.strip()
+
+    monkeypatch.setattr(lab_collector.requests, "get", _fake_get({
+        "https://x.test/blog": index_html.encode(),
+    }))
+    monkeypatch.setattr(lab_collector, "_scrape_meta", lambda url: (f"Title {url[-20:]}", "abstract"))
+
+    papers = lab_collector._from_index_page(
+        {
+            "name": "x", "label": "X",
+            "index_url": "https://x.test/blog",
+            "url_prefix": "https://x.test/blog/",
+            "card_class": "card",
+            "filter": "loose", "auto_admit": True,
+        },
+        cutoff=now - timedelta(days=7),
+        until=now,
+    )
+    urls = sorted(p.url for p in papers)
+    # Only the two recent /blog/ cards survive — old-post dropped by window,
+    # dateless skipped, wrong-prefix dropped by url_prefix.
+    assert urls == ["https://x.test/blog/last-week", "https://x.test/blog/recent-post"]
+
+
+def test_index_page_respects_until_window(monkeypatch) -> None:
+    """A card dated after `until` is dropped (backfill safety)."""
+    now = datetime(2026, 5, 10, tzinfo=timezone.utc)
+    index_html = """
+    <html><body>
+    <div class="card"><a href="/blog/in-window">In</a><p>May 8, 2026</p></div>
+    <div class="card"><a href="/blog/future">Future</a><p>May 25, 2026</p></div>
+    </body></html>
+    """.strip()
+    monkeypatch.setattr(lab_collector.requests, "get", _fake_get({
+        "https://x.test/blog": index_html.encode(),
+    }))
+    monkeypatch.setattr(lab_collector, "_scrape_meta", lambda url: ("T", "A"))
+    papers = lab_collector._from_index_page(
+        {
+            "name": "x", "label": "X",
+            "index_url": "https://x.test/blog",
+            "url_prefix": "https://x.test/blog/",
+            "filter": "loose", "auto_admit": True,
+        },
+        cutoff=now - timedelta(days=7),
+        until=now,
+    )
+    assert len(papers) == 1
+    assert papers[0].url.endswith("in-window")
+
+
+def test_parse_card_date_handles_formats() -> None:
+    assert lab_collector._parse_card_date("Posted May 25, 2026 at 9am").date().isoformat() == "2026-05-25"
+    assert lab_collector._parse_card_date("May 5 2026").date().isoformat() == "2026-05-05"
+    assert lab_collector._parse_card_date("no date here") is None
 
 
 def test_single_sitemap_strategy_still_works(monkeypatch) -> None:

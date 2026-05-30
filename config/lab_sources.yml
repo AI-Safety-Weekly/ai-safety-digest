@@ -58,18 +58,19 @@ sources:
     filter: strict
     auto_admit: true
 
-  # TODO(v2): UK AISI and CAIS sitemaps don't expose <lastmod> dates, so the
-  # cutoff filter rejects everything. To re-enable, either fetch each candidate
-  # URL and read `article:published_time` from meta tags (one HTTP call per
-  # post; cap at top-N by sitemap order) or switch to a feed if they add one.
+  # AISI is a Webflow site: no RSS, sitemap has no <lastmod>, post pages strip
+  # article:published_time. Their /blog index page DOES render dates inline
+  # per card, so we scrape that. Limitation: only the ~4 "featured" cards
+  # show dates; older cards are dateless and silently skipped. Fine for
+  # weekly runs at their publishing pace (~1-2/week).
   - name: uk-aisi
     label: "UK AISI"
-    strategy: sitemap
-    sitemap_url: "https://www.aisi.gov.uk/sitemap.xml"
+    strategy: index_page
+    index_url: "https://www.aisi.gov.uk/blog"
     url_prefix: "https://www.aisi.gov.uk/blog/"
+    card_class: "card"
     filter: loose
     auto_admit: true
-    disabled: true
 
   - name: cais
     label: "CAIS"

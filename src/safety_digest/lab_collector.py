@@ -20,6 +20,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urljoin
 from xml.etree import ElementTree as ET
 
 import feedparser
@@ -103,6 +104,8 @@ def _collect_one(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
         return _from_sitemap(src, cutoff, until)
     if strategy == "sitemap_index":
         return _from_sitemap_index(src, cutoff, until)
+    if strategy == "index_page":
+        return _from_index_page(src, cutoff, until)
     raise ValueError(f"unknown strategy: {strategy}")
 
 
@@ -303,6 +306,96 @@ def _papers_from_sitemap_xml(
         matched_kw = _matches_safety(f"{title}\n{abstract}")
         # Strict filter looks at title only — descriptions/summaries are
         # unreliable (often boilerplate company taglines).
+        if src.get("filter") == "strict" and not _matches_safety(title):
+            continue
+        out.append(_make_paper(
+            title=title, abstract=abstract, url=url,
+            published=published, src=src, matched_kw=matched_kw,
+        ))
+    return out
+
+
+_MONTH_DAY_YEAR_RE = re.compile(
+    r"(?:January|February|March|April|May|June|July|August|"
+    r"September|October|November|December)\s+\d{1,2},?\s+\d{4}"
+)
+
+
+def _parse_card_date(text: str) -> datetime | None:
+    """Find a 'Month D[,] YYYY' date inside arbitrary card text. None if absent."""
+    m = _MONTH_DAY_YEAR_RE.search(text)
+    if not m:
+        return None
+    for fmt in ("%B %d, %Y", "%B %d %Y"):
+        try:
+            return datetime.strptime(m.group(0), fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _from_index_page(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
+    """Scrape a blog/listing page that renders post dates inline per card.
+
+    For sites without RSS, without lastmod-bearing sitemaps, and without
+    per-post `article:published_time` meta tags. Examples: AISI's Webflow
+    blog, where the listing page shows date strings inside each card div
+    but individual post pages strip them.
+
+    Config:
+      - index_url   — the listing page URL (e.g. https://x/blog)
+      - card_class  — CSS class of each card container (default: "card")
+      - url_prefix  — only hrefs whose absolute URL starts with this count
+
+    Common limitation: many listing-page templates render dates only on
+    the most-recent featured cards. Older cards are dateless and get
+    silently skipped. For weekly cron runs this is fine — the featured
+    section reliably covers the past week or two. Sites that publish
+    >4 posts/week could miss items if posts roll out of "featured"
+    between runs.
+    """
+    r = requests.get(src["index_url"], timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+    card_class = src.get("card_class", "card")
+    prefix = src.get("url_prefix", "")
+
+    candidates: list[tuple[str, datetime]] = []
+    seen: set[str] = set()
+    for card in soup.find_all("div", class_=card_class):
+        link = card.find("a", href=True)
+        if not link:
+            continue
+        url = urljoin(src["index_url"], link["href"])
+        if prefix and not url.startswith(prefix):
+            continue
+        if url in seen:
+            continue
+        pub = _parse_card_date(card.get_text(" ", strip=True))
+        if pub is None:
+            continue
+        if pub < cutoff or pub > until:
+            continue
+        seen.add(url)
+        candidates.append((url, pub))
+
+    log.info(
+        "index_page %s: %d card(s) survived prefix+date filter",
+        src.get("name"), len(candidates),
+    )
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    candidates = candidates[:SITEMAP_PAGE_CAP]
+
+    out: list[Paper] = []
+    for url, published in candidates:
+        try:
+            title, abstract = _scrape_meta(url)
+        except Exception as e:
+            log.warning("page fetch failed for %s: %s", url, e)
+            continue
+        if not title:
+            continue
+        matched_kw = _matches_safety(f"{title}\n{abstract}")
         if src.get("filter") == "strict" and not _matches_safety(title):
             continue
         out.append(_make_paper(

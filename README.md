@@ -152,7 +152,8 @@ ai-safety-digest/
 │   └── stylesheets/extra.css
 ├── scripts/
 │   ├── worker.js              # Cloudflare Worker — feedback receiver
-│   └── resolve_s2_authors.py  # one-time: populate config/s2_author_ids.yml
+│   ├── resolve_s2_authors.py  # one-time: populate config/s2_author_ids.yml
+│   └── seed_state_db.py       # seed/rebuild state.db from shipped docs/digest-*.md
 ├── feedback/                  # weekly feedback markdown files (appended by Worker)
 ├── tests/
 ├── .github/workflows/weekly.yml

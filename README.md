@@ -76,9 +76,10 @@ Every Monday at 9am ET a GitHub Actions job runs and:
 
 ### Phase 2.5 — Beyond arXiv ✅ done
 - **Lab feeds** (`lab_collector.py` + `config/lab_sources.yml`): RSS for
-  OpenAI / DeepMind / METR; sitemap-based scraping for Anthropic. Strict
-  title filter on capability-heavy sources. Disabled with TODOs: Apollo
-  Research, UK AISI, CAIS, Redwood (no usable feed yet).
+  OpenAI / DeepMind / METR; sitemap-based scraping for Anthropic; Apollo
+  Research (sitemap_index), UK AISI (index-page scraping), CAIS
+  (index_page on /blog). Strict title filter on capability-heavy sources.
+  Still disabled: Redwood (no usable feed yet).
 - **Forum feeds**: Alignment Forum (loose), LessWrong (strict). Both via RSS.
 - **Curated Substacks**: Don't Worry About the Vase (Zvi), Import AI
   (Jack Clark), AI Safety Newsletter (CAIS).
@@ -105,12 +106,14 @@ Every Monday at 9am ET a GitHub Actions job runs and:
   Anthropic prompt cache stays valid). Missed-paper arXiv IDs are
   force-included via `collect_by_ids` alongside the normal sweep.
   Override with `--skip-feedback` for a clean baseline run.
+- ✅ `off_topic` relevance tier — flagged-noise papers are excluded from
+  the digest entirely rather than surfaced at `low`.
+- ✅ Re-enabled Apollo (sitemap_index), UK AISI + CAIS (index-page
+  scraping). Redwood still pending a usable feed.
 - Per-tag pages (alignment / interp / evals / etc.) and client-side
   search — backlog.
 - Translation pass for non-English abstracts — backlog.
-- Per-paper "seen before" suppression once Phase 2 lands — backlog.
-- Re-enable Apollo / UK AISI / CAIS via per-page meta-date scraping —
-  backlog.
+- Per-paper "seen before" cross-week suppression (SQLite) — backlog.
 
 ## Repo layout
 

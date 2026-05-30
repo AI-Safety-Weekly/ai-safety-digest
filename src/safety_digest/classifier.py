@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import requests
@@ -295,12 +297,73 @@ _GEMINI_RESPONSE_SCHEMA = {
 }
 
 
+def _gemini_classify_one(
+    paper: Paper, url: str, api_key: str, system_text: str
+) -> ClassifiedPaper:
+    """Classify a single paper via Gemini, with retry on transient failures.
+
+    Thinking is left ON (default dynamic budget): an A/B over 50 papers showed
+    turning it off (thinkingBudget=0) demotes ~1 in 4 papers and drops most
+    out of the 'high' tier, so the latency cost is worth it.
+    """
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": _user_message(paper)}]}],
+        "systemInstruction": {"parts": [{"text": system_text}]},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": _GEMINI_RESPONSE_SCHEMA,
+            "temperature": 0.1,
+        },
+    }
+    last_err: Exception | None = None
+    for attempt, delay in enumerate([0, 5, 20, 60, 180]):
+        if delay:
+            log.warning("Gemini retry %d for %r, sleeping %ds", attempt, paper.title[:50], delay)
+            time.sleep(delay)
+        try:
+            r = requests.post(url, params={"key": api_key}, json=body, timeout=90)
+        except requests.RequestException as e:
+            last_err = e
+            continue
+        if r.status_code in (429, 500, 502, 503, 504):
+            last_err = RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:200]}")
+            continue
+        r.raise_for_status()
+        break
+    else:
+        raise RuntimeError(f"Gemini exhausted retries on {paper.title[:60]!r}: {last_err}")
+
+    data = r.json()
+    try:
+        parsed = json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
+    except (KeyError, IndexError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"Gemini unparseable response: {e}; raw: {str(data)[:400]}")
+
+    return ClassifiedPaper(
+        paper=paper,
+        classification=Classification(
+            relevance=parsed["relevance"],
+            safety_areas=list(parsed.get("safety_areas", [])),
+            summary=parsed["summary"].strip(),
+            rationale=parsed["rationale"].strip(),
+        ),
+    )
+
+
 def gemini_classify(
     papers: list[Paper],
     api_key: str | None = None,
     extra_system_text: str | None = None,
+    max_workers: int | None = None,
 ) -> list[ClassifiedPaper]:
-    """Classify each paper via Gemini 2.5 Flash. Free tier: 15 RPM, 1500 RPD."""
+    """Classify papers via Gemini 2.5 Flash, concurrently.
+
+    Calls run in a thread pool (default 8, override with GEMINI_MAX_WORKERS or
+    the ``max_workers`` arg). On the paid tier this cuts a ~700-paper run from
+    ~2h to ~10 min. Results are returned in the same order as ``papers``. A
+    paper that exhausts its retries raises and aborts the run (same fail-hard
+    behaviour as before).
+    """
     if not papers:
         return []
     api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -312,54 +375,29 @@ def gemini_classify(
     if extra_system_text:
         system_text = SYSTEM_PROMPT + "\n\n" + extra_system_text
 
-    results: list[ClassifiedPaper] = []
-    for i, paper in enumerate(papers, 1):
-        log.info("Classifying %d/%d via Gemini: %s", i, len(papers), paper.title[:80])
-        body = {
-            "contents": [{"role": "user", "parts": [{"text": _user_message(paper)}]}],
-            "systemInstruction": {"parts": [{"text": system_text}]},
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "responseSchema": _GEMINI_RESPONSE_SCHEMA,
-                "temperature": 0.1,
-            },
-        }
-        # Retry on transient failures (rate limit, 5xx)
-        last_err: Exception | None = None
-        for attempt, delay in enumerate([0, 5, 20, 60, 180]):
-            if delay:
-                log.warning("Gemini retry %d, sleeping %ds", attempt, delay)
-                time.sleep(delay)
-            try:
-                r = requests.post(url, params={"key": api_key}, json=body, timeout=60)
-            except requests.RequestException as e:
-                last_err = e
-                continue
-            if r.status_code in (429, 500, 502, 503, 504):
-                last_err = RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:200]}")
-                continue
-            r.raise_for_status()
-            break
-        else:
-            raise RuntimeError(f"Gemini exhausted retries on paper {i}: {last_err}")
+    if max_workers is None:
+        max_workers = int(os.environ.get("GEMINI_MAX_WORKERS", "8"))
+    workers = max(1, min(max_workers, len(papers)))
+    log.info("Classifying %d papers via Gemini (%d concurrent workers)", len(papers), workers)
 
-        data = r.json()
-        try:
-            json_text = data["candidates"][0]["content"]["parts"][0]["text"]
-            parsed = json.loads(json_text)
-        except (KeyError, IndexError, json.JSONDecodeError) as e:
-            raise RuntimeError(f"Gemini unparseable response: {e}; raw: {str(data)[:400]}")
+    results: list[ClassifiedPaper | None] = [None] * len(papers)
+    done = 0
+    lock = threading.Lock()
 
-        classification = Classification(
-            relevance=parsed["relevance"],
-            safety_areas=list(parsed.get("safety_areas", [])),
-            summary=parsed["summary"].strip(),
-            rationale=parsed["rationale"].strip(),
-        )
-        results.append(ClassifiedPaper(paper=paper, classification=classification))
-        # Free tier: 15 RPM = 4 s/call. Pad a bit.
-        time.sleep(4.2)
-    return results
+    def work(item: tuple[int, Paper]) -> tuple[int, ClassifiedPaper]:
+        nonlocal done
+        idx, paper = item
+        cp = _gemini_classify_one(paper, url, api_key, system_text)
+        with lock:
+            done += 1
+            log.info("Classified %d/%d: %s", done, len(papers), paper.title[:70])
+        return idx, cp
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for idx, cp in ex.map(work, enumerate(papers)):
+            results[idx] = cp
+
+    return [cp for cp in results if cp is not None]
 
 
 def stub_classify(papers: list[Paper]) -> list[ClassifiedPaper]:

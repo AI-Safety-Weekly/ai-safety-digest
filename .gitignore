@@ -26,3 +26,6 @@ gmail_credentials.json
 
 # MkDocs build output — built fresh each run, deployed as Pages artifact
 /site/
+
+# Loose API credentials file
+Aaron AI API.txt

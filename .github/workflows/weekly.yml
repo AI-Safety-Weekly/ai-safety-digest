@@ -35,11 +35,13 @@ concurrency:
 jobs:
   digest:
     runs-on: ubuntu-latest
-    # Cap worst-case runtime. Normal run is <10 min, but the worst case stacks:
-    # arXiv 429 backoff (up to ~52 min), S2 throttling without an S2_API_KEY
-    # (~15-20 min), and ~600 sequential Gemini calls at 15 RPM (~40 min). Give
-    # it headroom so a slow-but-healthy run doesn't get killed mid-classify.
-    timeout-minutes: 120
+    # Cap worst-case runtime. Measured: classification runs ~10s/paper
+    # (Gemini 2.5 Flash with thinking on), so a full ~700-paper week takes
+    # ~120 min on its own, plus S2 throttling (~15-20 min) and any arXiv 429
+    # backoff. 180 min gives headroom so a healthy run finishes instead of
+    # being killed mid-classify. (Parallelizing classification would cut this
+    # to ~10 min — deferred until after stakeholder review.)
+    timeout-minutes: 180
     outputs:
       changed: ${{ steps.commit.outputs.changed }}
     steps:

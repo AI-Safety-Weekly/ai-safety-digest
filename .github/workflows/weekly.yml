@@ -35,9 +35,11 @@ concurrency:
 jobs:
   digest:
     runs-on: ubuntu-latest
-    # Cap worst-case runtime. Normal run is <10 min; full arXiv 429-retry
-    # backoff plus classification can stretch to ~70 min.
-    timeout-minutes: 90
+    # Cap worst-case runtime. Normal run is <10 min, but the worst case stacks:
+    # arXiv 429 backoff (up to ~52 min), S2 throttling without an S2_API_KEY
+    # (~15-20 min), and ~600 sequential Gemini calls at 15 RPM (~40 min). Give
+    # it headroom so a slow-but-healthy run doesn't get killed mid-classify.
+    timeout-minutes: 120
     outputs:
       changed: ${{ steps.commit.outputs.changed }}
     steps:

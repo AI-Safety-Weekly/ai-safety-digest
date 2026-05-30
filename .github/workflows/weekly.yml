@@ -2,9 +2,11 @@ name: Weekly digest
 
 on:
   schedule:
-    # 09:00 America/New_York on Monday (13:00 UTC during EST, 14:00 UTC EDT).
-    # Cron is UTC; pick one — 13:00 = 9am ET in winter, 8am ET in summer.
-    - cron: "0 13 * * 1"
+    # 12:00 UTC every Monday. Cron is pinned to UTC, so local time shifts with
+    # DST: currently 8am ET / 5am PT (EDT); in winter it's 7am ET / 4am PT (EST).
+    # Note: a full run takes ~2h with thinking on, so the digest is "ready"
+    # ~10am ET / 7am PT — start time, not finish time.
+    - cron: "0 12 * * 1"
   workflow_dispatch:
     inputs:
       days:

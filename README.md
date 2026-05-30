@@ -120,6 +120,23 @@ Every Monday at 9am ET a GitHub Actions job runs and:
   search — backlog.
 - Translation pass for non-English abstracts — backlog.
 
+### Phase 5 — Retarget to Aaron's focus (approved, in progress)
+The digest is a favor for **Aaron**, who works on preventing existential
+risk from AI — specifically **International Coordination on AI** with an
+emphasis on **Verification Mechanisms**. A real uncapped week produces ~150
+"high" papers because the classifier filters for "AI safety" broadly instead
+of *his* slice. We're retargeting it into a three-zone digest:
+- **Zone 1** — his lane (coordination / governance / verification) + the
+  x-risk technical backbone (capability evals, loss-of-control / scheming /
+  control, frontier-lab safety releases).
+- **Zone 2** — rare "groundbreaking" papers from outside his lane (brutal
+  single-pass bar, occasional misfire accepted; no 2-pass ranker in v1).
+- **Zone 3** — a one-paragraph "rest of the field" awareness brief instead of
+  listing the ~100+ off-lane papers.
+
+**Full build spec, decisions log, and the deferred 2-pass ranker design
+live in [`PLAN.md`](PLAN.md).** Start there.
+
 ## Repo layout
 
 ```

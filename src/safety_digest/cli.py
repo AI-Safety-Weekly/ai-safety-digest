@@ -21,6 +21,7 @@ from . import (
     report,
     s2_collector,
     site_builder,
+    state_store,
 )
 
 
@@ -69,6 +70,19 @@ def main() -> None:
         "--skip-feedback",
         action="store_true",
         help="Don't load reviewer feedback into the classifier prompt for this run",
+    )
+    parser.add_argument(
+        "--state-db",
+        type=Path,
+        default=Path("state.db"),
+        help="SQLite store of papers seen in earlier weeks, used to suppress "
+             "cross-week repeats (default: state.db)",
+    )
+    parser.add_argument(
+        "--no-suppress",
+        action="store_true",
+        help="Don't suppress papers seen in earlier weeks — classify and emit "
+             "everything collected this run (baseline/backfill-from-scratch)",
     )
     parser.add_argument(
         "--dry-run",
@@ -133,6 +147,9 @@ def main() -> None:
     missed_ids = feedback_loader.missed_paper_arxiv_ids(feedback_entries)
     if missed_ids:
         log.info("Force-including %d arxiv id(s) from missed-paper feedback", len(missed_ids))
+    # dedupe_keys of force-included papers — exempt from cross-week suppression
+    # so a reviewer can resurface a paper even if it was seen in an earlier week.
+    forced_keys: set[str] = set()
 
     if args.arxiv_ids:
         ids = [s.strip() for s in args.arxiv_ids.split(",") if s.strip()]
@@ -165,6 +182,7 @@ def main() -> None:
                 )
                 log.info("Added %d papers from missed-paper feedback", len(forced))
                 papers = papers + forced
+                forced_keys = {p.dedupe_key for p in forced}
     log.info("Collected %d papers from arXiv", len(papers))
 
     if cfg.lab_sources and not args.arxiv_ids:
@@ -213,11 +231,37 @@ def main() -> None:
     if before_dedupe != len(papers):
         log.info("Dedupe: %d → %d papers", before_dedupe, len(papers))
 
+    # Window anchor — drives cross-week suppression, the digest filename, and
+    # the report header. Compute once (until_dt for backfill, else now).
+    run_at = until_dt or datetime.now(tz=timezone.utc)
+    current_week = state_store.week_tag(run_at)
+
+    # Cross-week suppression: drop papers already surfaced in an earlier week's
+    # digest. Skipped for --arxiv-ids replay (you're explicitly asking for those
+    # papers), --dry-run (don't pollute persistent state), and --no-suppress
+    # (clean baseline / backfill-from-scratch).
+    store = None
+    if not args.no_suppress and not args.arxiv_ids and not args.dry_run:
+        store = state_store.StateStore(args.state_db)
+        sup = store.filter_unseen(papers, current_week, exempt_keys=forced_keys)
+        if sup.suppressed:
+            log.info(
+                "Cross-week suppression: dropped %d paper(s) seen before %s",
+                len(sup.suppressed), current_week,
+            )
+        papers = sup.kept
+
     if args.max_papers:
         papers = papers[: args.max_papers]
 
     if not papers:
-        print("No papers or lab items matched filters this run.", file=sys.stderr)
+        print(
+            "Nothing to classify this run (no items matched filters, or all "
+            "collected items were seen in earlier weeks).",
+            file=sys.stderr,
+        )
+        if store is not None:
+            store.close()
         return
 
     learned_context = feedback_prompt.build_learned_context(feedback_entries)
@@ -242,7 +286,11 @@ def main() -> None:
         )
     )
 
-    run_at = until_dt or datetime.now(tz=timezone.utc)
+    if store is not None:
+        recorded = store.record(classified, current_week)
+        log.info("State store: recorded %d new paper(s) under %s", recorded, current_week)
+        store.close()
+
     iso = run_at.isocalendar()
     fname = f"digest-{iso.year}-W{iso.week:02d}.md"
     out_path = report.write_markdown(classified, args.out_dir / fname, run_at)

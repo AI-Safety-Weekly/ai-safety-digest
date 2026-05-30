@@ -69,8 +69,7 @@ Every Monday at 9am ET a GitHub Actions job runs and:
   the full signal when collectors overlap.
 - Original plan was Google Scholar via Gmail OAuth — pivoted to S2
   because it covers the same goal (catch new papers by tracked authors,
-  venue-agnostic) without any inbox/OAuth dependency. Cross-week
-  "seen before" suppression via SQLite is still backlog.
+  venue-agnostic) without any inbox/OAuth dependency.
 - One-time setup: `python scripts/resolve_s2_authors.py` (takes ~15
   minutes for the full author list on the free tier).
 
@@ -110,10 +109,16 @@ Every Monday at 9am ET a GitHub Actions job runs and:
   the digest entirely rather than surfaced at `low`.
 - ✅ Re-enabled Apollo (sitemap_index), UK AISI + CAIS (index-page
   scraping). Redwood still pending a usable feed.
+- ✅ Cross-week "seen before" suppression: `state_store.py` keeps a
+  SQLite store (`state.db`, committed so the cron remembers across runs)
+  of every paper's `dedupe_key` tagged with the ISO week it was first
+  seen. Each run drops papers first seen in a *strictly earlier* week
+  (so same-week re-runs and `--until` backfills stay correct) and runs
+  *before* classification, so already-seen papers don't burn API calls.
+  Missed-paper force-includes are exempt; `--no-suppress` disables it.
 - Per-tag pages (alignment / interp / evals / etc.) and client-side
   search — backlog.
 - Translation pass for non-English abstracts — backlog.
-- Per-paper "seen before" cross-week suppression (SQLite) — backlog.
 
 ## Repo layout
 
@@ -129,7 +134,8 @@ ai-safety-digest/
 │   ├── report.py              # Markdown digest writer with feedback links
 │   ├── site_builder.py        # docs/index.md generator
 │   ├── s2_collector.py        # Semantic Scholar — tracked-author fetch
-│   ├── dedupe.py              # cross-collector dedupe with annotation merge
+│   ├── dedupe.py              # cross-collector (intra-run) dedupe + annotation merge
+│   ├── state_store.py         # cross-week "seen before" suppression (state.db)
 │   ├── feedback_loader.py     # parse feedback/*.md
 │   ├── feedback_prompt.py     # build learned-context for the classifier
 │   └── models.py
@@ -167,6 +173,7 @@ safety-digest --dry-run --max-arxiv-results 200  # smoke test, no API calls
 safety-digest --arxiv-ids 2605.27354,2605.27355  # replay specific arXiv papers
 safety-digest --backend claude                   # opt in to Claude classifier
 safety-digest --skip-s2                          # arxiv + labs only, no S2
+safety-digest --no-suppress                      # don't drop papers seen in earlier weeks
 ```
 
 ## Stack

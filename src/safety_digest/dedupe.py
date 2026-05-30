@@ -9,8 +9,9 @@ Source preference for the kept copy: arxiv > lab > forum > scholar. The
 arXiv collector has the best abstract text and pre-filtered keyword
 annotations, so we keep its Paper object when there's overlap.
 
-Cross-week dedupe (filtering against state.db) is a separate backlog
-item — this module only handles intra-run dedupe.
+This module only handles intra-run dedupe. Cross-week suppression
+(dropping papers surfaced in an earlier week's digest) lives in
+`state_store.py` and runs on the deduped set just after this.
 """
 
 from __future__ import annotations

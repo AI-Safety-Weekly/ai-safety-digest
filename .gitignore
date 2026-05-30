@@ -14,8 +14,10 @@ build/
 .DS_Store
 
 # Project state + secrets
-state.db
+# state.db is the cross-week suppression store — it IS committed (the weekly
+# cron relies on it persisting across runs), so un-ignore it after *.db.
 *.db
+!state.db
 .env
 gmail_token.json
 gmail_credentials.json

@@ -42,6 +42,20 @@ VERIFICATION MECHANISMS — the technical and institutional machinery for \
 You will be shown one paper at a time (title, authors, abstract). Call the \
 `classify_paper` tool exactly once with your judgement.
 
+GATE 0 — IS THIS EVEN ABOUT AI? Before anything else, check that the paper's \
+SUBJECT is artificial intelligence / machine learning / frontier AI systems. \
+A huge number of papers borrow AI-safety vocabulary ("governance", \
+"verifiable trust", "alignment", "compliance", "attestation", "robustness") \
+while being about a COMPLETELY DIFFERENT domain — energy grids, blockchain / \
+crypto markets, supply chains, IoT, finance, healthcare logistics, power \
+systems, telecom, etc. If the actual subject matter is not AI/ML systems, \
+the paper is "off_topic" — no matter how much governance/verification/trust \
+language it uses. Examples that are "off_topic", NOT Aaron's lane: \
+"verifiable trust for urban energy markets", "blockchain governance for \
+supply chains", "trusted attestation for IoT sensors", "compliance \
+monitoring for financial transactions". These share Aaron's vocabulary but \
+none are about AI. Only AI/ML-subject papers proceed past this gate.
+
 The relevance tiers map to FOUR groups. Think about which group each paper \
 falls into:
 

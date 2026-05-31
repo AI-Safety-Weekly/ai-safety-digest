@@ -3,7 +3,7 @@
 A weekly auto-generated reading list of new AI-safety research. Papers are pulled from arXiv every Monday morning, filtered against a curated list of safety keywords and ~300 tracked researchers, then classified by Claude into high / medium / low relevance with a one-sentence summary.
 
 !!! tip "Latest digest — 2026, week 22"
-    **high: 4 · medium: 4 · low: 12 · 20 papers total**
+    **high: 14 · medium: 51 · low: 493 · 558 papers total**
 
     [Read the full digest :material-arrow-right:](digest-2026-W22.md){ .md-button .md-button--primary }
 

@@ -118,24 +118,53 @@ ships. Re-run command for validation:
      nothing; auto-admit no longer auto-promotes to high (already done in the
      2026-05-30 rubric edit — keep it).
 
-2. **Zone 3 awareness brief** — new aggregation step:
+2. **Full-text deep read for everything that goes on the site (MANDATORY).**
+   **Principle (from the human, 2026-05-30):** *"If it goes on the site, it
+   must be FULLY READ"* — both to verify it genuinely belongs AND to catch the
+   failure mode where a buzzwordy, layman-facing blog post is all
+   obvious-to-Aaron framing with no real substance. A title/abstract cannot
+   reveal that; only the full text can.
+   - Pass 1 (per-paper classify on title+abstract) is now just a **shortlister**.
+   - For EVERY item that would be listed on the site (anything Zone 1 / Zone 2
+     — i.e. relevance high or medium, or breakthrough=true), fetch the FULL
+     content and RE-CLASSIFY on it:
+     * arXiv → fetch the abstract page (already substantive) or the PDF/HTML
+       full text for deeper reads.
+     * Lab / forum / blog posts → fetch the actual article HTML and extract
+       the body (NOT just the OpenGraph description — that thin meta blurb is
+       what caused the title-guessing "likely discusses" hedging).
+   - Re-judge tier on the real content; demote anything that doesn't hold up
+     (e.g. the "Ethical Hyper-Velocity JIT Compiler" buzzword paper, or a
+     layman blog post with nothing new for Aaron). Produce a REAL summary from
+     the body, not a title guess.
+   - Cheap: only the shortlist (~10–60 items), not all ~600. Reuse the
+     `lab_collector` fetch helpers (they already send a browser-ish UA and
+     parse HTML). New function e.g. `deep_read_and_reclassify()`.
+   - EVIDENCE RULE already added to the Pass-1 prompt (2026-05-30): the model
+     may not assign high/medium on a title guess; if content is thin it must
+     classify low and say so, never "likely discusses"/"title suggests". This
+     deep-read step is what then gives shortlisted items their real evidence.
+
+3. **Zone 3 awareness brief** — new aggregation step:
    - New function (e.g. `summarize_off_lane()` in `classifier.py` or a new
      `field_summary.py`): take all off-lane classified papers (title +
      one-line summary + tags), make **one** Gemini call, return a single
-     paragraph. Cost ~$0.01–0.03/run.
+     paragraph. Cost ~$0.01–0.03/run. (Off-lane items are NOT deep-read — they
+     never go on the site individually, only into this summary.)
    - Wire into `cli.py` after classification, before report.
    - Add `--no-field-summary` to bypass.
 
-3. **Report rendering** (`src/safety_digest/report.py`):
+4. **Report rendering** (`src/safety_digest/report.py`):
    - Render three zones: Zone 1 (direct lane first, then backbone), Zone 2
      (breakthroughs, only if any), Zone 3 (the prose paragraph).
    - Drop the visible "low" section for off-lane noise.
 
-4. **Tests** (`tests/test_report.py`, `tests/test_classifier.py`):
+5. **Tests** (`tests/test_report.py`, `tests/test_classifier.py`):
    - Zone assignment renders correctly; off-lane papers do not appear as
-     listed entries; Zone 3 paragraph present when off-lane papers exist.
+     listed entries; Zone 3 paragraph present when off-lane papers exist;
+     deep-read re-classification can demote a shortlisted item.
 
-5. **Validate on W21** → inspect the real Zone-1 count → iterate the prompt
+6. **Validate on W21** → inspect the real Zone-1 count → iterate the prompt
    with the human until it's genuinely on-target → then ship.
 
 ---
@@ -179,6 +208,29 @@ sources to the collectors** (GovAI, CSET, RAND, Lawfare) via the existing
 `lab_collector` / `config/lab_sources.yml` machinery. Not needed for v1, but
 this is what truly nails his focus.
 
+**Source scouting (done 2026-05-30) — feeds verified:**
+- **GovAI** — `https://www.governance.ai/post/rss.xml` — ✅ valid RSS,
+  content squarely in Aaron's lane (EU GPAI code, dual-use/bioterrorism,
+  compute). Add with `strategy: rss`, `filter: loose`, `auto_admit: false`.
+- **CSET (Georgetown)** — `https://cset.georgetown.edu/publications/feed/` —
+  ✅ valid RSS, pure governance/compute/semiconductor-supply-chain. Add with
+  `strategy: rss`, `filter: loose`.
+- **RAND** — the AI *topic* feed (`/topics/artificial-intelligence.xml`) is
+  valid but EMPTY/broken. Working feeds are the all-topics firehoses:
+  `https://www.rand.org/pubs/new.xml` (new publications, 20 entries),
+  `/pubs/articles.xml`, `/pubs/commentary.xml`. These span ALL RAND topics
+  (health, housing, defense…), so RAND must use **`strategy: rss` +
+  `filter: strict`** (the built-in safety-keyword title filter drops the
+  non-AI items) — same pattern as OpenAI/DeepMind. Recommend `/pubs/new.xml`.
+  NOTE: RAND HTML pages 403 our fetcher; use a browser User-Agent header when
+  fetching (the lab_collector already sends one for sitemap fetches — verify
+  it does for rss too, or RAND will 403).
+- **Lawfare** — `https://www.lawfaremedia.org/feeds/articles.rss` 403'd to our
+  fetcher. Feed exists but needs the right path and possibly a sitemap /
+  index_page strategy. Lower priority (commentary, not primary-source lane).
+- These slot into the existing rss/sitemap/sitemap_index/index_page
+  strategies — GovAI + CSET are ~6-line config additions each, no new code.
+
 ---
 
 ## Decisions log (so future sessions don't re-litigate)
@@ -190,6 +242,11 @@ this is what truly nails his focus.
 - Summaries: **clean** — no per-paper "why it matters for verification" angle.
 - Off-lane noise: **excluded from listing**, folded into Zone 3 prose. Not a
   visible "low" tail.
+- **MANDATORY full read for anything on the site:** every listed item (Zone 1
+  & Zone 2) must be classified on its FULL fetched text, not title+abstract.
+  Reason: verify it truly belongs, and catch buzzwordy/layman posts that teach
+  Aaron nothing. Pass 1 is only a shortlister. EVIDENCE RULE added to prompt
+  so Pass 1 never assigns high/medium on a title guess ("likely discusses").
 - Pre-filter: **do NOT aggressively cut** — Zone 3 needs broad intake.
 - Monday deadline: **nice-to-have, not required.** Quality over the date;
   Aaron can miss a week. Build → validate on W21 → iterate → ship when right.

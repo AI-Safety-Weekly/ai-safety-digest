@@ -18,15 +18,22 @@ from __future__ import annotations
 
 import logging
 
-from .models import Paper
+from .models import Paper, _LOCALE_SEG
 
 log = logging.getLogger(__name__)
 
 _SOURCE_PRIORITY = {"arxiv": 0, "lab": 1, "forum": 2, "scholar": 3}
 
 
-def _priority(paper: Paper) -> int:
-    return _SOURCE_PRIORITY.get(paper.source, 99)
+def _has_locale(paper: Paper) -> bool:
+    """True if the URL carries a locale path segment (a translated variant)."""
+    return bool(paper.url) and bool(_LOCALE_SEG.search(paper.url.lower()))
+
+
+def _priority(paper: Paper) -> tuple[int, int]:
+    """Lower is preferred. Primary: source. Secondary: prefer the canonical
+    (no-locale, i.e. English) URL when collapsing translated variants."""
+    return (_SOURCE_PRIORITY.get(paper.source, 99), 1 if _has_locale(paper) else 0)
 
 
 def _merge_annotations(keep: Paper, drop: Paper) -> None:

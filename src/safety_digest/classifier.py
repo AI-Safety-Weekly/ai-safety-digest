@@ -29,72 +29,158 @@ GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 SYSTEM_PROMPT = """\
-You are an AI-safety research analyst. Your job is to read paper abstracts \
-and decide how relevant each one is to AI-safety research, so a busy \
-researcher knows what to read first.
+You curate a weekly research digest for ONE specific reader, Aaron. Your job \
+is to decide how relevant each paper is TO AARON'S WORK — not to "AI safety" \
+in general. Most AI-safety papers are NOT relevant to Aaron.
+
+WHO AARON IS: he works to prevent the existential / catastrophic risk of \
+advanced AI (AI takeover, loss of human control, civilization-scale misuse). \
+His specific focus is INTERNATIONAL COORDINATION ON AI, with an emphasis on \
+VERIFICATION MECHANISMS — the technical and institutional machinery for \
+*verifying* that countries or labs are honoring AI agreements.
 
 You will be shown one paper at a time (title, authors, abstract). Call the \
 `classify_paper` tool exactly once with your judgement.
 
-Relevance tiers:
-- "high"      — directly advances AI-safety research (alignment, \
-interpretability, evals of dangerous capabilities, robustness against \
-misuse, scalable oversight, governance of frontier AI, etc.). A safety \
-researcher would want to read this.
-- "medium"    — adjacent or partially relevant. The paper touches a \
-safety-relevant topic but is primarily about general ML capability, \
-applications, or weakly-connected theory. Skim worthy, not must-read.
-- "low"       — not relevant to AI safety. General ML, vision, NLP \
-applications, theory papers without a safety angle, etc. Still surfaced \
-in the digest, in a deprioritised "low" section, so the reviewer can \
-audit the filter.
-- "off_topic" — only use this tier when a reviewer rule in the \
-"Learned context" section below explicitly tells you to drop this kind \
-of paper. Off-topic papers are removed from the digest entirely, not \
-just deprioritised. Default to "low" instead of "off_topic" for \
-generally-irrelevant papers — "off_topic" is reserved for patterns the \
-reviewer has explicitly flagged as noise.
+The relevance tiers map to FOUR groups. Think about which group each paper \
+falls into:
 
-Safety areas (pick zero or more — empty for "low" relevance is fine):
+================ ZONE 1 — AARON'S LANE (tiers "high" and "medium") ============
+
+Use "high" for Aaron's DIRECT LANE — papers substantively about:
+- International coordination / cooperation on AI (treaties, institutions, \
+IAEA/NPT-style frontier-AI agreements, state-level cooperation, deals \
+between labs or nations).
+- AI governance & compute governance (export controls, compute / FLOP \
+monitoring and accounting, regulatory regimes for frontier AI, audits).
+- VERIFICATION MECHANISMS (his emphasis): hardware-enabled mechanisms / \
+on-chip governance, proof-of-training or training-run attestation, \
+privacy-preserving inspection, model fingerprinting, compliance \
+verification for AI agreements — "how do you PROVE a country or lab is \
+honoring an AI commitment." This is the bullseye; rank it first.
+
+CRUCIAL DISTINCTION — do NOT confuse generic computer-security or \
+cryptography research with Aaron's verification lane. Papers about \
+confidential computing / trusted execution environments (SGX, enclaves), \
+homomorphic encryption, post-quantum crypto, secure query processing, \
+zero-knowledge proofs, or general agent/software security are NOT "high" \
+just because they share vocabulary ("provable", "attestation", "secure", \
+"verification", "governance", "trust"). They are "high" ONLY if the paper \
+is specifically about verifying compliance with AI agreements, monitoring \
+frontier-AI training/compute, or governing frontier AI between labs or \
+states. A cryptography or systems-security paper that merely *could* be a \
+building block is "low" (or "medium" only if it explicitly targets \
+frontier-AI compute governance / treaty verification). When a title reads \
+like a crypto/security/compiler paper with governance buzzwords bolted on, \
+default to "low".
+
+Use "medium" for the X-RISK TECHNICAL BACKBONE — the catastrophic-risk \
+research that makes coordination matter, but isn't governance/verification \
+itself:
+- Dangerous-capability evaluations: bio / chem / cyber uplift, autonomous \
+replication, cyber-offense, deception-at-scale. (These define WHAT there \
+is to verify and coordinate around.)
+- Loss-of-control / scheming / deception / AI-control research: detecting a \
+model that is sandbagging, scheming, or pursuing misaligned goals; \
+techniques to maintain control of more capable systems. (Verifying model \
+*behavior* is technically continuous with Aaron's verification work.)
+- Frontier-lab safety releases bearing on catastrophic risk: system cards, \
+RSP / responsible-scaling updates, dangerous-capability reports.
+
+EVIDENCE RULE — never assign "high" (or "medium") on a guess from the title. \
+You must base the tier on the ACTUAL CONTENT you were given. If the abstract \
+is empty, generic, or just a one-line blurb (common for lab/blog posts where \
+only a title and a marketing description were captured), you do NOT have \
+enough to justify "high". In that case classify it "low" and say plainly in \
+the rationale that there was insufficient content to judge — do NOT write \
+"likely discusses", "the title suggests", "probably about", or similar \
+title-based speculation to prop up a high/medium tier. A confident tier \
+requires real evidence in the text in front of you. (A separate step will \
+fetch the full text of shortlisted items and re-judge them; your job here is \
+to be honest about what the available content actually supports.)
+
+================ ZONE 2 — GROUNDBREAKING OUTSIDE HIS LANE ====================
+
+Set the boolean `breakthrough` = true for a paper that is OUTSIDE Aaron's \
+lane (so its relevance is "low") BUT is a genuinely landmark, field-shifting \
+AI-safety result he would be embarrassed not to know about — e.g. a major \
+breakthrough in interpretability or alignment that changes the field. \
+This is BRUTALLY rare: most weeks zero, occasionally one. Do NOT set it for \
+merely good or novel work — only for results people will still cite in a \
+year. When breakthrough=true, still set relevance="low" (it is not his lane).
+
+================ ZONE 3 — EVERYTHING ELSE (tier "low") =======================
+
+Use "low" for all other AI-safety / ML work that is NOT in Aaron's lane and \
+NOT a Zone-2 breakthrough: routine jailbreak/defense variants, bias/fairness, \
+SAE/probing studies, prompt-injection on applications, general adversarial \
+robustness, general interpretability, applied ML, capability work. These are \
+NOT listed individually in the digest — they are aggregated into a one-line \
+"rest of the field" summary. So "low" means "real AI/ML/safety work, just \
+not for Aaron." Still tag safety_areas so the summary can describe the week.
+
+================ off_topic ===================================================
+
+Use "off_topic" for papers that are not AI-safety-related at all (general \
+ML/vision/NLP/applications with no safety angle whatsoever), OR when a \
+reviewer rule in the "Learned context" section explicitly says to drop a \
+kind of paper. These are removed entirely. When unsure between low and \
+off_topic, choose "low".
+
+=============================================================================
+
+Safety areas (pick zero or more — used for both listing and the Zone-3 \
+summary; empty is fine):
 - alignment            — making AI systems pursue intended goals
 - interpretability     — understanding internals of models
 - evals                — evaluations / benchmarks, esp. for dangerous capabilities
-- governance           — policy, deployment, compute, audits
+- governance           — policy, coordination, compute, audits, verification
 - robustness           — adversarial robustness, distribution shift, jailbreaks
 - misuse               — bio/chem/cyber misuse risk, weapons uplift
 - capability_evals     — measuring frontier model capabilities
 - multi_agent          — multi-agent dynamics, deception, collusion
 - other                — safety-relevant but doesn't fit above
 
-Write summaries that a researcher could scan in 5 seconds. Be specific about \
-what the paper actually does — avoid vague phrases like "improves performance".
+Write summaries a reader could scan in 5 seconds. Be specific about what the \
+paper actually does — avoid vague phrases like "improves performance".
 
-Be conservative with "high" — reserve it for papers a safety researcher \
-would genuinely want to read this week.
+CRITICAL — safety VOCABULARY is not relevance to Aaron. An abstract that says \
+"alignment", "trustworthy", "robust", "safe", "responsible", or "governance" \
+is not high *because* it uses those words. Judge the actual contribution. \
+Concrete patterns that are NOT Zone 1 (they are "low" unless truly \
+groundbreaking):
+- A platform / framework / applications paper framed with safety language \
+but contributing no coordination, verification, or catastrophic-risk \
+result (e.g. an AI-deliberation or social-choice system that mentions \
+"alignment").
+- The Nth variant of an existing jailbreak, defense, or probing method.
+- A routine benchmark, bias/fairness measurement, or interpretability probe.
+- General capability/ML work that gestures at safety in the intro.
+- Ordinary alignment/RLHF training papers with no bearing on loss-of-control, \
+verification, or dangerous capabilities — these are "low", not "medium".
 
 Tracked-author signals (two tiers):
 
+Author signals matter, but they do NOT override the zone logic above. The \
+tier is determined by WHAT THE PAPER IS ABOUT relative to Aaron's lane — not \
+by who wrote it. Author fame cannot move a paper into Zone 1.
+
 1. "Auto-admit author on this paper": at least one author is on a short, \
 curated list of unambiguous frontier-safety researchers (Anthropic alignment, \
-DeepMind safety, ARC, METR, Apollo, CHAI, etc.). This is a STRONG inclusion \
-prior. Default to "high". Drop to "medium" only if the abstract is clearly \
-about a tangential topic. Drop to "low" only if the abstract is wholly \
-unrelated to AI / ML / AI safety.
+DeepMind safety, ARC, METR, Apollo, CHAI, etc.). Treat this as a signal that \
+the paper is worth taking seriously, but classify it by its CONTENT: if it is \
+about coordination/verification it is "high"; if it is x-risk backbone it is \
+"medium"; if it is ordinary safety work outside his lane it is "low" (and \
+only breakthrough=true if genuinely landmark). A famous safety author's \
+routine paper is "low", not "medium".
 
 2. "Tracked-list author on this paper": at least one author is on a broader \
-list of safety-adjacent researchers who have published safety work in the \
-past. This is a WEAKER prior — being on the list alone is NOT enough to \
-earn "high" or "medium". Judge the abstract on its actual safety relevance, \
-the same way you would for a paper with no author signal. Be skeptical if \
-the abstract reads like a general capability, benchmark, or applied-ML \
-paper — even one tracked-list author co-authoring such a paper does not \
-make it safety-relevant.
+list of safety-adjacent researchers. This is a WEAK signal and is NEVER on \
+its own a reason to raise a tier. Do not cite tracked-list authorship as \
+justification. Judge purely on content.
 
-If both signals are present, treat the paper as auto-admit.
-
-Always mention the matched author(s) by name in the rationale, and note \
-which signal triggered (e.g. "auto-admit author Chris Olah" or \
-"tracked-list co-author Y. Smith").
+If an author signal is present, you may mention it in the rationale, but the \
+tier must still follow the zone logic.
 
 Source signal: each input is either an arXiv paper, a lab post, or a \
 forum post (LessWrong, Alignment Forum). Adjust your judgement to the \
@@ -151,9 +237,13 @@ CLASSIFY_TOOL: dict[str, Any] = {
             "relevance": {
                 "type": "string",
                 "enum": ["high", "medium", "low", "off_topic"],
-                "description": "How relevant the paper is to AI-safety research. "
-                               "Use off_topic only when a reviewer rule explicitly "
-                               "says to drop this kind of paper.",
+                "description": "Relevance to Aaron's work. 'high' = his direct "
+                               "lane (coordination/governance/verification); "
+                               "'medium' = x-risk technical backbone (capability "
+                               "evals, control/scheming, frontier-lab safety); "
+                               "'low' = real safety/ML work outside his lane "
+                               "(aggregated, not listed); 'off_topic' = not "
+                               "AI-safety at all or a reviewer drop-rule.",
             },
             "safety_areas": {
                 "type": "array",
@@ -173,6 +263,14 @@ CLASSIFY_TOOL: dict[str, Any] = {
                 },
                 "description": "Zero or more safety areas this paper touches.",
             },
+            "breakthrough": {
+                "type": "boolean",
+                "description": "True ONLY for a landmark, field-shifting safety "
+                               "result OUTSIDE Aaron's lane that he should still "
+                               "know about (Zone 2). Brutally rare — most weeks "
+                               "false for every paper. Only meaningful when "
+                               "relevance is 'low'.",
+            },
             "summary": {
                 "type": "string",
                 "description": "One specific sentence about what the paper does. <= 240 chars.",
@@ -182,12 +280,12 @@ CLASSIFY_TOOL: dict[str, Any] = {
                 "description": "One or two sentences explaining the relevance tier.",
             },
         },
-        "required": ["relevance", "safety_areas", "summary", "rationale"],
+        "required": ["relevance", "safety_areas", "summary", "rationale", "breakthrough"],
     },
 }
 
 
-def _user_message(paper: Paper) -> str:
+def _user_message(paper: Paper, full_text: str | None = None) -> str:
     auto_admit = paper.raw.get("matched_auto_admit") or []
     review = paper.raw.get("matched_review") or []
     lines = [f"Title: {paper.title}"]
@@ -214,6 +312,11 @@ def _user_message(paper: Paper) -> str:
         if review:
             lines.append("Tracked-list author on this paper: " + ", ".join(review))
     lines.append(f"Abstract:\n{paper.abstract}")
+    if full_text:
+        lines.append(
+            "\nFULL ARTICLE TEXT (judge on THIS, not the title — the abstract "
+            "above may be a thin marketing blurb):\n" + full_text
+        )
     return "\n".join(lines)
 
 
@@ -267,6 +370,7 @@ def classify(
             safety_areas=list(data.get("safety_areas", [])),  # type: ignore[arg-type]
             summary=data["summary"].strip(),
             rationale=data["rationale"].strip(),
+            breakthrough=bool(data.get("breakthrough", False)),
         )
         results.append(ClassifiedPaper(paper=paper, classification=classification))
 
@@ -290,24 +394,28 @@ _GEMINI_RESPONSE_SCHEMA = {
                 ],
             },
         },
+        "breakthrough": {"type": "boolean"},
         "summary": {"type": "string"},
         "rationale": {"type": "string"},
     },
-    "required": ["relevance", "safety_areas", "summary", "rationale"],
+    "required": ["relevance", "safety_areas", "breakthrough", "summary", "rationale"],
 }
 
 
 def _gemini_classify_one(
-    paper: Paper, url: str, api_key: str, system_text: str
+    paper: Paper, url: str, api_key: str, system_text: str, full_text: str | None = None
 ) -> ClassifiedPaper:
     """Classify a single paper via Gemini, with retry on transient failures.
 
     Thinking is left ON (default dynamic budget): an A/B over 50 papers showed
     turning it off (thinkingBudget=0) demotes ~1 in 4 papers and drops most
     out of the 'high' tier, so the latency cost is worth it.
+
+    If `full_text` is given (deep-read pass), it is appended to the user
+    message so the model judges on the real article body, not a thin abstract.
     """
     body = {
-        "contents": [{"role": "user", "parts": [{"text": _user_message(paper)}]}],
+        "contents": [{"role": "user", "parts": [{"text": _user_message(paper, full_text)}]}],
         "systemInstruction": {"parts": [{"text": system_text}]},
         "generationConfig": {
             "responseMimeType": "application/json",
@@ -346,6 +454,7 @@ def _gemini_classify_one(
             safety_areas=list(parsed.get("safety_areas", [])),
             summary=parsed["summary"].strip(),
             rationale=parsed["rationale"].strip(),
+            breakthrough=bool(parsed.get("breakthrough", False)),
         ),
     )
 
@@ -398,6 +507,103 @@ def gemini_classify(
             results[idx] = cp
 
     return [cp for cp in results if cp is not None]
+
+
+# Tiers that get listed on the site → must be verified on full content.
+_LISTED_TIERS = {"high", "medium"}
+
+
+def _is_shortlisted(cp: ClassifiedPaper) -> bool:
+    """A paper that would appear on the site (Zone 1 or Zone 2)."""
+    return cp.classification.relevance in _LISTED_TIERS or cp.classification.breakthrough
+
+
+def _fetch_full_text(paper: Paper) -> str:
+    """Fetch the full body for a shortlisted paper, by source.
+
+    - lab/forum: the article HTML body.
+    - arxiv: arXiv's HTML rendering (arxiv.org/html/<id>), trying a couple of
+      version suffixes. Not every paper has an HTML build; "" if unavailable
+      (caller then keeps the abstract-based tier).
+    """
+    from . import lab_collector  # local import to avoid a cycle
+
+    if paper.source == "arxiv" and paper.arxiv_id:
+        aid = paper.arxiv_id
+        for url in (f"https://arxiv.org/html/{aid}", f"https://arxiv.org/html/{aid}v1",
+                    f"https://arxiv.org/html/{aid}v2"):
+            body = lab_collector.fetch_article_body(url)
+            if body:
+                return body
+        return ""
+    return lab_collector.fetch_article_body(paper.url)
+
+
+def deep_read_and_reclassify(
+    classified: list[ClassifiedPaper],
+    api_key: str | None = None,
+    extra_system_text: str | None = None,
+    max_workers: int | None = None,
+) -> list[ClassifiedPaper]:
+    """Second pass: for every item that would be LISTED on the site (Zone 1/2),
+    fetch its full content and re-classify on it.
+
+    Principle: if it goes on the site, it must be fully read — to verify it
+    genuinely belongs and to catch buzzwordy/layman posts (or abstract-oversell
+    papers) with no real substance for Aaron. lab/forum → article HTML body;
+    arXiv → arXiv HTML full text.
+
+    Returns a NEW list in the same order; non-shortlisted items pass through
+    unchanged. A fetch failure (e.g. no arXiv HTML build) leaves the item's
+    original classification intact (we never silently promote on a failed read).
+    """
+    api_key = api_key or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not set")
+    url = GEMINI_URL.format(model=GEMINI_MODEL)
+    system_text = SYSTEM_PROMPT
+    if extra_system_text:
+        system_text = SYSTEM_PROMPT + "\n\n" + extra_system_text
+
+    # Every shortlisted item (Zone 1/2), regardless of source, must be verified
+    # on full content before it goes on the site — including arXiv papers (via
+    # arXiv's HTML full text), to catch buzzword papers whose abstract oversells.
+    targets = [i for i, cp in enumerate(classified) if _is_shortlisted(cp)]
+    if not targets:
+        log.info("Deep-read: nothing shortlisted; nothing to re-read")
+        return list(classified)
+
+    if max_workers is None:
+        max_workers = int(os.environ.get("GEMINI_MAX_WORKERS", "8"))
+    workers = max(1, min(max_workers, len(targets)))
+    log.info("Deep-read: fetching + re-classifying %d shortlisted item(s)", len(targets))
+
+    results = list(classified)
+
+    def rework(idx: int) -> tuple[int, ClassifiedPaper | None]:
+        cp = classified[idx]
+        body = _fetch_full_text(cp.paper)
+        if not body:
+            log.warning("Deep-read: no full text for %r — keeping original tier", cp.paper.title[:60])
+            return idx, None
+        try:
+            new_cp = _gemini_classify_one(cp.paper, url, api_key, system_text, full_text=body)
+        except Exception as e:  # noqa: BLE001 — never let one bad re-read abort the run
+            log.warning("Deep-read: re-classify failed for %r (%s) — keeping original", cp.paper.title[:60], e)
+            return idx, None
+        if new_cp.classification.relevance != cp.classification.relevance:
+            log.info(
+                "Deep-read: %r %s → %s after full read",
+                cp.paper.title[:60], cp.classification.relevance, new_cp.classification.relevance,
+            )
+        return idx, new_cp
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for idx, new_cp in ex.map(rework, targets):
+            if new_cp is not None:
+                results[idx] = new_cp
+
+    return results
 
 
 def stub_classify(papers: list[Paper]) -> list[ClassifiedPaper]:

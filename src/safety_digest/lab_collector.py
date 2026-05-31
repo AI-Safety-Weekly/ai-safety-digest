@@ -442,3 +442,31 @@ def _strip_html(html: str) -> str:
     text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+# Tags whose text is never article content — stripped before extraction.
+_NON_CONTENT_TAGS = ["script", "style", "nav", "header", "footer", "aside", "form", "noscript"]
+
+
+def fetch_article_body(url: str, max_chars: int = 12000) -> str:
+    """Fetch a lab/blog/forum post and return its readable body text.
+
+    Used by the deep-read step: lab/blog posts often expose only a thin
+    OpenGraph description, which is not enough to judge relevance. This pulls
+    the actual article text so the classifier judges on real content.
+
+    Returns "" on any fetch/parse failure (caller falls back to the abstract).
+    Truncated to `max_chars` to bound classifier token cost.
+    """
+    try:
+        r = requests.get(url, timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
+        r.raise_for_status()
+    except requests.RequestException:
+        return ""
+    soup = BeautifulSoup(r.text, "html.parser")
+    for tag in soup(_NON_CONTENT_TAGS):
+        tag.decompose()
+    # Prefer the semantic <article> / <main> if present, else the whole body.
+    root = soup.find("article") or soup.find("main") or soup.body or soup
+    text = re.sub(r"\s+", " ", root.get_text(" ", strip=True)).strip()
+    return text[:max_chars]

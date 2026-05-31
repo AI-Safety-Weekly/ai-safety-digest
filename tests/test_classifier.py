@@ -115,3 +115,82 @@ def test_missing_key_raises(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY not set"):
         classifier.gemini_classify([_paper(0)], api_key=None)
+
+
+# ── deep-read pass ──────────────────────────────────────────────────────────
+
+from safety_digest.models import Classification, ClassifiedPaper  # noqa: E402
+
+
+def _classified(source: str, relevance: str, *, title="T", breakthrough=False) -> ClassifiedPaper:
+    p = Paper(
+        title=title, authors=["A"], abstract="thin blurb", url="http://x/post",
+        source=source, published=datetime(2026, 5, 20, tzinfo=timezone.utc),
+    )
+    return ClassifiedPaper(
+        paper=p,
+        classification=Classification(
+            relevance=relevance, safety_areas=[], summary="s", rationale="r",
+            breakthrough=breakthrough,
+        ),
+    )
+
+
+def test_deep_read_targets_all_shortlisted(monkeypatch):
+    """Every listed (high/medium/breakthrough) item is re-read regardless of
+    source — including arXiv; only non-listed (low) items are skipped."""
+    items = [
+        _classified("lab", "high", title="LabHigh"),       # re-read
+        _classified("forum", "medium", title="ForumMed"),  # re-read
+        _classified("lab", "low", title="LabLow"),          # NOT (not listed)
+        _classified("arxiv", "high", title="ArxivHigh"),    # re-read (arXiv now too)
+        _classified("lab", "low", title="LabBreak", breakthrough=True),  # re-read (Zone 2)
+    ]
+    fetched = []
+    monkeypatch.setattr(
+        classifier, "_fetch_full_text",
+        lambda paper: fetched.append(paper.title) or "FULL BODY TEXT",
+    )
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        text = json["contents"][0]["parts"][0]["text"]
+        assert "FULL ARTICLE TEXT" in text and "FULL BODY TEXT" in text
+        return _FakeResp(200, _gemini_ok("medium", "x"))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    out = classifier.deep_read_and_reclassify(items, api_key="test", max_workers=4)
+
+    # 4 listed items re-read (lab/high, forum/medium, arxiv/high, breakthrough)
+    assert sorted(fetched) == ["ArxivHigh", "ForumMed", "LabBreak", "LabHigh"]
+    assert out[2].classification.relevance == "low"   # LabLow (not listed) unchanged
+
+
+def test_deep_read_keeps_original_on_fetch_failure(monkeypatch):
+    items = [_classified("lab", "high", title="LabHigh")]
+    monkeypatch.setattr(classifier, "_fetch_full_text", lambda paper: "")  # fetch failed
+    # post should never be called since body is empty
+    monkeypatch.setattr(
+        classifier.requests, "post",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not classify on empty body")),
+    )
+    out = classifier.deep_read_and_reclassify(items, api_key="test")
+    assert out[0].classification.relevance == "high"  # original preserved
+
+
+def test_fetch_article_body_extracts_text(monkeypatch):
+    from safety_digest import lab_collector
+
+    html = (
+        "<html><head><title>T</title><script>var x=1</script></head>"
+        "<body><nav>menu</nav><article><p>Real content here.</p>"
+        "<p>More body.</p></article><footer>foot</footer></body></html>"
+    )
+
+    class _R:
+        text = html
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(lab_collector.requests, "get", lambda *a, **k: _R())
+    body = lab_collector.fetch_article_body("http://x")
+    assert "Real content here." in body and "More body." in body
+    assert "var x=1" not in body and "menu" not in body and "foot" not in body

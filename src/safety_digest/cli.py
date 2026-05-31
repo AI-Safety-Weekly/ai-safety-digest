@@ -85,6 +85,13 @@ def main() -> None:
              "everything collected this run (baseline/backfill-from-scratch)",
     )
     parser.add_argument(
+        "--no-deep-read",
+        action="store_true",
+        help="Skip the deep-read pass (don't fetch full article bodies for "
+             "shortlisted lab/forum posts). Faster, but listed items are then "
+             "judged on title+abstract only.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Skip the Claude API call and use a deterministic stub classifier",
@@ -277,6 +284,16 @@ def main() -> None:
     else:
         log.info("Classifying via Claude Sonnet 4.6")
         classified = classifier.classify(papers, extra_system_text=learned_context)
+
+    # Deep-read pass: anything that would be LISTED on the site (Zone 1/2) and
+    # comes from a lab/blog/forum source gets its full article body fetched and
+    # re-classified — a thin OpenGraph blurb isn't enough to put something in
+    # front of Aaron. arXiv items keep their (substantive) abstract. Skipped
+    # for --dry-run (no API) and --no-deep-read.
+    if not args.dry_run and not args.no_deep_read:
+        classified = classifier.deep_read_and_reclassify(
+            classified, extra_system_text=learned_context
+        )
 
     _tier_order = {"high": 0, "medium": 1, "low": 2, "off_topic": 3}
     classified.sort(

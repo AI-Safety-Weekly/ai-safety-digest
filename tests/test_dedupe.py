@@ -52,6 +52,35 @@ def test_dedupe_keeps_distinct_papers() -> None:
     assert len(out) == 2
 
 
+def test_dedupe_collapses_locale_translations() -> None:
+    """Translated variants of the same lab post (same URL, different locale
+    path + translated title) collapse to one entry."""
+    base = "https://metr.org/blog/2026-05-19-frontier-risk-report/"
+    en = Paper(title="Frontier Risk Report", authors=[], abstract="x", url=base,
+               source="lab", published=datetime(2026, 5, 19, tzinfo=timezone.utc))
+    es = Paper(title="Informe de riesgos", authors=[], abstract="x",
+               url="https://metr.org/es/blog/2026-05-19-frontier-risk-report/",
+               source="lab", published=datetime(2026, 5, 19, tzinfo=timezone.utc))
+    zh = Paper(title="前沿 AI 风险报告", authors=[], abstract="x",
+               url="https://metr.org/zh-Hans/blog/2026-05-19-frontier-risk-report/",
+               source="lab", published=datetime(2026, 5, 19, tzinfo=timezone.utc))
+    # English (no locale segment) should win regardless of input order.
+    for order in ([en, es, zh], [zh, es, en], [es, zh, en]):
+        out = dedupe.dedupe_papers(order)
+        assert len(out) == 1
+        assert out[0].url == base, f"expected English kept for order {[p.title for p in order]}"
+
+
+def test_dedupe_preserves_short_content_path_segments() -> None:
+    """Two-letter content paths like /ai/ must NOT be treated as locales."""
+    a = Paper(title="A", authors=[], abstract="x", url="https://site.com/ai/post-one",
+              source="lab", published=datetime(2026, 5, 19, tzinfo=timezone.utc))
+    b = Paper(title="B", authors=[], abstract="x", url="https://site.com/ai/post-two",
+              source="lab", published=datetime(2026, 5, 19, tzinfo=timezone.utc))
+    out = dedupe.dedupe_papers([a, b])
+    assert len(out) == 2
+
+
 def test_dedupe_prefers_arxiv_when_scholar_seen_first() -> None:
     scholar_first = _make(arxiv_id="2605.0001", source="scholar", matched_auto_admit=["Neel Nanda"])
     arxiv_after = _make(arxiv_id="2605.0001", source="arxiv", matched_keywords=["interp"])

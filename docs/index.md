@@ -10,6 +10,7 @@ A weekly auto-generated reading list of new AI-safety research. Papers are pulle
 ## Recent weeks
 
 - [**2026 · Week 22**](digest-2026-W22.md)
+- [**2026 · Week 21**](digest-2026-W21.md)
 
 ## What's in a digest
 
@@ -17,4 +18,8 @@ A weekly auto-generated reading list of new AI-safety research. Papers are pulle
 - **Medium relevance** — adjacent or partially relevant; skim-worthy.
 - **Low relevance** — included for context only.
 
-_Last updated: 2026-05-28_
+## Suggest a paper
+
+Spot something the bot missed? <a class="missed-paper" href="#">:material-email-plus-outline: Send it in</a> (password-gated).
+
+_Last updated: 2026-05-31_

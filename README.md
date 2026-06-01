@@ -9,7 +9,7 @@ and publishes a browsable dashboard on GitHub Pages.
 
 ## What it does
 
-Every Monday at 9am ET a GitHub Actions job runs and:
+Every Monday morning (10:17 UTC ≈ 6am ET) a GitHub Actions job runs and:
 
 1. **Pulls new arXiv preprints** from the last 7 days in the relevant CS
    categories (`cs.AI`, `cs.LG`, `cs.CY`, `cs.CR`, `stat.ML`).
@@ -90,9 +90,20 @@ Every Monday at 9am ET a GitHub Actions job runs and:
   (Zvi/davidad/Karnofsky parked; even Neel Nanda inactive since Jul 2025).
   Flip `enable_bluesky` in `cli.py` to re-enable when community migrates.
 
-### Phase 3 — Automation + dashboard ✅ done (minimal)
-- `.github/workflows/weekly.yml` — cron `0 13 * * 1` with 90-min timeout
-  and `concurrency` guard. `build_only` input for cheap manual redeploys.
+### Phase 3 — Automation + dashboard ✅ done
+- `.github/workflows/weekly.yml` — cron `17 10 * * 1` (Mon ~10:17 UTC) with a
+  60-min timeout and `concurrency` guard. `build_only` input for cheap manual
+  redeploys. The odd off-the-hour minute is deliberate: GitHub's scheduled runs
+  are best-effort and the top of the hour is the most-dropped slot.
+- **Parallelized classification** — Gemini calls run through an 8-worker thread
+  pool (`GEMINI_MAX_WORKERS`, default 8), cutting a full week from ~2h to
+  ~35 min. The run is now S2-bound — Semantic Scholar enrichment stays serial
+  by design (~1 req/sec polite throttle + 429 backoff).
+- **Scheduling watchdog** (`.github/workflows/watchdog.yml`) — fires 3× every
+  Monday (11:43 / 13:43 / 15:43 UTC); if no digest pipeline has run or published
+  that day, it dispatches `weekly.yml` to self-heal a dropped scheduled run. No
+  PAT needed — `workflow_dispatch` always creates a run even from the built-in
+  `GITHUB_TOKEN`.
 - `site_builder.py` rewrites `docs/index.md` listing all weekly digests.
 - MkDocs Material theme; GitHub Pages deploy via `actions/deploy-pages`.
 - Cloudflare Worker (`scripts/worker.js`) handles in-page feedback.
@@ -120,7 +131,7 @@ Every Monday at 9am ET a GitHub Actions job runs and:
   search — backlog.
 - Translation pass for non-English abstracts — backlog.
 
-### Phase 5 — Retarget to Aaron's focus (approved, in progress)
+### Phase 5 — Retarget to Aaron's focus (in progress — classifier live, report layout pending)
 The digest is a favor for **Aaron**, who works on preventing existential
 risk from AI — specifically **International Coordination on AI** with an
 emphasis on **Verification Mechanisms**. A real uncapped week produces ~150
@@ -133,6 +144,20 @@ of *his* slice. We're retargeting it into a three-zone digest:
   single-pass bar, occasional misfire accepted; no 2-pass ranker in v1).
 - **Zone 3** — a one-paragraph "rest of the field" awareness brief instead of
   listing the ~100+ off-lane papers.
+
+**Status (as of 2026-06-01):**
+- ✅ Classifier retargeted to Aaron's scope, with a GATE 0 domain check and a
+  `breakthrough` flag for the Zone 2 exception (`classifier.py`, `models.py`).
+- ✅ Mandatory full-text deep-read re-classification of every shortlisted item
+  (`deep_read_and_reclassify` in `classifier.py`, wired through `cli.py`) — a
+  title/abstract pass-1 shortlist is re-judged on real body text before listing.
+- ✅ Live on real data: W21 shipped as a preview, W22 regenerated with the
+  retargeted classifier + GATE 0.
+- ⬜ Zone 3 "rest of the field" awareness brief — not yet built.
+- ⬜ Three-zone report rendering — `report.py` still groups by relevance tier
+  (`high`/`medium`/`low`), not the Zone 1/2/3 layout above.
+- ⏸️ 2-pass comparative ranker — deferred by design; build only if Zone 1 stays
+  bloated on real data (see PLAN.md).
 
 **Full build spec, decisions log, and the deferred 2-pass ranker design
 live in [`PLAN.md`](PLAN.md).** Start there.

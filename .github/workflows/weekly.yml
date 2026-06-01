@@ -42,13 +42,13 @@ concurrency:
 jobs:
   digest:
     runs-on: ubuntu-latest
-    # Cap worst-case runtime. Measured: classification runs ~10s/paper
-    # (Gemini 2.5 Flash with thinking on), so a full ~700-paper week takes
-    # ~120 min on its own, plus S2 throttling (~15-20 min) and any arXiv 429
-    # backoff. 180 min gives headroom so a healthy run finishes instead of
-    # being killed mid-classify. (Parallelizing classification would cut this
-    # to ~10 min — deferred until after stakeholder review.)
-    timeout-minutes: 180
+    # Cap worst-case runtime. Classification now runs through an 8-worker thread
+    # pool (see classifier.py), so a full ~700-paper week is ~35 min — not the
+    # old ~2h. The bottleneck is now S2 enrichment, which is serial by design
+    # (~1 req/sec polite throttle + 429 backoff). 60 min leaves generous
+    # headroom over the ~35 min real runtime for S2/arXiv backoff stacking while
+    # still killing a genuinely hung run.
+    timeout-minutes: 60
     outputs:
       changed: ${{ steps.commit.outputs.changed }}
     steps:

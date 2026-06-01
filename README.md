@@ -164,16 +164,23 @@ a brief** — and the digest file dropped from ~772 KB to ~185 KB. The structure
   both grouped by safety area. The ~hundreds of off-lane papers collapse from
   individual entries into the brief + a foldable `<details>` long tail, so the
   digest file shrinks dramatically. `--no-field-summary` disables both.
-- ✅ Validated end-to-end on the real W23 set and republished the live W23 in
-  the three-zone format.
+- ✅ Validated end-to-end on the real W23 set (12 direct + 54 backbone, 1
+  breakthrough, 545 folded; 772KB→185KB). Live W23 is being regenerated in the
+  three-zone format via a dispatched weekly run.
+- ✅ Governance/policy sources (GovAI, CSET, RAND) are in `config/lab_sources.yml`
+  and fetch real items (verified 2026-06-01). CSET/RAND content is in-lane;
+  GovAI's loose feed also pulls job postings (dropped downstream by GATE 0).
 
 **Remaining to complete the retarget:**
-1. **Governance / policy sources — the real unlock.** Aaron's exact lane
-   (coordination, verification, compute governance) is disproportionately *not*
-   on arXiv — it lives on GovAI, RAND, CSET, lab policy blogs, Lawfare, etc.
-   Even a perfect arXiv filter under-serves him. Add these feeds to
-   `config/lab_sources.yml` (PLAN.md's "Follow-up" section lists vetted RSS,
-   e.g. GovAI `governance.ai/post/rss.xml`). Highest-value next step.
+1. **Make governance items actually reach Zone 1 — the real open problem.** The
+   feeds are wired, but in W23 all 4 collected governance items missed Aaron's
+   read-these zone: 2 GovAI job postings (noise), CSET's "PRC Cybersecurity
+   Technology standard" dropped by GATE 0, and RAND's "frontier AI for offensive
+   cyberattacks" dropped as `off_topic`. That last drop looks too aggressive (it
+   *is* about frontier AI). Next session should: (a) watch a few weeks to see if
+   in-lane governance work surfaces, (b) check whether GATE 0 / the classifier
+   over-drops policy/standards docs, and (c) consider tightening GovAI to skip
+   hiring posts. This — not adding sources — is the unlock for Aaron's niche.
 2. **2-pass comparative ranker — likely NOT needed now.** It was to be built
    only if Zone 1 stayed bloated (>30). Real W23 is 12 direct + 54 backbone,
    and the backbone now carries a TL;DR — so the bloat is effectively solved.

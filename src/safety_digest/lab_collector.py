@@ -44,6 +44,10 @@ SAFETY_KEYWORDS = [
     "ai safety", "ai risk", "ai oversight", "ai misuse", "ai governance",
     "frontier safety", "frontier ai", "frontier model", "frontier risk",
     "frontier governance", "governance framework",
+    # AI-anchored, so safe for the firehose (RAND) — no non-AI false matches.
+    # Aaron's lane (AGI-race / coordination strategy) often omits "safety"/
+    # "frontier" from the title, which strict-filter would otherwise drop.
+    "artificial general intelligence", "compute governance",
     "system card", "model card",
     "responsible scaling", "preparedness framework",
     "red team", "red-team", "red teaming",
@@ -63,7 +67,15 @@ SAFETY_KEYWORDS = [
 ]
 
 HTTP_TIMEOUT = 10
-USER_AGENT = "ai-safety-digest/0.1 (https://github.com/ai-safety-weekly/ai-safety-digest)"
+# A browser-like UA, not a bot string. Some sources (notably RAND) 403 a
+# custom bot UA on their HTML article pages — which silently starved the
+# deep-read step (fetch_article_body got "" and the item kept its abstract-
+# only tier). A standard browser UA is accepted everywhere we poll. We are a
+# low-volume weekly poller, so this is well within polite-crawler bounds.
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 # Cap per sitemap source to avoid pathological cases (e.g. site reindexes
 # all pages with today's lastmod after a redesign).

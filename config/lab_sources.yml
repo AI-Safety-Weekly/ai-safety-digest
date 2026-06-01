@@ -99,6 +99,44 @@ sources:
     filter: loose
     auto_admit: true
 
+  # ── Governance / policy sources ────────────────────────────────────
+  # Aaron's exact lane (international coordination, verification mechanisms,
+  # compute governance) lives disproportionately OFF arXiv — on think-tank
+  # and policy publishers. These feed the Zone 1 backbone with primary-source
+  # governance work an arXiv-only intake can't reach.
+
+  # GovAI — squarely in-lane (EU GPAI code, dual-use/bio, compute governance).
+  # Loose: GovAI's output is on-topic; let GATE 0 + the classifier drop the
+  # occasional non-research item (job postings, annual reports) downstream
+  # rather than pre-filtering by title keyword and losing real posts.
+  - name: govai
+    label: "GovAI"
+    strategy: rss
+    feed_url: "https://www.governance.ai/post/rss.xml"
+    filter: loose
+    auto_admit: false
+
+  # CSET (Georgetown) — pure governance / compute / semiconductor supply
+  # chain, plus their translations of Chinese AI policy. All in-lane → loose.
+  - name: cset
+    label: "CSET"
+    strategy: rss
+    feed_url: "https://cset.georgetown.edu/publications/feed/"
+    filter: loose
+    auto_admit: false
+
+  # RAND — the /pubs/new.xml feed is an ALL-TOPICS firehose (health, housing,
+  # defense, education…), so it MUST be strict: the safety-keyword title filter
+  # drops the non-AI items, same pattern as OpenAI/DeepMind. RAND's HTML
+  # article pages 403 a bot UA — handled by the browser-like USER_AGENT in
+  # lab_collector (so the deep-read step can fetch their full text).
+  - name: rand
+    label: "RAND"
+    strategy: rss
+    feed_url: "https://www.rand.org/pubs/new.xml"
+    filter: strict
+    auto_admit: false
+
   # ── Discussion forums ──────────────────────────────────────────────
   # `source_type: forum` means the byline is a human, not the venue
   # itself. Treated as review_carefully (not auto-admit) since forum

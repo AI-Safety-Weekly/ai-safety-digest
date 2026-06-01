@@ -92,6 +92,13 @@ def main() -> None:
              "judged on title+abstract only.",
     )
     parser.add_argument(
+        "--no-field-summary",
+        action="store_true",
+        help="Skip both themed section briefs (the medium/backbone TL;DR and "
+             "the Zone 3 'rest of the field' overview). Off-lane papers then "
+             "appear only in the collapsed long-tail list.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Skip the Claude API call and use a deterministic stub classifier",
@@ -308,9 +315,37 @@ def main() -> None:
         log.info("State store: recorded %d new paper(s) under %s", recorded, current_week)
         store.close()
 
+    # Themed section briefs. The medium (Zone 1 backbone) set is a lot to skim,
+    # so it gets an orienting TL;DR above its full listing; the ~hundreds of
+    # off-lane "low" papers are represented by the Zone 3 "rest of the field"
+    # brief instead of being listed individually. Both degrade to None
+    # gracefully (no key / API failure) and are skipped under --dry-run.
+    medium_overview = None
+    field_summary = None
+    if not args.dry_run and not args.no_field_summary:
+        medium = [cp for cp in classified if cp.classification.relevance == "medium"]
+        off_lane = [
+            cp for cp in classified
+            if cp.classification.relevance == "low" and not cp.classification.breakthrough
+        ]
+        log.info("Summarizing %d medium + %d off-lane paper(s)", len(medium), len(off_lane))
+        medium_overview = classifier.summarize_papers(
+            medium,
+            focus="the backbone of Aaron's lane — capability evals, "
+                  "control/scheming, and frontier-lab safety work",
+        )
+        field_summary = classifier.summarize_papers(
+            off_lane,
+            focus="the rest of the AI-safety field this week, outside Aaron's "
+                  "coordination/verification lane",
+        )
+
     iso = run_at.isocalendar()
     fname = f"digest-{iso.year}-W{iso.week:02d}.md"
-    out_path = report.write_markdown(classified, args.out_dir / fname, run_at)
+    out_path = report.write_markdown(
+        classified, args.out_dir / fname, run_at,
+        medium_overview=medium_overview, field_summary=field_summary,
+    )
     index_path = site_builder.build_index(args.out_dir)
     print(f"Wrote {out_path} ({len(classified)} papers); updated {index_path}")
 

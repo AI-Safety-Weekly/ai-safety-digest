@@ -20,7 +20,14 @@ from typing import Any
 import requests
 from anthropic import Anthropic
 
-from .models import Classification, ClassifiedPaper, Paper, Relevance, SafetyArea
+from .models import (
+    Classification,
+    ClassifiedPaper,
+    FieldSummary,
+    Paper,
+    Relevance,
+    SafetyArea,
+)
 
 log = logging.getLogger(__name__)
 
@@ -416,6 +423,39 @@ _GEMINI_RESPONSE_SCHEMA = {
 }
 
 
+def _gemini_post(url: str, api_key: str, body: dict, label: str) -> dict:
+    """POST to Gemini with retry/backoff on transient errors and return the
+    parsed JSON object from the model's (structured) response text.
+
+    Shared by per-paper classification and the section-summary calls so both
+    use identical retry/backoff. Raises on exhausted retries or an unparseable
+    response; callers that must not abort the run catch and degrade.
+    """
+    last_err: Exception | None = None
+    for attempt, delay in enumerate([0, 5, 20, 60, 180]):
+        if delay:
+            log.warning("Gemini retry %d for %s, sleeping %ds", attempt, label, delay)
+            time.sleep(delay)
+        try:
+            r = requests.post(url, params={"key": api_key}, json=body, timeout=90)
+        except requests.RequestException as e:
+            last_err = e
+            continue
+        if r.status_code in (429, 500, 502, 503, 504):
+            last_err = RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:200]}")
+            continue
+        r.raise_for_status()
+        break
+    else:
+        raise RuntimeError(f"Gemini exhausted retries on {label}: {last_err}")
+
+    data = r.json()
+    try:
+        return json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
+    except (KeyError, IndexError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"Gemini unparseable response: {e}; raw: {str(data)[:400]}")
+
+
 def _gemini_classify_one(
     paper: Paper, url: str, api_key: str, system_text: str, full_text: str | None = None
 ) -> ClassifiedPaper:
@@ -437,29 +477,7 @@ def _gemini_classify_one(
             "temperature": 0.1,
         },
     }
-    last_err: Exception | None = None
-    for attempt, delay in enumerate([0, 5, 20, 60, 180]):
-        if delay:
-            log.warning("Gemini retry %d for %r, sleeping %ds", attempt, paper.title[:50], delay)
-            time.sleep(delay)
-        try:
-            r = requests.post(url, params={"key": api_key}, json=body, timeout=90)
-        except requests.RequestException as e:
-            last_err = e
-            continue
-        if r.status_code in (429, 500, 502, 503, 504):
-            last_err = RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:200]}")
-            continue
-        r.raise_for_status()
-        break
-    else:
-        raise RuntimeError(f"Gemini exhausted retries on {paper.title[:60]!r}: {last_err}")
-
-    data = r.json()
-    try:
-        parsed = json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
-    except (KeyError, IndexError, json.JSONDecodeError) as e:
-        raise RuntimeError(f"Gemini unparseable response: {e}; raw: {str(data)[:400]}")
+    parsed = _gemini_post(url, api_key, body, label=repr(paper.title[:60]))
 
     return ClassifiedPaper(
         paper=paper,
@@ -521,6 +539,97 @@ def gemini_classify(
             results[idx] = cp
 
     return [cp for cp in results if cp is not None]
+
+
+# ── Section summaries (medium overview + Zone 3 "rest of the field") ────────
+
+_SUMMARY_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "themes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "area": {"type": "string"},
+                    "sentence": {"type": "string"},
+                },
+                "required": ["area", "sentence"],
+            },
+        },
+    },
+    "required": ["themes"],
+}
+
+_SUMMARY_SYSTEM = """\
+You write a short, skimmable overview of a batch of AI-safety papers for one \
+busy reader. Group the papers by safety-area theme and return, for each theme, \
+a short label (the safety area) and 1-2 tight sentences capturing what that \
+cluster is about — name a representative paper or direction where it helps. Be \
+concise and concrete: no preamble, no conclusion, no editorializing, and do \
+NOT enumerate every paper. A reader should grasp the shape of the whole set in \
+under a minute. Return only the structured themes."""
+
+
+def summarize_papers(
+    papers: list[ClassifiedPaper],
+    *,
+    focus: str,
+    api_key: str | None = None,
+) -> FieldSummary | None:
+    """Summarize a group of already-classified papers into a themed brief.
+
+    Used for the medium (Zone 1 backbone) TL;DR and the Zone 3 "rest of the
+    field" brief. One Gemini call, grouped by safety area. `focus` describes the
+    group to the model (e.g. "the backbone of Aaron's lane" vs "the rest of the
+    AI-safety field outside his lane").
+
+    Degrades gracefully: empty input, a missing key, or any API/parse failure
+    returns None (the report then omits the brief) — a summary must never abort
+    the run.
+    """
+    if not papers:
+        return None
+    api_key = api_key or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        log.warning("summarize_papers: GEMINI_API_KEY not set — skipping the brief")
+        return None
+    url = GEMINI_URL.format(model=GEMINI_MODEL)
+
+    lines: list[str] = []
+    for cp in papers:
+        c = cp.classification
+        tags = ", ".join(c.safety_areas) or "untagged"
+        summ = (c.summary or "").strip()[:150]
+        lines.append(f"- {cp.paper.title} [{tags}] — {summ}")
+    user_text = (
+        f"Here are {len(papers)} papers that make up {focus}. Group them by "
+        f"safety-area theme and write the brief overview as instructed.\n\n"
+        + "\n".join(lines)
+    )
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+        "systemInstruction": {"parts": [{"text": _SUMMARY_SYSTEM}]},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": _SUMMARY_RESPONSE_SCHEMA,
+            "temperature": 0.2,
+        },
+    }
+    try:
+        parsed = _gemini_post(url, api_key, body, label=f"summary of {len(papers)} papers")
+    except Exception as e:  # noqa: BLE001 — a failed brief must never abort the run
+        log.warning("summarize_papers: brief failed (%s) — skipping", e)
+        return None
+
+    themes = [
+        (str(t.get("area", "")).strip(), str(t.get("sentence", "")).strip())
+        for t in parsed.get("themes", [])
+        if str(t.get("sentence", "")).strip()
+    ]
+    if not themes:
+        return None
+    return FieldSummary(themes=themes, total=len(papers))
 
 
 # Tiers that get listed on the site → must be verified on full content.

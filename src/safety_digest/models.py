@@ -87,3 +87,17 @@ class Classification:
 class ClassifiedPaper:
     paper: Paper
     classification: Classification
+
+
+@dataclass
+class FieldSummary:
+    """A short, themed overview of a group of papers — used for the medium
+    (Zone 1 backbone) TL;DR and the Zone 3 "rest of the field" brief.
+
+    `themes` is an ordered list of (area_label, sentence) pairs, one per
+    safety-area cluster the summarizer chose to call out. `total` is the number
+    of papers the brief stands in for (so the report can say "all N ...").
+    """
+
+    themes: list[tuple[str, str]]
+    total: int

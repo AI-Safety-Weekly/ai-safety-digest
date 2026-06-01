@@ -2,17 +2,16 @@ name: Weekly digest
 
 on:
   schedule:
-    # ~12:17 UTC every Monday. Cron is pinned to UTC, so local time shifts with
-    # DST: currently 8am ET / 5am PT (EDT); in winter it's 7am ET / 4am PT (EST).
-    # Note: a full run takes ~2h with thinking on, so the digest is "ready"
-    # ~10am ET / 7am PT — start time, not finish time.
+    # ~10:17 UTC every Monday. Cron is pinned to UTC, so local time shifts with
+    # DST: currently 6:17am ET / 3:17am PT (EDT); in winter it's 5:17am ET /
+    # 2:17am PT (EST). Note: a full run takes ~2h with thinking on, so the digest
+    # is "ready" ~8:17am ET / 5:17am PT — start time, not finish time.
     #
     # Minute is :17, NOT :00 on purpose. GitHub Actions scheduled runs are
     # best-effort and get delayed or dropped under load; the top of the hour
-    # (and round times like 12:00 especially) is the most congested slot, so
-    # round-minute crons are the most likely to be silently skipped. An odd,
-    # off-peak minute is materially more reliable.
-    - cron: "17 12 * * 1"
+    # is the most congested slot, so round-minute crons are the most likely to
+    # be silently skipped. An odd, off-peak minute is materially more reliable.
+    - cron: "17 10 * * 1"
   workflow_dispatch:
     inputs:
       days:

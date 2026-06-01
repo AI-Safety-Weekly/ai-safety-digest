@@ -201,6 +201,17 @@ run stays ~$2 + pennies.
 
 ## Follow-up (the real unlock for Aaron's niche)
 
+**STATUS (2026-06-01): SHIPPED for GovAI/CSET/RAND.** They are in
+`config/lab_sources.yml` and reach Zone 1 on real data (re-verified across 3
+runs): CSET AI-standard → `high`, RAND AGI-race → `high`, RAND cyber-uplift →
+`medium`. Implementation notes that differ from the scouting below: (1) the
+strict keyword list gained `artificial general intelligence` / `compute
+governance` so RAND's coordination work isn't dropped by the title filter; (2)
+`lab_collector.USER_AGENT` is now browser-like — RAND's HTML article pages 403 a
+bot UA, which would otherwise starve the deep-read step. Lawfare still TODO
+(feed 403'd). Remaining is taste-tuning the off_topic/low/Zone-1 cut with Aaron,
+not adding feeds — see README "Remaining to complete the retarget" #1.
+
 Verification/governance work is disproportionately **not on arXiv** — it lives
 on GovAI, RAND, CSET, lab policy blogs, IAEA-style reports, Lawfare. Even a
 perfect arXiv filter under-serves his exact lane. **Add governance/policy

@@ -131,12 +131,14 @@ Every Monday morning (10:17 UTC ≈ 6am ET) a GitHub Actions job runs and:
   search — backlog.
 - Translation pass for non-English abstracts — backlog.
 
-### Phase 5 — Retarget to Aaron's focus (classifier + three-zone layout shipped; 2-pass ranker deferred)
+### Phase 5 — Retarget to Aaron's focus (classifier + three-zone layout shipped)
 The digest is a favor for **Aaron**, who works on preventing existential
 risk from AI — specifically **International Coordination on AI** with an
-emphasis on **Verification Mechanisms**. A real uncapped week produces ~150
-"high" papers because the classifier filters for "AI safety" broadly instead
-of *his* slice. We're retargeting it into a three-zone digest:
+emphasis on **Verification Mechanisms**. The pre-retarget classifier filtered
+for "AI safety" broadly and produced ~150 "high" papers a week. After the
+retarget + three-zone layout, a real week (W23, validated 2026-06-01) lands at
+**12 direct-lane + 54 backbone listed, 1 breakthrough, 545 off-lane folded into
+a brief** — and the digest file dropped from ~772 KB to ~185 KB. The structure:
 - **Zone 1** — his lane (coordination / governance / verification) + the
   x-risk technical backbone (capability evals, loss-of-control / scheming /
   control, frontier-lab safety releases).
@@ -162,8 +164,24 @@ of *his* slice. We're retargeting it into a three-zone digest:
   both grouped by safety area. The ~hundreds of off-lane papers collapse from
   individual entries into the brief + a foldable `<details>` long tail, so the
   digest file shrinks dramatically. `--no-field-summary` disables both.
-- ⏸️ 2-pass comparative ranker — deferred by design; build only if Zone 1 stays
-  bloated on real data (see PLAN.md).
+- ✅ Validated end-to-end on the real W23 set and republished the live W23 in
+  the three-zone format.
+
+**Remaining to complete the retarget:**
+1. **Governance / policy sources — the real unlock.** Aaron's exact lane
+   (coordination, verification, compute governance) is disproportionately *not*
+   on arXiv — it lives on GovAI, RAND, CSET, lab policy blogs, Lawfare, etc.
+   Even a perfect arXiv filter under-serves him. Add these feeds to
+   `config/lab_sources.yml` (PLAN.md's "Follow-up" section lists vetted RSS,
+   e.g. GovAI `governance.ai/post/rss.xml`). Highest-value next step.
+2. **2-pass comparative ranker — likely NOT needed now.** It was to be built
+   only if Zone 1 stayed bloated (>30). Real W23 is 12 direct + 54 backbone,
+   and the backbone now carries a TL;DR — so the bloat is effectively solved.
+   Revisit only if the human finds the 54-paper backbone still too long even
+   with its overview. Build spec is in PLAN.md if so.
+3. **Optional polish:** the Zone 3 fold's `other` bucket held 274/545 (generic
+   ML with no safety subarea) — could sub-split for skimmability. Backlog:
+   per-tag pages + client-side search, translation pass.
 
 **Full build spec, decisions log, and the deferred 2-pass ranker design
 live in [`PLAN.md`](PLAN.md).** Start there.

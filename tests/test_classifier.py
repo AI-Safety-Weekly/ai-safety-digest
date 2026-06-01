@@ -153,6 +153,85 @@ def test_missing_key_raises(monkeypatch):
         classifier.gemini_classify([_paper(0)], api_key=None)
 
 
+# ── fallback re-sweep ─────────────────────────────────────────────────────
+
+
+def test_resweep_rescues_paper_that_succeeds_on_retry(monkeypatch):
+    """A paper that fell back during the main pass is re-classified; when the
+    outage has cleared, the re-sweep rescues it (fallback flag cleared, real
+    tier assigned). Untouched papers pass through unchanged."""
+    from safety_digest.models import Classification, ClassifiedPaper
+
+    p0, p1, p2 = _paper(0), _paper(1), _paper(2)
+    # p1 fell back; p0/p2 were classified fine.
+    classified = [
+        ClassifiedPaper(p0, Classification("high", ["alignment"], "s0", "r0")),
+        classifier._fallback_classification(p1, RuntimeError("503")),
+        ClassifiedPaper(p2, Classification("low", [], "s2", "r2")),
+    ]
+    assert classified[1].classification.fallback is True
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        text = json["contents"][0]["parts"][0]["text"]
+        title = next(ln.split("Title: ", 1)[1] for ln in text.splitlines() if ln.startswith("Title: "))
+        return _FakeResp(200, _gemini_ok("medium", title))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    out = classifier.resweep_fallbacks(classified, api_key="test", wait_seconds=0)
+
+    # Only p1 was re-classified; it's now rescued (real tier, flag cleared).
+    assert out[1].classification.relevance == "medium"
+    assert out[1].classification.fallback is False
+    assert out[1].paper.title == "Paper 1"
+    # The non-fallback papers are untouched (same objects, no re-classify).
+    assert out[0] is classified[0]
+    assert out[2] is classified[2]
+
+
+def test_resweep_keeps_fallback_when_outage_persists(monkeypatch):
+    """If the outage is still ongoing, the re-sweep's own gemini_classify
+    exhausts its retries and the paper stays a flagged fallback."""
+    monkeypatch.setattr(classifier.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(classifier, "_GEMINI_RETRY_DELAYS", [0, 0, 0])  # fast exhaust
+    from safety_digest.models import Classification, ClassifiedPaper
+
+    p0, p1 = _paper(0), _paper(1)
+    classified = [
+        ClassifiedPaper(p0, Classification("high", ["alignment"], "s0", "r0")),
+        classifier._fallback_classification(p1, RuntimeError("503")),
+    ]
+
+    monkeypatch.setattr(
+        classifier.requests, "post",
+        lambda *a, **k: _FakeResp(503, {"error": {"code": 503, "status": "UNAVAILABLE"}}),
+    )
+    out = classifier.resweep_fallbacks(classified, api_key="test", wait_seconds=0)
+
+    assert out[1].classification.fallback is True   # still unresolved
+    assert out[1].classification.relevance == "low"
+    assert out[0] is classified[0]                  # good paper untouched
+
+
+def test_resweep_noop_without_fallbacks(monkeypatch):
+    """Zero fallbacks → no wait, no API calls, list returned unchanged."""
+    from safety_digest.models import Classification, ClassifiedPaper
+
+    classified = [
+        ClassifiedPaper(_paper(0), Classification("high", [], "s", "r")),
+        ClassifiedPaper(_paper(1), Classification("low", [], "s", "r")),
+    ]
+    monkeypatch.setattr(
+        classifier.time, "sleep",
+        lambda *_: (_ for _ in ()).throw(AssertionError("must not wait with no fallbacks")),
+    )
+    monkeypatch.setattr(
+        classifier.requests, "post",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not call API")),
+    )
+    out = classifier.resweep_fallbacks(classified, api_key="test")
+    assert [cp.classification.relevance for cp in out] == ["high", "low"]
+
+
 # ── deep-read pass ──────────────────────────────────────────────────────────
 
 from safety_digest.models import Classification, ClassifiedPaper  # noqa: E402

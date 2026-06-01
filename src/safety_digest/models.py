@@ -81,6 +81,12 @@ class Classification:
     # nonetheless a truly groundbreaking AI-safety result he should know
     # about. Brutally rare. Only meaningful when relevance == "low".
     breakthrough: bool = False
+    # True when this is NOT a real judgement but the safe default produced by
+    # classifier._fallback_classification() after the full Gemini retry
+    # schedule was exhausted (a transient API outage). The pipeline keys off
+    # this flag — never the rationale string — to re-sweep, withhold from the
+    # state store, and banner these papers. See classifier.resweep_fallbacks().
+    fallback: bool = False
 
 
 @dataclass

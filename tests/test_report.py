@@ -14,6 +14,7 @@ def _make(
     relevance: str,
     *,
     breakthrough: bool = False,
+    fallback: bool = False,
     safety_areas: tuple[str, ...] = ("alignment",),
 ) -> ClassifiedPaper:
     return ClassifiedPaper(
@@ -33,6 +34,7 @@ def _make(
             summary=f"summary of {title}",
             rationale=f"rationale for {title}",
             breakthrough=breakthrough,
+            fallback=fallback,
         ),
     )
 
@@ -121,6 +123,33 @@ def test_medium_overview_rendered_above_medium_entries(tmp_path: Path) -> None:
     # The themed TL;DR comes before the full medium entry, which is still listed.
     assert text.index("Plenty of capability-eval work.") < text.index("summary of MedPaper")
     assert "summary of MedPaper" in text
+
+
+def test_fallback_banner_present_when_fallbacks(tmp_path: Path) -> None:
+    papers = [
+        _make("HighPaper", "high"),
+        _make("Stuck1", "low", fallback=True),
+        _make("Stuck2", "low", fallback=True),
+    ]
+    text = report.write_markdown(papers, tmp_path / "d.md", _AT).read_text(encoding="utf-8")
+    assert 'class="fallback-banner"' in text
+    assert "<strong>2 papers</strong>" in text
+    assert "couldn't be classified this run" in text
+    # The banner sits at the top, above Zone 1.
+    assert text.index("fallback-banner") < text.index("## Zone 1")
+
+
+def test_fallback_banner_singular_grammar(tmp_path: Path) -> None:
+    papers = [_make("HighPaper", "high"), _make("Stuck", "low", fallback=True)]
+    text = report.write_markdown(papers, tmp_path / "d.md", _AT).read_text(encoding="utf-8")
+    assert "<strong>1 paper</strong>" in text
+    assert "temporary API issue and is parked" in text
+
+
+def test_no_fallback_banner_when_zero_fallbacks(tmp_path: Path) -> None:
+    papers = [_make("HighPaper", "high"), _make("TailPaper", "low")]
+    text = report.write_markdown(papers, tmp_path / "d.md", _AT).read_text(encoding="utf-8")
+    assert "fallback-banner" not in text
 
 
 def test_field_summary_and_fold_for_off_lane(tmp_path: Path) -> None:

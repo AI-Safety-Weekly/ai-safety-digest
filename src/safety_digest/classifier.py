@@ -521,6 +521,7 @@ def _fallback_classification(paper: Paper, err: Exception) -> ClassifiedPaper:
             rationale="[auto] Could not be classified (transient API failure after "
                       "all retries); parked off-lane. Re-runs will reclassify it.",
             breakthrough=False,
+            fallback=True,
         ),
     )
 
@@ -578,6 +579,67 @@ def gemini_classify(
             results[idx] = cp
 
     return [cp for cp in results if cp is not None]
+
+
+# Default pause before the targeted re-sweep (seconds). The per-paper retry
+# schedule (~30 min) already elapsed during the main pass, so a short extra
+# wait is usually enough for a brief outage tail to clear. Overridable via the
+# CLI (--resweep-wait) or this call's argument; tests pass 0.
+_RESWEEP_DEFAULT_WAIT = 60.0
+
+
+def resweep_fallbacks(
+    classified: list[ClassifiedPaper],
+    api_key: str | None = None,
+    extra_system_text: str | None = None,
+    max_workers: int | None = None,
+    wait_seconds: float = _RESWEEP_DEFAULT_WAIT,
+) -> list[ClassifiedPaper]:
+    """Re-classify ONLY the papers that degraded to a transient-failure
+    fallback in the main pass (``classification.fallback``).
+
+    A sustained outage during ``gemini_classify`` parks papers at a flagged
+    "low" default rather than aborting the run. By the time the main pass
+    returns, the per-paper ~30-min retry schedule has already elapsed, so the
+    outage may well have cleared. This makes one more targeted attempt: pause
+    briefly (``wait_seconds``), then re-call ``gemini_classify`` on just the
+    fallback papers (already in memory — no re-collection) and splice the new
+    results back into their original positions.
+
+    Returns a NEW list in the same order. Papers without a fallback pass
+    through untouched. If nothing fell back, returns a copy unchanged with no
+    wait and no API calls. Detection is by the ``fallback`` flag only — never
+    by matching the rationale text.
+    """
+    fallback_idx = [i for i, cp in enumerate(classified) if cp.classification.fallback]
+    if not fallback_idx:
+        return list(classified)
+
+    log.warning(
+        "Re-sweep: %d paper(s) fell back to a transient-failure default; "
+        "waiting %.0fs then re-classifying just those",
+        len(fallback_idx), wait_seconds,
+    )
+    if wait_seconds > 0:
+        time.sleep(wait_seconds)
+
+    subset = [classified[i].paper for i in fallback_idx]
+    rescored = gemini_classify(
+        subset, api_key=api_key, extra_system_text=extra_system_text,
+        max_workers=max_workers,
+    )
+
+    results = list(classified)
+    rescued = 0
+    for i, cp in zip(fallback_idx, rescored):
+        if not cp.classification.fallback:
+            rescued += 1
+        results[i] = cp
+    log.warning(
+        "Re-sweep: rescued %d/%d fallback paper(s); %d still unclassified",
+        rescued, len(fallback_idx), len(fallback_idx) - rescued,
+    )
+    return results
 
 
 # ── Section summaries (medium overview + Zone 3 "rest of the field") ────────

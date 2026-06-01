@@ -107,10 +107,18 @@ class StateStore:
         Uses ``INSERT OR IGNORE`` so a paper's ``first_seen_week`` stays the
         earliest week it appeared. Returns the number of *newly* recorded
         keys (rows that didn't already exist).
+
+        Papers still carrying ``classification.fallback`` (an unresolved
+        transient-failure default, even after the in-run re-sweep) are NOT
+        recorded as seen — leaving them unrecorded means a later week's
+        ``filter_unseen`` won't drop them, so the next run re-collects and
+        re-classifies them naturally (self-heal across runs).
         """
         now = datetime.now().isoformat(timespec="seconds")
         inserted = 0
         for cp in classified:
+            if cp.classification.fallback:
+                continue
             paper = cp.paper
             cur = self._conn.execute(
                 "INSERT OR IGNORE INTO seen_papers "

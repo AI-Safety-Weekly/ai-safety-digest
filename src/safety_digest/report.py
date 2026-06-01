@@ -145,6 +145,23 @@ def write_markdown(
         lines.append(f"_+ {len(dropped)} paper(s) dropped as off-topic per reviewer rules._")
     lines.append("")
 
+    # Degraded-run banner: papers that couldn't be classified this run (a
+    # transient API outage that survived even the in-run re-sweep) are parked
+    # at "low" and buried in Zone 3. Flag that loudly at the top so the run
+    # doesn't read as clean — they'll be re-evaluated next run (they're held
+    # out of the state store). Keyed off the `fallback` flag, not the text.
+    fallback_n = sum(1 for cp in papers if cp.classification.fallback)
+    if fallback_n:
+        noun = "paper" if fallback_n == 1 else "papers"
+        verb = "is" if fallback_n == 1 else "are"
+        lines += [
+            f'<div class="fallback-banner">⚠️ <strong>{fallback_n} {noun}</strong> '
+            f"couldn't be classified this run due to a temporary API issue and {verb} "
+            "parked in Zone 3 below; they'll be re-evaluated automatically next run."
+            "</div>",
+            "",
+        ]
+
     # ── Zone 1 — direct lane (high) ────────────────────────────────────────
     if high:
         lines += ["## Zone 1 · Your lane — read these { #high-relevance }", ""]

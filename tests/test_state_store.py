@@ -21,11 +21,14 @@ def _paper(arxiv_id: str, title: str = "Example", source: str = "arxiv") -> Pape
     )
 
 
-def _classified(paper: Paper, relevance: str = "high") -> ClassifiedPaper:
+def _classified(
+    paper: Paper, relevance: str = "high", *, fallback: bool = False
+) -> ClassifiedPaper:
     return ClassifiedPaper(
         paper=paper,
         classification=Classification(
-            relevance=relevance, safety_areas=["alignment"], summary="s", rationale="r"
+            relevance=relevance, safety_areas=["alignment"], summary="s", rationale="r",
+            fallback=fallback,
         ),
     )
 
@@ -96,6 +99,30 @@ def test_distinct_papers_survive(tmp_path) -> None:
     db = tmp_path / "state.db"
     with state_store.StateStore(db) as store:
         store.record([_classified(_paper("2605.0001"))], "2026-W22")
+        sup = store.filter_unseen([_paper("2605.0002")], "2026-W23")
+        assert [x.arxiv_id for x in sup.kept] == ["2605.0002"]
+        assert sup.suppressed == []
+
+
+def test_fallback_paper_not_recorded_so_next_run_recollects(tmp_path) -> None:
+    """A paper still carrying classification.fallback (unresolved transient
+    failure even after the re-sweep) must NOT be recorded as seen — leaving it
+    unrecorded means a later week won't suppress it, so the next run
+    re-collects and re-classifies it (self-heal)."""
+    db = tmp_path / "state.db"
+    good = _paper("2605.0001", title="Good")
+    fell = _paper("2605.0002", title="Fallback")
+    with state_store.StateStore(db) as store:
+        recorded = store.record(
+            [_classified(good), _classified(fell, "low", fallback=True)], "2026-W22"
+        )
+        assert recorded == 1  # only the good paper persisted
+        # The fallback paper left no row at all…
+        row = store._conn.execute(
+            "SELECT 1 FROM seen_papers WHERE dedupe_key = ?", ("arxiv:2605.0002",),
+        ).fetchone()
+        assert row is None
+        # …so re-collecting it next week is NOT suppressed.
         sup = store.filter_unseen([_paper("2605.0002")], "2026-W23")
         assert [x.arxiv_id for x in sup.kept] == ["2605.0002"]
         assert sup.suppressed == []

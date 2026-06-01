@@ -92,6 +92,21 @@ def main() -> None:
              "judged on title+abstract only.",
     )
     parser.add_argument(
+        "--no-resweep",
+        action="store_true",
+        help="Skip the in-run re-sweep of papers that degraded to a "
+             "transient-failure fallback during classification. Normally a "
+             "brief wait + a targeted re-classify of just those papers rescues "
+             "them when a Gemini outage clears mid-run.",
+    )
+    parser.add_argument(
+        "--resweep-wait",
+        type=float,
+        default=classifier._RESWEEP_DEFAULT_WAIT,
+        help="Seconds to wait before the fallback re-sweep, giving a transient "
+             f"outage a moment to clear (default: {classifier._RESWEEP_DEFAULT_WAIT:.0f}).",
+    )
+    parser.add_argument(
         "--no-field-summary",
         action="store_true",
         help="Skip both themed section briefs (the medium/backbone TL;DR and "
@@ -291,6 +306,17 @@ def main() -> None:
     else:
         log.info("Classifying via Claude Sonnet 4.6")
         classified = classifier.classify(papers, extra_system_text=learned_context)
+
+    # Targeted re-sweep: if any paper degraded to a transient-failure fallback
+    # during the main pass (a Gemini outage), pause briefly and re-classify
+    # just those papers — the outage often clears by now. Runs BEFORE deep-read
+    # and the state-store record so a rescued paper flows through normally.
+    # Skipped under --dry-run (no API) and --no-resweep.
+    if not args.dry_run and not args.no_resweep:
+        classified = classifier.resweep_fallbacks(
+            classified, extra_system_text=learned_context,
+            wait_seconds=args.resweep_wait,
+        )
 
     # Deep-read pass: anything that would be LISTED on the site (Zone 1/2) and
     # comes from a lab/blog/forum source gets its full article body fetched and

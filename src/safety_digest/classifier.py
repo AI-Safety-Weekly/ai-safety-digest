@@ -423,6 +423,12 @@ _GEMINI_RESPONSE_SCHEMA = {
 }
 
 
+# Retry backoff (seconds) for transient Gemini errors (429/5xx/network).
+# 11 attempts, ~30 min cumulative — wide enough that exhausting it means a
+# sustained Google outage, not a normal demand spike. Overridable for tests.
+_GEMINI_RETRY_DELAYS = [0, 5, 15, 30, 60, 120, 180, 300, 300, 300, 300]
+
+
 def _gemini_post(url: str, api_key: str, body: dict, label: str) -> dict:
     """POST to Gemini with retry/backoff on transient errors and return the
     parsed JSON object from the model's (structured) response text.
@@ -432,9 +438,15 @@ def _gemini_post(url: str, api_key: str, body: dict, label: str) -> dict:
     response; callers that must not abort the run catch and degrade.
     """
     last_err: Exception | None = None
-    for attempt, delay in enumerate([0, 5, 20, 60, 180]):
+    # Deliberately deep backoff: ~30 min of cumulative waiting across 11
+    # attempts. Transient Gemini 503/429 spikes are seconds-to-minutes, so
+    # exhausting this requires a sustained multi-hour Google outage — at which
+    # point the caller's graceful fallback (default tier) keeps the run alive
+    # rather than failing the whole weekly digest over one paper.
+    for attempt, delay in enumerate(_GEMINI_RETRY_DELAYS):
         if delay:
-            log.warning("Gemini retry %d for %s, sleeping %ds", attempt, label, delay)
+            log.warning("Gemini retry %d/%d for %s, sleeping %ds",
+                        attempt, len(_GEMINI_RETRY_DELAYS) - 1, label, delay)
             time.sleep(delay)
         try:
             r = requests.post(url, params={"key": api_key}, json=body, timeout=90)
@@ -491,6 +503,28 @@ def _gemini_classify_one(
     )
 
 
+def _fallback_classification(paper: Paper, err: Exception) -> ClassifiedPaper:
+    """Safe default when a paper can't be classified even after the full retry
+    schedule (i.e. a sustained API outage). The paper is parked at "low" so it
+    lands off-lane (Zone 3) rather than being asserted into a listed tier, and
+    the rationale flags it so the failure is visible, never silent. This keeps
+    the weekly run alive instead of aborting the whole digest over one item.
+    """
+    log.error("Classification failed for %r after all retries (%s) — parking at 'low'",
+              paper.title[:60], err)
+    return ClassifiedPaper(
+        paper=paper,
+        classification=Classification(
+            relevance="low",
+            safety_areas=[],
+            summary=(paper.abstract or paper.title)[:240],
+            rationale="[auto] Could not be classified (transient API failure after "
+                      "all retries); parked off-lane. Re-runs will reclassify it.",
+            breakthrough=False,
+        ),
+    )
+
+
 def gemini_classify(
     papers: list[Paper],
     api_key: str | None = None,
@@ -502,8 +536,10 @@ def gemini_classify(
     Calls run in a thread pool (default 8, override with GEMINI_MAX_WORKERS or
     the ``max_workers`` arg). On the paid tier this cuts a ~700-paper run from
     ~2h to ~10 min. Results are returned in the same order as ``papers``. A
-    paper that exhausts its retries raises and aborts the run (same fail-hard
-    behaviour as before).
+    paper that exhausts the (deep) retry schedule does NOT abort the run — it
+    degrades to a flagged "low" fallback (see ``_fallback_classification``), so
+    a sustained API outage costs at most a few mis-parked papers, not the whole
+    weekly digest.
     """
     if not papers:
         return []
@@ -528,7 +564,10 @@ def gemini_classify(
     def work(item: tuple[int, Paper]) -> tuple[int, ClassifiedPaper]:
         nonlocal done
         idx, paper = item
-        cp = _gemini_classify_one(paper, url, api_key, system_text)
+        try:
+            cp = _gemini_classify_one(paper, url, api_key, system_text)
+        except Exception as e:  # noqa: BLE001 — one paper must not abort the run
+            cp = _fallback_classification(paper, e)
         with lock:
             done += 1
             log.info("Classified %d/%d: %s", done, len(papers), paper.title[:70])

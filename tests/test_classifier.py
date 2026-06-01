@@ -107,6 +107,42 @@ def test_retries_then_succeeds(monkeypatch):
     assert calls["n"] == 2  # one failure + one success
 
 
+def test_permanent_503_degrades_not_aborts(monkeypatch):
+    """A paper that 503s through ALL retries must NOT abort the run — it
+    degrades to a flagged 'low' fallback so the weekly digest still publishes."""
+    monkeypatch.setattr(classifier.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(classifier, "_GEMINI_RETRY_DELAYS", [0, 0, 0])  # fast exhaust
+
+    papers = [_paper(0), _paper(1), _paper(2)]
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        text = json["contents"][0]["parts"][0]["text"]
+        title = next(ln.split("Title: ", 1)[1] for ln in text.splitlines() if ln.startswith("Title: "))
+        # Paper 1 is permanently overloaded; the others succeed.
+        if title == "Paper 1":
+            return _FakeResp(503, {"error": {"code": 503, "status": "UNAVAILABLE"}})
+        return _FakeResp(200, _gemini_ok("high", title))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    out = classifier.gemini_classify(papers, api_key="test", max_workers=2)
+
+    assert len(out) == 3  # run completed, nothing dropped
+    assert [cp.paper.title for cp in out] == ["Paper 0", "Paper 1", "Paper 2"]
+    # the failed one is parked at low and flagged
+    assert out[1].classification.relevance == "low"
+    assert "[auto]" in out[1].classification.rationale
+    # the others classified normally
+    assert out[0].classification.relevance == "high"
+    assert out[2].classification.relevance == "high"
+
+
+def test_retry_schedule_is_deep():
+    """Guard against accidentally shrinking the backoff — exhausting it should
+    require a sustained outage, not a brief spike."""
+    assert len(classifier._GEMINI_RETRY_DELAYS) >= 10
+    assert sum(classifier._GEMINI_RETRY_DELAYS) >= 1500  # ≥25 min cumulative
+
+
 def test_empty_input_returns_empty():
     assert classifier.gemini_classify([], api_key="test") == []
 

@@ -1,0 +1,105 @@
+name: Digest watchdog
+
+# Safety net for the weekly digest's flaky GitHub-scheduled trigger.
+#
+# GitHub scheduled runs are best-effort and can be silently dropped under load
+# (this is exactly what happened on 2026-06-01 — see weekly.yml's cron comment).
+# This workflow fires a few times every Monday at off-peak minutes, checks
+# whether the weekly pipeline has actually run/published today, and — only if it
+# hasn't — dispatches weekly.yml to recover. Each fire is an independent ~30s
+# check, so it just takes ONE of them landing to self-heal. The same dropped-run
+# risk applies to this workflow too, which is why it fires multiple times: the
+# redundancy is the whole point.
+
+on:
+  schedule:
+    # Mondays, after the primary 12:17 UTC run would have started (a full
+    # pipeline takes ~2h). Three off-peak windows = three independent chances.
+    #   13:43 — primary should be mid-run; if it never started, recover early.
+    #   15:43 — primary (or a 13:43 recovery) should be finishing/published.
+    #   17:43 — last-chance backstop for the day.
+    - cron: "43 13 * * 1"
+    - cron: "43 15 * * 1"
+    - cron: "43 17 * * 1"
+  workflow_dispatch: {}
+
+# The built-in GITHUB_TOKEN is enough to dispatch weekly.yml: per GitHub's docs,
+# "workflow_dispatch and repository_dispatch events always create workflow runs"
+# even when triggered by GITHUB_TOKEN (the recursion-prevention rule that
+# suppresses most token-triggered events does NOT apply to these two). So no PAT
+# or extra secret is required — we only need actions:write to call dispatch.
+permissions:
+  contents: read     # read commit history to detect "published today"
+  actions: write     # dispatch weekly.yml when recovery is needed
+
+# Don't let two watchdog fires race into a double-dispatch.
+concurrency:
+  group: digest-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Did the digest run today? Recover if not.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TODAY="$(date -u +%Y-%m-%d)"
+          SINCE="${TODAY}T00:00:00Z"
+          echo "Watchdog check for UTC day: ${TODAY}"
+
+          # --- Gather signals --------------------------------------------------
+          # weekly.yml runs (recent), and any digest commits the bot pushed today.
+          RUNS="$(gh run list --repo "$REPO" --workflow weekly.yml --limit 40 \
+            --json databaseId,status,conclusion,event,createdAt,startedAt,updatedAt)"
+          PUBLISHED="$(gh api "repos/${REPO}/commits?sha=main&since=${SINCE}" \
+            --jq '[.[].commit.message | select(startswith("Weekly digest:"))] | length' \
+            2>/dev/null || echo 0)"
+
+          # A run created today that is still running.
+          ACTIVE="$(jq --arg d "$TODAY" \
+            '[.[] | select((.createdAt|startswith($d)) and (.status=="queued" or .status=="in_progress"))] | length' \
+            <<<"$RUNS")"
+
+          # A run created today that SUCCEEDED and lasted > 20 min — i.e. a real
+          # pipeline, not a ~40s build-only / test dispatch.
+          REAL_PIPELINE="$(jq --arg d "$TODAY" \
+            '[.[] | select((.createdAt|startswith($d)) and .conclusion=="success"
+                           and ((.updatedAt|fromdateiso8601) - (.startedAt|fromdateiso8601) > 1200))] | length' \
+            <<<"$RUNS")"
+
+          # A scheduled attempt that completed today — even if it FAILED. A failed
+          # pipeline "ran"; re-dispatching would likely just fail again, so we
+          # don't. (Pipeline failures are a separate alerting concern.)
+          SCHEDULED="$(jq --arg d "$TODAY" \
+            '[.[] | select((.createdAt|startswith($d)) and .event=="schedule" and .status=="completed")] | length' \
+            <<<"$RUNS")"
+
+          echo "Signals — active:${ACTIVE} real_pipeline:${REAL_PIPELINE} scheduled_done:${SCHEDULED} published:${PUBLISHED}"
+
+          if [ "$ACTIVE" -gt 0 ] || [ "$REAL_PIPELINE" -gt 0 ] || [ "$SCHEDULED" -gt 0 ] || [ "$PUBLISHED" -gt 0 ]; then
+            {
+              echo "### ✅ Digest already ran today (${TODAY}) — nothing to do."
+              echo ""
+              echo "| signal | count |"
+              echo "|---|---|"
+              echo "| run active now | ${ACTIVE} |"
+              echo "| real pipeline succeeded today | ${REAL_PIPELINE} |"
+              echo "| scheduled run completed today | ${SCHEDULED} |"
+              echo "| digest published today | ${PUBLISHED} |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Nothing to do."
+            exit 0
+          fi
+
+          echo "::warning::No digest run detected for ${TODAY}; dispatching weekly.yml to recover."
+          gh workflow run weekly.yml --repo "$REPO" --ref main
+          {
+            echo "### ⚠️ No digest run found for ${TODAY} — recovery dispatched"
+            echo ""
+            echo "The scheduled weekly run appears to have been dropped. The watchdog"
+            echo "dispatched \`weekly.yml\` (full pipeline) to publish this week's digest."
+          } >> "$GITHUB_STEP_SUMMARY"

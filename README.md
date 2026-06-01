@@ -168,19 +168,30 @@ a brief** — and the digest file dropped from ~772 KB to ~185 KB. The structure
   breakthrough, 545 folded; 772KB→185KB). Live W23 is being regenerated in the
   three-zone format via a dispatched weekly run.
 - ✅ Governance/policy sources (GovAI, CSET, RAND) are in `config/lab_sources.yml`
-  and fetch real items (verified 2026-06-01). CSET/RAND content is in-lane;
-  GovAI's loose feed also pulls job postings (dropped downstream by GATE 0).
+  and fetch real items. RAND is `strict` (an all-topics firehose); GovAI/CSET are
+  `loose`. RAND's HTML article pages 403 a bot UA, so `lab_collector` sends a
+  browser-like `USER_AGENT` (needed for the deep-read step), and the strict
+  keyword list gained `artificial general intelligence` / `compute governance`
+  (AI-anchored, so they don't leak non-AI RAND items).
+- ✅ Governance items reach Zone 1 (re-verified 2026-06-01, 3 runs). On the real
+  week, CSET's "PRC AI cybersecurity standard" → `high`, RAND's AGI-race game
+  theory → `high`, RAND's "frontier AI for offensive cyberattacks" → `medium`
+  backbone. GovAI that week published only hiring/event posts → all correctly
+  `off_topic` (folded, listed nowhere). (An earlier roadmap note claimed these
+  were over-dropped; that didn't reproduce — Gemini classification is stochastic
+  run-to-run, so validate zone placement across several runs, not one.)
 
 **Remaining to complete the retarget:**
-1. **Make governance items actually reach Zone 1 — the real open problem.** The
-   feeds are wired, but in W23 all 4 collected governance items missed Aaron's
-   read-these zone: 2 GovAI job postings (noise), CSET's "PRC Cybersecurity
-   Technology standard" dropped by GATE 0, and RAND's "frontier AI for offensive
-   cyberattacks" dropped as `off_topic`. That last drop looks too aggressive (it
-   *is* about frontier AI). Next session should: (a) watch a few weeks to see if
-   in-lane governance work surfaces, (b) check whether GATE 0 / the classifier
-   over-drops policy/standards docs, and (c) consider tightening GovAI to skip
-   hiring posts. This — not adding sources — is the unlock for Aaron's niche.
+1. **Multi-week taste-tuning of the off_topic / low / Zone-1 cut — Aaron's call.**
+   The governance retarget works (items reach Zone 1), so this is judgment, not a
+   bug. Over a few real weeks, have Aaron confirm the split feels right for
+   policy/standards/misuse docs — e.g. is a cyber-uplift eval `medium` backbone or
+   his direct lane; should a national AI standard be `high`. Don't pre-emptively
+   retune GATE 0 without evidence it's mis-cutting. Note: GovAI's `/post` feed is
+   a blog (hiring, fellowships, podcast/webinar recordings, annual reports) with
+   research surfacing intermittently; a hiring-post title blocklist isn't worth
+   building — there's no clean URL/category discriminator and GATE 0 already drops
+   the noise as `off_topic`.
 2. **2-pass comparative ranker — likely NOT needed now.** It was to be built
    only if Zone 1 stayed bloated (>30). Real W23 is 12 direct + 54 backbone,
    and the backbone now carries a TL;DR — so the bloat is effectively solved.

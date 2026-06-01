@@ -194,3 +194,54 @@ def test_fetch_article_body_extracts_text(monkeypatch):
     body = lab_collector.fetch_article_body("http://x")
     assert "Real content here." in body and "More body." in body
     assert "var x=1" not in body and "menu" not in body and "foot" not in body
+
+
+# ── section summaries (medium overview + Zone 3 brief) ──────────────────────
+
+
+def _gemini_summary_ok(themes: list[dict]) -> dict:
+    return {"candidates": [{"content": {"parts": [{"text": json.dumps({"themes": themes})}]}}]}
+
+
+def test_summarize_papers_groups_themes(monkeypatch):
+    items = [_classified("arxiv", "low", title="P1"), _classified("arxiv", "low", title="P2")]
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        text = json["contents"][0]["parts"][0]["text"]
+        assert "P1" in text and "P2" in text  # the papers are sent to the model
+        return _FakeResp(200, _gemini_summary_ok([
+            {"area": "evals", "sentence": "Evals work."},
+            {"area": "interpretability", "sentence": "Interp work."},
+        ]))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    fs = classifier.summarize_papers(items, focus="the rest of the field", api_key="test")
+    assert fs is not None
+    assert fs.total == 2
+    assert fs.themes == [("evals", "Evals work."), ("interpretability", "Interp work.")]
+
+
+def test_summarize_papers_empty_returns_none(monkeypatch):
+    monkeypatch.setattr(
+        classifier.requests, "post",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call for empty input")),
+    )
+    assert classifier.summarize_papers([], focus="x", api_key="test") is None
+
+
+def test_summarize_papers_none_when_no_themes(monkeypatch):
+    monkeypatch.setattr(
+        classifier.requests, "post", lambda *a, **k: _FakeResp(200, _gemini_summary_ok([])),
+    )
+    items = [_classified("arxiv", "low", title="P1")]
+    assert classifier.summarize_papers(items, focus="x", api_key="test") is None
+
+
+def test_summarize_papers_returns_none_on_api_failure(monkeypatch):
+    monkeypatch.setattr(classifier.time, "sleep", lambda *_: None)  # skip backoff
+    monkeypatch.setattr(
+        classifier.requests, "post", lambda *a, **k: _FakeResp(500, {"error": "boom"}),
+    )
+    items = [_classified("arxiv", "low", title="P1")]
+    # A failed brief must degrade to None, never raise and abort the run.
+    assert classifier.summarize_papers(items, focus="x", api_key="test") is None

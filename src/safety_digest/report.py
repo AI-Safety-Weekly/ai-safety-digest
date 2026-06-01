@@ -1,4 +1,16 @@
-"""Write the weekly digest as markdown, grouped by relevance tier."""
+"""Write the weekly digest as markdown, organized into Aaron's three zones.
+
+- **Zone 1** — his lane: `high` (direct) then `medium` (backbone). Full entries.
+  The medium backbone is a lot to skim, so it carries a themed TL;DR above it.
+- **Zone 2** — `breakthrough` papers from outside his lane (`low` + breakthrough).
+  Full entries, shown only when any exist.
+- **Zone 3** — the rest of the off-lane `low` papers: a themed "rest of the
+  field" brief instead of individual listings, with the full long tail tucked
+  into a collapsed `<details>` as lightweight one-liners.
+
+`off_topic` papers are dropped entirely (a footnote reports the count). The H2
+ids (`#high-relevance` etc.) are kept so the stylesheet can color-code them.
+"""
 
 from __future__ import annotations
 
@@ -6,16 +18,14 @@ from datetime import datetime
 from html import escape
 from pathlib import Path
 
-from .models import ClassifiedPaper
+from .models import ClassifiedPaper, FieldSummary
 
-TIER_ORDER = ("high", "medium", "low")
-# Explicit {#id} on H2s so the stylesheet can color-code tiers (high=red etc).
-TIER_HEADING = {
-    "high":   "## High relevance — read these { #high-relevance }",
-    "medium": "## Medium relevance — worth a skim { #medium-relevance }",
-    "low":    "## Low relevance — context only { #low-relevance }",
-}
 TIER_LABEL = {"high": "High", "medium": "Medium", "low": "Low"}
+
+
+def _primary_area(cp: ClassifiedPaper) -> str:
+    areas = cp.classification.safety_areas
+    return areas[0] if areas else "other"
 
 
 def _format_paper(cp: ClassifiedPaper) -> str:
@@ -23,7 +33,11 @@ def _format_paper(cp: ClassifiedPaper) -> str:
     c = cp.classification
     tier = c.relevance
     tags = " ".join(f"`{a}`" for a in c.safety_areas) or "_no tag_"
-    pill = f'<span class="tier-pill tier-pill-{tier}">{TIER_LABEL[tier]}</span>'
+    if c.breakthrough and tier == "low":
+        # Zone 2: an out-of-lane paper flagged as genuinely groundbreaking.
+        pill = '<span class="tier-pill tier-pill-breakthrough">⚡ Breakthrough</span>'
+    else:
+        pill = f'<span class="tier-pill tier-pill-{tier}">{TIER_LABEL[tier]}</span>'
 
     is_lab = p.source == "lab"
     is_forum = p.source == "forum"
@@ -61,48 +75,115 @@ def _format_paper(cp: ClassifiedPaper) -> str:
     )
 
 
-def write_markdown(papers: list[ClassifiedPaper], out_path: Path, run_at: datetime) -> Path:
-    """Write a markdown digest. Returns the path written.
+def _format_paper_brief(cp: ClassifiedPaper) -> str:
+    """One lightweight line for the collapsed off-lane long tail: title + link
+    + tags only (no summary/rationale/feedback) to keep the file small."""
+    p = cp.paper
+    tags = " ".join(f"`{a}`" for a in cp.classification.safety_areas)
+    suffix = f" · {tags}" if tags else ""
+    return f"- [{p.title}]({p.url}){suffix}"
 
-    Papers classified as `off_topic` (by a reviewer-set exclusion rule) are
-    dropped from the digest entirely — they don't appear in any tier section.
-    A small footnote near the header reports the count so the reviewer can
-    audit what's being suppressed.
+
+def _render_brief(summary: FieldSummary, intro: str) -> list[str]:
+    lines = [f"_{intro}_", ""]
+    for area, sentence in summary.themes:
+        lines.append(f"- **{area or 'other'}** — {sentence}")
+    lines.append("")
+    return lines
+
+
+def write_markdown(
+    papers: list[ClassifiedPaper],
+    out_path: Path,
+    run_at: datetime,
+    *,
+    medium_overview: FieldSummary | None = None,
+    field_summary: FieldSummary | None = None,
+) -> Path:
+    """Write a three-zone markdown digest. Returns the path written.
+
+    `medium_overview` (optional) is a themed TL;DR rendered above the medium
+    (Zone 1 backbone) listings. `field_summary` (optional) is the Zone 3 "rest
+    of the field" brief that stands in for the off-lane long tail. Either may be
+    None (e.g. --no-field-summary, --dry-run, or a summary call that failed),
+    in which case that brief is simply omitted.
+
+    `off_topic` papers are dropped from the digest entirely; a footnote near the
+    header reports the count so the reviewer can audit what's being suppressed.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    grouped: dict[str, list[ClassifiedPaper]] = {t: [] for t in TIER_ORDER}
+
+    high: list[ClassifiedPaper] = []
+    medium: list[ClassifiedPaper] = []
+    zone2: list[ClassifiedPaper] = []
+    off_lane: list[ClassifiedPaper] = []
     dropped: list[ClassifiedPaper] = []
     for cp in papers:
         tier = cp.classification.relevance
         if tier == "off_topic":
             dropped.append(cp)
-        elif tier in grouped:
-            grouped[tier].append(cp)
-        else:
-            # Unknown tier — render as low rather than silently lose.
-            grouped["low"].append(cp)
+        elif tier == "high":
+            high.append(cp)
+        elif tier == "medium":
+            medium.append(cp)
+        elif cp.classification.breakthrough:  # low + breakthrough → Zone 2
+            zone2.append(cp)
+        else:  # low (and any unknown tier) → Zone 3 off-lane
+            off_lane.append(cp)
 
-    visible = sum(len(grouped[t]) for t in TIER_ORDER)
-    counts = " · ".join(f"{t}: {len(grouped[t])}" for t in TIER_ORDER)
+    total = len(high) + len(medium) + len(zone2) + len(off_lane)
+    counts = (
+        f"Zone 1: {len(high)} direct + {len(medium)} backbone · "
+        f"Zone 2: {len(zone2)} · Zone 3: {len(off_lane)}"
+    )
     lines: list[str] = [
         f"# AI Safety Digest — week of {run_at.strftime('%Y-%m-%d')}",
         "",
-        f"_{counts} · {visible} papers total_",
+        f"_{counts} · {total} papers total_",
     ]
     if dropped:
-        lines.append(
-            f"_+ {len(dropped)} paper(s) dropped as off-topic per reviewer rules._"
-        )
+        lines.append(f"_+ {len(dropped)} paper(s) dropped as off-topic per reviewer rules._")
     lines.append("")
-    for tier in TIER_ORDER:
-        bucket = grouped[tier]
-        if not bucket:
-            continue
-        lines.append(TIER_HEADING[tier])
-        lines.append("")
-        for cp in bucket:
-            lines.append(_format_paper(cp))
+
+    # ── Zone 1 — direct lane (high) ────────────────────────────────────────
+    if high:
+        lines += ["## Zone 1 · Your lane — read these { #high-relevance }", ""]
+        for cp in high:
+            lines += [_format_paper(cp), ""]
+
+    # ── Zone 1 — backbone (medium), with a themed TL;DR on top ──────────────
+    if medium:
+        lines += ["## Zone 1 · Backbone — worth a skim { #medium-relevance }", ""]
+        if medium_overview is not None:
+            lines += _render_brief(medium_overview, "The week's backbone, by theme:")
+        for cp in medium:
+            lines += [_format_paper(cp), ""]
+
+    # ── Zone 2 — breakthroughs from outside the lane ───────────────────────
+    if zone2:
+        lines += ["## Zone 2 · Breakthroughs from outside your lane { #zone-2 }", ""]
+        for cp in zone2:
+            lines += [_format_paper(cp), ""]
+
+    # ── Zone 3 — rest of the field: brief + collapsed long tail ────────────
+    if off_lane:
+        lines += ["## Zone 3 · The rest of the field { #low-relevance }", ""]
+        if field_summary is not None:
+            lines += _render_brief(field_summary, "What else moved this week, by theme:")
+        # markdown="1" so the nested theme headers + link lists inside the fold
+        # are parsed as markdown (md_in_html is enabled in mkdocs.yml).
+        lines += [
+            f'<details markdown="1"><summary>Browse all {len(off_lane)} off-lane papers</summary>',
+            "",
+        ]
+        groups: dict[str, list[ClassifiedPaper]] = {}
+        for cp in off_lane:
+            groups.setdefault(_primary_area(cp), []).append(cp)
+        for area, bucket in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+            lines += [f"**{area}** ({len(bucket)})", ""]
+            lines += [_format_paper_brief(cp) for cp in bucket]
             lines.append("")
+        lines += ["</details>", ""]
 
     out_path.write_text("\n".join(lines), encoding="utf-8")
     return out_path

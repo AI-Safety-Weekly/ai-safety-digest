@@ -6,10 +6,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from safety_digest import report
-from safety_digest.models import Classification, ClassifiedPaper, Paper
+from safety_digest.models import Classification, ClassifiedPaper, FieldSummary, Paper
 
 
-def _make(title: str, relevance: str) -> ClassifiedPaper:
+def _make(
+    title: str,
+    relevance: str,
+    *,
+    breakthrough: bool = False,
+    safety_areas: tuple[str, ...] = ("alignment",),
+) -> ClassifiedPaper:
     return ClassifiedPaper(
         paper=Paper(
             title=title,
@@ -23,11 +29,15 @@ def _make(title: str, relevance: str) -> ClassifiedPaper:
         ),
         classification=Classification(
             relevance=relevance,  # type: ignore[arg-type]
-            safety_areas=["alignment"],
+            safety_areas=list(safety_areas),
             summary=f"summary of {title}",
             rationale=f"rationale for {title}",
+            breakthrough=breakthrough,
         ),
     )
+
+
+_AT = datetime(2026, 5, 25, tzinfo=timezone.utc)
 
 
 def test_off_topic_papers_dropped_from_render(tmp_path: Path) -> None:
@@ -63,3 +73,62 @@ def test_no_footnote_when_nothing_dropped(tmp_path: Path) -> None:
     path = report.write_markdown(papers, tmp_path / "d.md", datetime(2026, 5, 25, tzinfo=timezone.utc))
     text = path.read_text(encoding="utf-8")
     assert "dropped as off-topic" not in text
+
+
+def test_zones_partition_papers(tmp_path: Path) -> None:
+    papers = [
+        _make("HighPaper", "high"),
+        _make("MedPaper", "medium"),
+        _make("BreakPaper", "low", breakthrough=True),
+        _make("TailPaper", "low"),
+    ]
+    text = report.write_markdown(papers, tmp_path / "d.md", _AT).read_text(encoding="utf-8")
+    assert "## Zone 1 · Your lane" in text
+    assert "## Zone 1 · Backbone" in text
+    assert "## Zone 2 · Breakthroughs" in text
+    assert "## Zone 3 · The rest of the field" in text
+    # The breakthrough paper carries the Zone 2 pill, not a "Low" pill.
+    assert "tier-pill-breakthrough" in text
+    assert "⚡ Breakthrough" in text
+
+
+def test_off_lane_papers_are_one_liners_not_full_entries(tmp_path: Path) -> None:
+    papers = [_make("HighPaper", "high"), _make("TailPaper", "low")]
+    text = report.write_markdown(papers, tmp_path / "d.md", _AT).read_text(encoding="utf-8")
+    # The off-lane paper appears (title/link) but NOT as a full entry:
+    assert "TailPaper" in text
+    assert "summary of TailPaper" not in text       # no summary block
+    assert "rationale for TailPaper" not in text     # no Why? block
+    # A high paper still renders its full summary:
+    assert "summary of HighPaper" in text
+    # Collapsed long tail present:
+    assert '<details markdown="1"><summary>Browse all 1 off-lane papers</summary>' in text
+
+
+def test_zone2_section_absent_without_breakthrough(tmp_path: Path) -> None:
+    papers = [_make("HighPaper", "high"), _make("TailPaper", "low")]
+    text = report.write_markdown(papers, tmp_path / "d.md", _AT).read_text(encoding="utf-8")
+    assert "## Zone 2" not in text
+
+
+def test_medium_overview_rendered_above_medium_entries(tmp_path: Path) -> None:
+    papers = [_make("MedPaper", "medium")]
+    overview = FieldSummary(themes=[("evals", "Plenty of capability-eval work.")], total=1)
+    text = report.write_markdown(
+        papers, tmp_path / "d.md", _AT, medium_overview=overview
+    ).read_text(encoding="utf-8")
+    assert "Plenty of capability-eval work." in text
+    # The themed TL;DR comes before the full medium entry, which is still listed.
+    assert text.index("Plenty of capability-eval work.") < text.index("summary of MedPaper")
+    assert "summary of MedPaper" in text
+
+
+def test_field_summary_and_fold_for_off_lane(tmp_path: Path) -> None:
+    papers = [_make("TailPaper", "low", safety_areas=("interpretability",))]
+    brief = FieldSummary(themes=[("interpretability", "Interp keeps advancing.")], total=1)
+    text = report.write_markdown(
+        papers, tmp_path / "d.md", _AT, field_summary=brief
+    ).read_text(encoding="utf-8")
+    assert "Interp keeps advancing." in text
+    assert "**interpretability** (1)" in text          # fold grouped by primary area
+    assert "TailPaper" in text

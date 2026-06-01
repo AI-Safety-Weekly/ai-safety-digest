@@ -1,6 +1,7 @@
 /* ─── Tier section headings — colored bar for instant scanning ────── */
 h2#high-relevance,
 h2#medium-relevance,
+h2#zone-2,
 h2#low-relevance {
   padding-left: 0.6em;
   padding-top: 1.5em;
@@ -15,6 +16,7 @@ h2#high-relevance:first-of-type {
 }
 h2#high-relevance   { color: #d32f2f; }   /* red    */
 h2#medium-relevance { color: #ed6c02; }   /* orange */
+h2#zone-2           { color: #7c3aed; }   /* violet */
 h2#low-relevance    { color: #6b7280; }   /* gray   */
 
 /* ─── Tier pill on each paper title ───────────────────────────────── */
@@ -33,6 +35,7 @@ h2#low-relevance    { color: #6b7280; }   /* gray   */
 .tier-pill-high   { background: #d32f2f; }
 .tier-pill-medium { background: #ed6c02; }
 .tier-pill-low    { background: #6b7280; }
+.tier-pill-breakthrough { background: #7c3aed; }   /* Zone 2 */
 
 .lab-badge {
   display: inline-block;
@@ -186,7 +189,9 @@ details > summary:hover { color: var(--md-default-fg-color); }
 /* ─── Dark-mode tweaks ────────────────────────────────────────────── */
 [data-md-color-scheme="slate"] h2#high-relevance   { color: #ef5350; }
 [data-md-color-scheme="slate"] h2#medium-relevance { color: #ffa726; }
+[data-md-color-scheme="slate"] h2#zone-2           { color: #a78bfa; }
 [data-md-color-scheme="slate"] h2#low-relevance    { color: #9ca3af; }
 [data-md-color-scheme="slate"] .tier-pill-high   { background: #ef5350; }
 [data-md-color-scheme="slate"] .tier-pill-medium { background: #ffa726; }
 [data-md-color-scheme="slate"] .tier-pill-low    { background: #9ca3af; color: #1f2937; }
+[data-md-color-scheme="slate"] .tier-pill-breakthrough { background: #a78bfa; color: #1f2937; }

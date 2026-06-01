@@ -131,7 +131,7 @@ Every Monday morning (10:17 UTC ≈ 6am ET) a GitHub Actions job runs and:
   search — backlog.
 - Translation pass for non-English abstracts — backlog.
 
-### Phase 5 — Retarget to Aaron's focus (in progress — classifier live, report layout pending)
+### Phase 5 — Retarget to Aaron's focus (classifier + three-zone layout shipped; 2-pass ranker deferred)
 The digest is a favor for **Aaron**, who works on preventing existential
 risk from AI — specifically **International Coordination on AI** with an
 emphasis on **Verification Mechanisms**. A real uncapped week produces ~150
@@ -142,8 +142,9 @@ of *his* slice. We're retargeting it into a three-zone digest:
   control, frontier-lab safety releases).
 - **Zone 2** — rare "groundbreaking" papers from outside his lane (brutal
   single-pass bar, occasional misfire accepted; no 2-pass ranker in v1).
-- **Zone 3** — a one-paragraph "rest of the field" awareness brief instead of
-  listing the ~100+ off-lane papers.
+- **Zone 3** — a themed "rest of the field" awareness brief (grouped by safety
+  area) instead of listing the ~hundreds of off-lane papers, with the full long
+  tail tucked into a collapsed fold.
 
 **Status (as of 2026-06-01):**
 - ✅ Classifier retargeted to Aaron's scope, with a GATE 0 domain check and a
@@ -153,9 +154,14 @@ of *his* slice. We're retargeting it into a three-zone digest:
   title/abstract pass-1 shortlist is re-judged on real body text before listing.
 - ✅ Live on real data: W21 shipped as a preview, W22 regenerated with the
   retargeted classifier + GATE 0.
-- ⬜ Zone 3 "rest of the field" awareness brief — not yet built.
-- ⬜ Three-zone report rendering — `report.py` still groups by relevance tier
-  (`high`/`medium`/`low`), not the Zone 1/2/3 layout above.
+- ✅ Three-zone report rendering (`report.py`): Zone 1 (`high` lane + `medium`
+  backbone), Zone 2 (`low` + `breakthrough`, ⚡ pill), Zone 3 (the off-lane
+  long tail). `off_topic` still dropped.
+- ✅ Themed section briefs (`summarize_papers` in `classifier.py`): a TL;DR over
+  the medium backbone (a lot to skim) and the Zone 3 "rest of the field" brief,
+  both grouped by safety area. The ~hundreds of off-lane papers collapse from
+  individual entries into the brief + a foldable `<details>` long tail, so the
+  digest file shrinks dramatically. `--no-field-summary` disables both.
 - ⏸️ 2-pass comparative ranker — deferred by design; build only if Zone 1 stays
   bloated on real data (see PLAN.md).
 

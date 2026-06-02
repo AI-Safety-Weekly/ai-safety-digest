@@ -388,6 +388,46 @@ def test_summarize_papers_no_groups_without_flag(monkeypatch):
     assert fs is not None and fs.groups is None
 
 
+def test_thinking_config_default_none(monkeypatch):
+    monkeypatch.delenv("GEMINI_THINKING_BUDGET", raising=False)
+    assert classifier._thinking_config() is None
+
+
+def test_thinking_config_from_env(monkeypatch):
+    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "512")
+    assert classifier._thinking_config() == {"thinkingBudget": 512}
+    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "0")
+    assert classifier._thinking_config() == {"thinkingBudget": 0}
+    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "  ")  # blank → treated as unset
+    assert classifier._thinking_config() is None
+
+
+def test_classify_omits_thinking_config_by_default(monkeypatch):
+    monkeypatch.delenv("GEMINI_THINKING_BUDGET", raising=False)
+    captured = {}
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        captured["body"] = json
+        return _FakeResp(200, _gemini_ok("medium", "Paper 0"))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert "thinkingConfig" not in captured["body"]["generationConfig"]
+
+
+def test_classify_injects_thinking_budget_when_set(monkeypatch):
+    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "256")
+    captured = {}
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        captured["body"] = json
+        return _FakeResp(200, _gemini_ok("medium", "Paper 0"))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert captured["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 256}
+
+
 def test_summarize_papers_empty_returns_none(monkeypatch):
     monkeypatch.setattr(
         classifier.requests, "post",

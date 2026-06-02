@@ -35,6 +35,23 @@ MODEL = "claude-sonnet-4-6"
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+
+def _thinking_config() -> dict | None:
+    """Optional thinkingConfig for classification calls, from
+    ``GEMINI_THINKING_BUDGET``.
+
+    Thinking tokens bill as output and dominate the per-run cost. By default
+    (env unset) we send no ``thinkingConfig`` at all, so Gemini 2.5 Flash uses
+    its *dynamic* budget — the production behavior an A/B validated against
+    thinking-off. Set the env to cap it: a positive integer caps the budget
+    (cheaper), ``0`` turns thinking off, ``-1`` is explicit dynamic. Capping is
+    the main cost lever; validate tier agreement before lowering the default.
+    """
+    raw = os.environ.get("GEMINI_THINKING_BUDGET")
+    if raw is None or raw.strip() == "":
+        return None
+    return {"thinkingBudget": int(raw)}
+
 SYSTEM_PROMPT = """\
 You curate a weekly research digest for ONE specific reader, Aaron. Your job \
 is to decide how relevant each paper is TO AARON'S WORK — not to "AI safety" \
@@ -480,14 +497,18 @@ def _gemini_classify_one(
     If `full_text` is given (deep-read pass), it is appended to the user
     message so the model judges on the real article body, not a thin abstract.
     """
+    gen_config: dict = {
+        "responseMimeType": "application/json",
+        "responseSchema": _GEMINI_RESPONSE_SCHEMA,
+        "temperature": 0.1,
+    }
+    thinking = _thinking_config()
+    if thinking is not None:
+        gen_config["thinkingConfig"] = thinking
     body = {
         "contents": [{"role": "user", "parts": [{"text": _user_message(paper, full_text)}]}],
         "systemInstruction": {"parts": [{"text": system_text}]},
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": _GEMINI_RESPONSE_SCHEMA,
-            "temperature": 0.1,
-        },
+        "generationConfig": gen_config,
     }
     parsed = _gemini_post(url, api_key, body, label=repr(paper.title[:60]))
 

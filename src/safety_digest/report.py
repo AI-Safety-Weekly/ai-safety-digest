@@ -92,6 +92,36 @@ def _render_brief(summary: FieldSummary, intro: str) -> list[str]:
     return lines
 
 
+def _render_grouped(papers: list[ClassifiedPaper], summary: FieldSummary, intro: str) -> list[str]:
+    """Render full paper entries grouped under the summary's themes.
+
+    Each theme's blurb heads its own cluster of entries, so the listing is
+    organized by the same groupings shown in the TL;DR rather than a flat list.
+    Papers the summarizer didn't assign to any theme fall into a trailing
+    "Other" group, so every paper is still listed exactly once.
+    """
+    groups = summary.groups or []
+    lines = [f"_{intro}_", ""]
+    claimed: set[int] = set()
+    for (area, sentence), members in zip(summary.themes, groups):
+        idxs = [i for i in members if 0 <= i < len(papers) and i not in claimed]
+        if not idxs:
+            continue
+        claimed.update(idxs)
+        # Bold separator (not a heading) so the papers below stay at the same
+        # `###` level as every other zone — no sibling-heading clash with the
+        # per-paper titles, and the theme line reads as the group's caption.
+        lines += [f"**{area or 'Other'}** ({len(idxs)}) — {sentence}", ""]
+        for i in idxs:
+            lines += [_format_paper(papers[i]), ""]
+    leftover = [i for i in range(len(papers)) if i not in claimed]
+    if leftover:
+        lines += [f"**Other** ({len(leftover)})", ""]
+        for i in leftover:
+            lines += [_format_paper(papers[i]), ""]
+    return lines
+
+
 def write_markdown(
     papers: list[ClassifiedPaper],
     out_path: Path,
@@ -168,13 +198,19 @@ def write_markdown(
         for cp in high:
             lines += [_format_paper(cp), ""]
 
-    # ── Zone 1 — backbone (medium), with a themed TL;DR on top ──────────────
+    # ── Zone 1 — backbone (medium), grouped under its themed TL;DR ──────────
     if medium:
         lines += ["## Zone 1 · Backbone — worth a skim { #medium-relevance }", ""]
-        if medium_overview is not None:
-            lines += _render_brief(medium_overview, "The week's backbone, by theme:")
-        for cp in medium:
-            lines += [_format_paper(cp), ""]
+        if medium_overview is not None and medium_overview.groups:
+            # Listing organized by the same themes as the overview: each theme's
+            # blurb captions its own cluster of full entries.
+            lines += _render_grouped(medium, medium_overview, "The week's backbone, by theme:")
+        else:
+            # No membership (summary failed / older path) → TL;DR list + flat listing.
+            if medium_overview is not None:
+                lines += _render_brief(medium_overview, "The week's backbone, by theme:")
+            for cp in medium:
+                lines += [_format_paper(cp), ""]
 
     # ── Zone 2 — breakthroughs from outside the lane ───────────────────────
     if zone2:

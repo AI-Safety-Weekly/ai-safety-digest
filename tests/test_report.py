@@ -125,6 +125,61 @@ def test_medium_overview_rendered_above_medium_entries(tmp_path: Path) -> None:
     assert "summary of MedPaper" in text
 
 
+def test_backbone_grouped_under_themes(tmp_path: Path) -> None:
+    papers = [
+        _make("MedEval", "medium"),
+        _make("MedControl", "medium"),
+    ]
+    overview = FieldSummary(
+        themes=[("evals", "Capability-eval cluster."), ("control", "Control cluster.")],
+        total=2,
+        groups=[[0], [1]],
+    )
+    text = report.write_markdown(
+        papers, tmp_path / "d.md", _AT, medium_overview=overview
+    ).read_text(encoding="utf-8")
+    # Each theme is a captioned group separator carrying its sentence + count.
+    assert "**evals** (1) — Capability-eval cluster." in text
+    assert "**control** (1) — Control cluster." in text
+    # Full entries are still listed, each under its theme caption.
+    assert "summary of MedEval" in text
+    assert "summary of MedControl" in text
+    assert text.index("**evals**") < text.index("summary of MedEval") < text.index("**control**")
+    # Grouped mode replaces the flat bulleted TL;DR list (no "- **evals**" bullet).
+    assert "- **evals**" not in text
+
+
+def test_backbone_unassigned_paper_falls_into_other(tmp_path: Path) -> None:
+    papers = [
+        _make("MedEval", "medium"),
+        _make("MedOrphan", "medium"),
+    ]
+    overview = FieldSummary(
+        themes=[("evals", "Capability-eval cluster.")],
+        total=2,
+        groups=[[0]],  # index 1 (MedOrphan) deliberately unassigned
+    )
+    text = report.write_markdown(
+        papers, tmp_path / "d.md", _AT, medium_overview=overview
+    ).read_text(encoding="utf-8")
+    assert "**Other** (1)" in text
+    # The orphan is still listed exactly once, as a full entry, after the themes.
+    assert text.count("summary of MedOrphan") == 1
+    assert text.index("**evals**") < text.index("**Other**")
+    assert text.index("**Other**") < text.index("summary of MedOrphan")
+
+
+def test_backbone_flat_when_overview_has_no_groups(tmp_path: Path) -> None:
+    # Older path / failed-membership summary: bulleted TL;DR + flat listing.
+    papers = [_make("MedPaper", "medium")]
+    overview = FieldSummary(themes=[("evals", "Eval cluster.")], total=1)  # groups=None
+    text = report.write_markdown(
+        papers, tmp_path / "d.md", _AT, medium_overview=overview
+    ).read_text(encoding="utf-8")
+    assert "- **evals** — Eval cluster." in text
+    assert "summary of MedPaper" in text
+
+
 def test_fallback_banner_present_when_fallbacks(tmp_path: Path) -> None:
     papers = [
         _make("HighPaper", "high"),

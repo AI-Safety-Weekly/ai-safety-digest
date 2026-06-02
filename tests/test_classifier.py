@@ -336,6 +336,58 @@ def test_summarize_papers_groups_themes(monkeypatch):
     assert fs.themes == [("evals", "Evals work."), ("interpretability", "Interp work.")]
 
 
+def test_summarize_papers_membership_when_grouped(monkeypatch):
+    items = [
+        _classified("arxiv", "medium", title="P0"),
+        _classified("arxiv", "medium", title="P1"),
+        _classified("arxiv", "medium", title="P2"),
+    ]
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        text = json["contents"][0]["parts"][0]["text"]
+        # group_members numbers the papers with bracketed indices.
+        assert "[0] P0" in text and "[1] P1" in text and "[2] P2" in text
+        return _FakeResp(200, _gemini_summary_ok([
+            {"area": "evals", "sentence": "Evals.", "members": [0, 2]},
+            {"area": "control", "sentence": "Control.", "members": [1]},
+        ]))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    fs = classifier.summarize_papers(
+        items, focus="the backbone", api_key="test", group_members=True
+    )
+    assert fs is not None
+    assert fs.groups == [[0, 2], [1]]
+
+
+def test_summarize_papers_membership_dedupes_and_drops_invalid(monkeypatch):
+    items = [_classified("arxiv", "medium", title="P0"), _classified("arxiv", "medium", title="P1")]
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        # 0 is double-claimed (first theme wins); 9 is out of range (dropped).
+        return _FakeResp(200, _gemini_summary_ok([
+            {"area": "a", "sentence": "A.", "members": [0, 9]},
+            {"area": "b", "sentence": "B.", "members": [0, 1]},
+        ]))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    fs = classifier.summarize_papers(
+        items, focus="x", api_key="test", group_members=True
+    )
+    assert fs is not None
+    assert fs.groups == [[0], [1]]  # 9 dropped, 0 kept only in the first theme
+
+
+def test_summarize_papers_no_groups_without_flag(monkeypatch):
+    items = [_classified("arxiv", "low", title="P0")]
+    monkeypatch.setattr(
+        classifier.requests, "post",
+        lambda *a, **k: _FakeResp(200, _gemini_summary_ok([{"area": "x", "sentence": "X."}])),
+    )
+    fs = classifier.summarize_papers(items, focus="x", api_key="test")
+    assert fs is not None and fs.groups is None
+
+
 def test_summarize_papers_empty_returns_none(monkeypatch):
     monkeypatch.setattr(
         classifier.requests, "post",

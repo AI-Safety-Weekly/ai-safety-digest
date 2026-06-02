@@ -103,7 +103,15 @@ class FieldSummary:
     `themes` is an ordered list of (area_label, sentence) pairs, one per
     safety-area cluster the summarizer chose to call out. `total` is the number
     of papers the brief stands in for (so the report can say "all N ...").
+
+    `groups` (optional) carries paper membership per theme: it is theme-aligned
+    (``groups[i]`` belongs to ``themes[i]``) and each entry is the list of
+    indices into the summarized paper list assigned to that theme. It lets the
+    report render the backbone listing grouped under the same themes shown in
+    the TL;DR, instead of a flat list. ``None`` when the summarizer didn't
+    return membership (e.g. the Zone 3 brief, which doesn't group full entries).
     """
 
     themes: list[tuple[str, str]]
     total: int
+    groups: list[list[int]] | None = None

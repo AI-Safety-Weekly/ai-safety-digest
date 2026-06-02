@@ -359,6 +359,7 @@ def main() -> None:
             medium,
             focus="the backbone of Aaron's lane — capability evals, "
                   "control/scheming, and frontier-lab safety work",
+            group_members=True,
         )
         field_summary = classifier.summarize_papers(
             off_lane,

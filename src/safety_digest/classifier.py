@@ -662,6 +662,28 @@ _SUMMARY_RESPONSE_SCHEMA = {
     "required": ["themes"],
 }
 
+# When the caller wants the listing grouped under the same themes (the Zone 1
+# backbone), each theme also returns `members`: the bracketed indices of the
+# papers assigned to it. Every paper goes in exactly one theme.
+_SUMMARY_RESPONSE_SCHEMA_GROUPED = {
+    "type": "object",
+    "properties": {
+        "themes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "area": {"type": "string"},
+                    "sentence": {"type": "string"},
+                    "members": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["area", "sentence", "members"],
+            },
+        },
+    },
+    "required": ["themes"],
+}
+
 _SUMMARY_SYSTEM = """\
 You write a short, skimmable overview of a batch of AI-safety papers for one \
 busy reader. Group the papers by safety-area theme and return, for each theme, \
@@ -671,12 +693,20 @@ concise and concrete: no preamble, no conclusion, no editorializing, and do \
 NOT enumerate every paper. A reader should grasp the shape of the whole set in \
 under a minute. Return only the structured themes."""
 
+_SUMMARY_SYSTEM_GROUPED = _SUMMARY_SYSTEM + """ \
+
+Each paper is prefixed with a bracketed index like [0], [1], [2]. For every \
+theme, also return `members`: the list of those indices for the papers in that \
+cluster. Assign EVERY paper to exactly one theme — no paper in two themes, none \
+left out. Aim for a handful of substantive themes, not one per paper."""
+
 
 def summarize_papers(
     papers: list[ClassifiedPaper],
     *,
     focus: str,
     api_key: str | None = None,
+    group_members: bool = False,
 ) -> FieldSummary | None:
     """Summarize a group of already-classified papers into a themed brief.
 
@@ -684,6 +714,14 @@ def summarize_papers(
     field" brief. One Gemini call, grouped by safety area. `focus` describes the
     group to the model (e.g. "the backbone of Aaron's lane" vs "the rest of the
     AI-safety field outside his lane").
+
+    `group_members` (used for the backbone) additionally asks the model to
+    assign every paper to exactly one theme, returned as `FieldSummary.groups`
+    (theme-aligned lists of indices into `papers`). This lets the report render
+    the listing grouped under the same themes as the TL;DR rather than flat. Any
+    paper the model double-assigns or omits is reconciled here (first theme
+    wins; leftovers are left out of `groups` for the report to gather into an
+    "Other" group), so the indices are always a clean partition-or-subset.
 
     Degrades gracefully: empty input, a missing key, or any API/parse failure
     returns None (the report then omits the brief) — a summary must never abort
@@ -698,11 +736,12 @@ def summarize_papers(
     url = GEMINI_URL.format(model=GEMINI_MODEL)
 
     lines: list[str] = []
-    for cp in papers:
+    for i, cp in enumerate(papers):
         c = cp.classification
         tags = ", ".join(c.safety_areas) or "untagged"
         summ = (c.summary or "").strip()[:150]
-        lines.append(f"- {cp.paper.title} [{tags}] — {summ}")
+        prefix = f"[{i}] " if group_members else "- "
+        lines.append(f"{prefix}{cp.paper.title} [{tags}] — {summ}")
     user_text = (
         f"Here are {len(papers)} papers that make up {focus}. Group them by "
         f"safety-area theme and write the brief overview as instructed.\n\n"
@@ -710,10 +749,14 @@ def summarize_papers(
     )
     body = {
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
-        "systemInstruction": {"parts": [{"text": _SUMMARY_SYSTEM}]},
+        "systemInstruction": {
+            "parts": [{"text": _SUMMARY_SYSTEM_GROUPED if group_members else _SUMMARY_SYSTEM}]
+        },
         "generationConfig": {
             "responseMimeType": "application/json",
-            "responseSchema": _SUMMARY_RESPONSE_SCHEMA,
+            "responseSchema": (
+                _SUMMARY_RESPONSE_SCHEMA_GROUPED if group_members else _SUMMARY_RESPONSE_SCHEMA
+            ),
             "temperature": 0.2,
         },
     }
@@ -723,14 +766,29 @@ def summarize_papers(
         log.warning("summarize_papers: brief failed (%s) — skipping", e)
         return None
 
+    raw_themes = [t for t in parsed.get("themes", []) if str(t.get("sentence", "")).strip()]
     themes = [
         (str(t.get("area", "")).strip(), str(t.get("sentence", "")).strip())
-        for t in parsed.get("themes", [])
-        if str(t.get("sentence", "")).strip()
+        for t in raw_themes
     ]
     if not themes:
         return None
-    return FieldSummary(themes=themes, total=len(papers))
+
+    groups: list[list[int]] | None = None
+    if group_members:
+        groups = []
+        claimed: set[int] = set()
+        for t in raw_themes:
+            members: list[int] = []
+            for m in t.get("members", []):
+                # Keep only valid, in-range, not-yet-claimed indices (first
+                # theme wins) so the report never double-lists or crashes.
+                if isinstance(m, int) and 0 <= m < len(papers) and m not in claimed:
+                    claimed.add(m)
+                    members.append(m)
+            groups.append(members)
+
+    return FieldSummary(themes=themes, total=len(papers), groups=groups)
 
 
 # Tiers that get listed on the site → must be verified on full content.

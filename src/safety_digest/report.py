@@ -14,6 +14,7 @@ ids (`#high-relevance` etc.) are kept so the stylesheet can color-code them.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from html import escape
 from pathlib import Path
@@ -28,7 +29,13 @@ def _primary_area(cp: ClassifiedPaper) -> str:
     return areas[0] if areas else "other"
 
 
-def _format_paper(cp: ClassifiedPaper) -> str:
+def _slug(s: str) -> str:
+    """Normalize a safety-area label into an HTML-id-safe slug, so a theme
+    bullet and the paper it points at agree on the same anchor."""
+    return re.sub(r"[^a-z0-9]+", "-", s.strip().lower()).strip("-")
+
+
+def _format_paper(cp: ClassifiedPaper, *, anchor: str | None = None) -> str:
     p = cp.paper
     c = cp.classification
     tier = c.relevance
@@ -67,8 +74,10 @@ def _format_paper(cp: ClassifiedPaper) -> str:
         f"</a>"
         f"</div>"
     )
+    # An optional attr_list id lets the themed TL;DR above jump to this entry.
+    attr = f" {{ #{anchor} }}" if anchor else ""
     return (
-        f"### {pill} {lab_badge}[{p.title}]({p.url})\n"
+        f"### {pill} {lab_badge}[{p.title}]({p.url}){attr}\n"
         f"{meta_line}\n\n"
         f"{c.summary}\n\n"
         f"<details><summary>Why?</summary>\n\n{c.rationale}\n\n{feedback}\n\n</details>\n"
@@ -84,10 +93,21 @@ def _format_paper_brief(cp: ClassifiedPaper) -> str:
     return f"- [{p.title}]({p.url}){suffix}"
 
 
-def _render_brief(summary: FieldSummary, intro: str) -> list[str]:
+def _render_brief(
+    summary: FieldSummary,
+    intro: str,
+    *,
+    anchors: dict[str, str] | None = None,
+) -> list[str]:
+    """Render a themed brief. When `anchors` maps an area slug to a paper
+    anchor, that theme's label becomes a jump-link to its cluster below;
+    unmatched themes (and callers that pass no anchors) stay plain text."""
     lines = [f"_{intro}_", ""]
     for area, sentence in summary.themes:
-        lines.append(f"- **{area or 'other'}** — {sentence}")
+        label = area or "other"
+        anchor = anchors.get(_slug(label)) if anchors else None
+        bold = f"[**{label}**](#{anchor})" if anchor else f"**{label}**"
+        lines.append(f"- {bold} — {sentence}")
     lines.append("")
     return lines
 
@@ -154,10 +174,27 @@ def write_markdown(
     # ── Zone 1 — backbone (medium), with a themed TL;DR on top ──────────────
     if medium:
         lines += ["## Zone 1 · Backbone — worth a skim { #medium-relevance }", ""]
-        if medium_overview is not None:
-            lines += _render_brief(medium_overview, "The week's backbone, by theme:")
+        # Anchor the first paper of each primary area, so the themed TL;DR can
+        # link each theme to its cluster even though the list stays flat.
+        backbone_anchors: dict[str, str] = {}
         for cp in medium:
-            lines += [_format_paper(cp), ""]
+            key = _slug(_primary_area(cp))
+            if key:
+                backbone_anchors.setdefault(key, f"backbone-{key}")
+        if medium_overview is not None:
+            lines += _render_brief(
+                medium_overview,
+                "The week's backbone, by theme:",
+                anchors=backbone_anchors,
+            )
+        anchored: set[str] = set()
+        for cp in medium:
+            key = _slug(_primary_area(cp))
+            anchor = None
+            if key and key not in anchored:
+                anchor = backbone_anchors[key]
+                anchored.add(key)
+            lines += [_format_paper(cp, anchor=anchor), ""]
 
     # ── Zone 2 — breakthroughs from outside the lane ───────────────────────
     if zone2:

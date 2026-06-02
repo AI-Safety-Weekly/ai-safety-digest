@@ -123,6 +123,44 @@ def test_medium_overview_rendered_above_medium_entries(tmp_path: Path) -> None:
     assert "summary of MedPaper" in text
 
 
+def test_medium_overview_themes_link_to_paper_anchors(tmp_path: Path) -> None:
+    papers = [
+        _make("EvalPaper", "medium", safety_areas=("evals",)),
+        _make("AlignPaper", "medium", safety_areas=("alignment",)),
+    ]
+    overview = FieldSummary(
+        themes=[
+            ("evals", "Capability-eval cluster."),
+            ("alignment", "Alignment cluster."),
+        ],
+        total=2,
+    )
+    text = report.write_markdown(
+        papers, tmp_path / "d.md", _AT, medium_overview=overview
+    ).read_text(encoding="utf-8")
+    # Each theme bullet jump-links to its cluster's anchor...
+    assert "[**evals**](#backbone-evals)" in text
+    assert "[**alignment**](#backbone-alignment)" in text
+    # ...and the first paper of each area carries the matching attr_list id.
+    assert "{ #backbone-evals }" in text
+    assert "{ #backbone-alignment }" in text
+
+
+def test_medium_overview_theme_without_matching_paper_stays_plain(tmp_path: Path) -> None:
+    # A theme the model names that no medium paper has as its primary area must
+    # not produce a dangling link.
+    papers = [_make("EvalPaper", "medium", safety_areas=("evals",))]
+    overview = FieldSummary(
+        themes=[("governance", "Governance chatter with no backbone paper.")],
+        total=1,
+    )
+    text = report.write_markdown(
+        papers, tmp_path / "d.md", _AT, medium_overview=overview
+    ).read_text(encoding="utf-8")
+    assert "**governance** — Governance chatter" in text
+    assert "(#backbone-governance)" not in text
+
+
 def test_field_summary_and_fold_for_off_lane(tmp_path: Path) -> None:
     papers = [_make("TailPaper", "low", safety_areas=("interpretability",))]
     brief = FieldSummary(themes=[("interpretability", "Interp keeps advancing.")], total=1)

@@ -141,3 +141,23 @@ def test_record_keeps_earliest_week(tmp_path) -> None:
             ("arxiv:2605.0001",),
         ).fetchone()
         assert row[0] == "2026-W22"
+
+
+def test_format_week_range_same_month():
+    # ISO week 22 of 2026 runs Mon May 25 – Sun May 31.
+    assert state_store.format_week_range(2026, 22) == "May 25 – 31, 2026"
+
+
+def test_format_week_range_cross_month():
+    # ISO week 27 of 2026 runs Mon Jun 29 – Sun Jul 5.
+    assert state_store.format_week_range(2026, 27) == "Jun 29 – Jul 5, 2026"
+
+
+def test_format_week_range_cross_year():
+    # ISO week 1 of 2026 runs Mon Dec 29 2025 – Sun Jan 4 2026.
+    assert state_store.format_week_range(2026, 1) == "Dec 29, 2025 – Jan 4, 2026"
+
+
+def test_week_range_label_from_datetime():
+    dt = datetime(2026, 5, 25, tzinfo=timezone.utc)
+    assert state_store.week_range_label(dt) == "May 25 – 31, 2026"

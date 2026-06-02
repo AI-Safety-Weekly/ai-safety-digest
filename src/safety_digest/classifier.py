@@ -27,6 +27,7 @@ from .models import (
     Paper,
     Relevance,
     SafetyArea,
+    default_content_type,
 )
 
 log = logging.getLogger(__name__)
@@ -264,7 +265,39 @@ passing.
 
 Forum posts get NO auto-admit signal — author fame alone does not earn \
 high. Authors are not cross-checked against the tracked-authors list \
-(it's tuned for arXiv bylines)."""
+(it's tuned for arXiv bylines).
+
+CONTENT TYPE (content_type) — orthogonal to relevance; label WHAT KIND of \
+thing the item is, judged from the content itself, NOT from where it came \
+from (a lab feed carries both papers and blog posts):
+- "paper": an academic or technical research output — an arXiv preprint, a \
+peer-reviewed conference/journal paper, a formal technical report, or a \
+model/system card. Has the shape of research: authors, methods, results, \
+citations.
+- "blog_post": a blog or forum post, a newsletter issue, an organisational \
+announcement, or commentary/analysis written as prose rather than as a \
+formal paper. Most Alignment Forum / LessWrong / Substack / company-blog \
+items are this.
+- "other": anything that is neither — a video or podcast, a dataset or \
+benchmark release, a code/tool/library release, a plain news article, or \
+the text of a policy / bill / regulation.
+When genuinely torn between paper and blog_post, lean on form: a PDF with \
+a methods section and references is a paper; an HTML essay is a blog_post.
+
+HIGH-PROFILE CAPABILITIES (capability) — set capability=true for a major \
+FRONTIER CAPABILITY release Aaron should be aware of for situational \
+awareness, even though it is NOT safety research:
+- a new frontier or near-frontier model launch (e.g. MiniMax-M2, GPT-5, a \
+new Claude / Gemini / Llama / DeepSeek / Qwen / Mistral flagship);
+- a major state-of-the-art jump on a headline capability (agentic coding, \
+reasoning, multimodal, long-horizon autonomy);
+- a landmark capability milestone widely treated as a step-change.
+Set it INDEPENDENTLY of relevance — including when you would otherwise mark \
+the item "low" or even "off_topic". The pipeline pulls every capability=true \
+item into a dedicated "Capabilities watch" section, so an off_topic model \
+launch is surfaced there instead of being dropped. Keep the bar high: this \
+is for releases the field is talking about, NOT every paper that nudges a \
+benchmark or every minor fine-tune. Most items are capability=false."""
 
 CLASSIFY_TOOL: dict[str, Any] = {
     "name": "classify_paper",
@@ -309,6 +342,32 @@ CLASSIFY_TOOL: dict[str, Any] = {
                                "false for every paper. Only meaningful when "
                                "relevance is 'low'.",
             },
+            "capability": {
+                "type": "boolean",
+                "description": "True for a HIGH-PROFILE FRONTIER CAPABILITY "
+                               "release Aaron should know about even though it "
+                               "isn't safety research — a new frontier model "
+                               "launch (e.g. MiniMax-M2, GPT-5, a new "
+                               "Claude/Gemini/Llama/DeepSeek), a major SOTA jump, "
+                               "or a landmark capability milestone. Set it even "
+                               "when relevance is 'low' or 'off_topic'; the "
+                               "pipeline routes these to a 'Capabilities watch' "
+                               "section. NOT for ordinary papers that merely "
+                               "improve a benchmark.",
+            },
+            "content_type": {
+                "type": "string",
+                "enum": ["paper", "blog_post", "other"],
+                "description": "What KIND of item this is, judged from the "
+                               "content itself (NOT the source): 'paper' = an "
+                               "academic or technical research output (arXiv "
+                               "preprint, peer-reviewed paper, formal technical "
+                               "report, model/system card); 'blog_post' = a blog "
+                               "or forum post, newsletter, announcement, or "
+                               "commentary; 'other' = anything else (video, "
+                               "podcast, dataset/benchmark, code/tool release, "
+                               "news article, policy/legislation text).",
+            },
             "summary": {
                 "type": "string",
                 "description": "One specific sentence about what the paper does. <= 240 chars.",
@@ -318,7 +377,7 @@ CLASSIFY_TOOL: dict[str, Any] = {
                 "description": "One or two sentences explaining the relevance tier.",
             },
         },
-        "required": ["relevance", "safety_areas", "summary", "rationale", "breakthrough"],
+        "required": ["relevance", "safety_areas", "summary", "rationale", "breakthrough", "capability", "content_type"],
     },
 }
 
@@ -409,6 +468,8 @@ def classify(
             summary=data["summary"].strip(),
             rationale=data["rationale"].strip(),
             breakthrough=bool(data.get("breakthrough", False)),
+            capability=bool(data.get("capability", False)),
+            content_type=data.get("content_type") or default_content_type(paper.source),
         )
         results.append(ClassifiedPaper(paper=paper, classification=classification))
 
@@ -433,10 +494,12 @@ _GEMINI_RESPONSE_SCHEMA = {
             },
         },
         "breakthrough": {"type": "boolean"},
+        "capability": {"type": "boolean"},
+        "content_type": {"type": "string", "enum": ["paper", "blog_post", "other"]},
         "summary": {"type": "string"},
         "rationale": {"type": "string"},
     },
-    "required": ["relevance", "safety_areas", "breakthrough", "summary", "rationale"],
+    "required": ["relevance", "safety_areas", "breakthrough", "capability", "content_type", "summary", "rationale"],
 }
 
 
@@ -520,6 +583,8 @@ def _gemini_classify_one(
             summary=parsed["summary"].strip(),
             rationale=parsed["rationale"].strip(),
             breakthrough=bool(parsed.get("breakthrough", False)),
+            capability=bool(parsed.get("capability", False)),
+            content_type=parsed.get("content_type") or default_content_type(paper.source),
         ),
     )
 
@@ -542,6 +607,7 @@ def _fallback_classification(paper: Paper, err: Exception) -> ClassifiedPaper:
             rationale="[auto] Could not be classified (transient API failure after "
                       "all retries); parked off-lane. Re-runs will reclassify it.",
             breakthrough=False,
+            content_type=default_content_type(paper.source),
             fallback=True,
         ),
     )
@@ -939,6 +1005,7 @@ def stub_classify(papers: list[Paper]) -> list[ClassifiedPaper]:
                     safety_areas=areas,
                     summary=f"[dry-run] {paper.title[:200]}",
                     rationale=rationale,
+                    content_type=default_content_type(paper.source),
                 ),
             )
         )

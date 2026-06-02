@@ -42,23 +42,23 @@ class _FakeResp:
             raise RuntimeError(f"HTTP {self.status_code}")
 
 
-def _gemini_ok(relevance: str, title: str) -> dict:
+def _gemini_ok(
+    relevance: str, title: str, content_type: str | None = None, capability: bool = False
+) -> dict:
+    payload = {
+        "relevance": relevance,
+        "safety_areas": ["alignment"],
+        "summary": f"summary of {title}",
+        "rationale": f"rationale for {title}",
+        "capability": capability,
+    }
+    if content_type is not None:
+        payload["content_type"] = content_type
     return {
         "candidates": [
             {
                 "content": {
-                    "parts": [
-                        {
-                            "text": json.dumps(
-                                {
-                                    "relevance": relevance,
-                                    "safety_areas": ["alignment"],
-                                    "summary": f"summary of {title}",
-                                    "rationale": f"rationale for {title}",
-                                }
-                            )
-                        }
-                    ]
+                    "parts": [{"text": json.dumps(payload)}]
                 }
             }
         ]
@@ -87,6 +87,37 @@ def test_results_in_input_order(monkeypatch):
     # spot-check the classification rode along with the right paper
     assert out[0].classification.summary == "summary of Paper 0"
     assert out[3].classification.relevance == "low"
+
+
+def test_content_type_rides_through(monkeypatch):
+    """The model's content_type is parsed onto the classification."""
+    def fake_post(url, params=None, json=None, timeout=None):
+        return _FakeResp(200, _gemini_ok("high", "Paper 0", content_type="blog_post"))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    out = classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert out[0].classification.content_type == "blog_post"
+
+
+def test_capability_flag_rides_through(monkeypatch):
+    """A capability=true in the response lands on the classification."""
+    def fake_post(url, params=None, json=None, timeout=None):
+        return _FakeResp(200, _gemini_ok("off_topic", "MiniMax-M2", capability=True))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    out = classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert out[0].classification.capability is True
+
+
+def test_content_type_defaults_from_source_when_absent(monkeypatch):
+    """A response missing content_type falls back to the source-based default
+    (arXiv -> paper) rather than crashing or silently mislabelling."""
+    def fake_post(url, params=None, json=None, timeout=None):
+        return _FakeResp(200, _gemini_ok("high", "Paper 0"))  # no content_type
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    out = classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert out[0].classification.content_type == "paper"
 
 
 def test_retries_then_succeeds(monkeypatch):

@@ -125,6 +125,15 @@ def main() -> None:
         help="Cap the number of papers classified (useful for testing)",
     )
     parser.add_argument(
+        "--max-items",
+        type=int,
+        default=60,
+        help="Cap the total number of items LISTED in the digest — every full "
+             "entry plus every Zone 3 one-liner (default: 60). The curated core "
+             "(Capabilities, Zone 1, Zone 2) is always shown; the Zone 3 long "
+             "tail is trimmed to fit. Pass 0 to disable the cap.",
+    )
+    parser.add_argument(
         "--max-arxiv-results",
         type=int,
         default=2000,
@@ -215,7 +224,10 @@ def main() -> None:
     log.info("Collected %d papers from arXiv", len(papers))
 
     if cfg.lab_sources and not args.arxiv_ids:
-        lab_papers = lab_collector.collect(cfg.lab_sources, days=args.days, until=until_dt)
+        lab_papers = lab_collector.collect(
+            cfg.lab_sources, days=args.days, until=until_dt,
+            safety_keywords=cfg.strict_keywords,
+        )
         log.info("Collected %d items from lab feeds", len(lab_papers))
         papers = papers + lab_papers
 
@@ -349,10 +361,19 @@ def main() -> None:
     medium_overview = None
     field_summary = None
     if not args.dry_run and not args.no_field_summary:
-        medium = [cp for cp in classified if cp.classification.relevance == "medium"]
+        # Mirror report.write_markdown's routing: capability-flagged items are
+        # pulled into the Capabilities watch section, so they must not feed the
+        # backbone/off-lane briefs (the medium overview's group indices have to
+        # line up with the exact medium list the report renders).
+        medium = [
+            cp for cp in classified
+            if cp.classification.relevance == "medium" and not cp.classification.capability
+        ]
         off_lane = [
             cp for cp in classified
-            if cp.classification.relevance == "low" and not cp.classification.breakthrough
+            if cp.classification.relevance == "low"
+            and not cp.classification.breakthrough
+            and not cp.classification.capability
         ]
         log.info("Summarizing %d medium + %d off-lane paper(s)", len(medium), len(off_lane))
         medium_overview = classifier.summarize_papers(
@@ -372,6 +393,7 @@ def main() -> None:
     out_path = report.write_markdown(
         classified, args.out_dir / fname, run_at,
         medium_overview=medium_overview, field_summary=field_summary,
+        max_items=args.max_items or None,
     )
     index_path = site_builder.build_index(args.out_dir)
     print(f"Wrote {out_path} ({len(classified)} papers); updated {index_path}")

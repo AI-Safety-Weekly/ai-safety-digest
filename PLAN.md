@@ -244,6 +244,143 @@ this is what truly nails his focus.
 
 ---
 
+## Workstream — Funnel recall & cost rework (added 2026-06-02)
+
+**Status:** planned, not started. Diagnosis complete. Do the steps in order;
+step 1 is a safe stopgap, step 2 is the real fix. Steps 3 and 4 are cheap and
+independent.
+
+**Why:** A squarely in-lane paper was missed — *"Retrying vs Resampling in AI
+Control"* (arXiv `2605.26047`, cs.AI, 25 May 2026, Lucassen & Kaufman,
+Redwood). It matched **no keyword and no tracked author**, so
+`arxiv_collector.collect()` dropped it *before any LLM call*. Root cause: the
+keyword/author pre-filter has a categorical blind spot over the **AI Control /
+scheming** subfield — which the classifier prompt explicitly *wants* (Zone 1
+backbone: loss-of-control / scheming / control).
+
+**Diagnosis findings (3-week backtest, W21–W23, top-tier arXiv items, n=100):**
+- **44%** of top-tier items are caught by a **tracked author**, independent of
+  keywords (HIGH 5/15, MEDIUM 39/85). Authors are the robust lever; keywords
+  the fragile one.
+- Only **17 of 32** keywords were ever the *sole* catch for a top-tier paper.
+  **11 fired on zero** top-tier papers (cut candidates): adversarial robustness,
+  ai alignment, ai policy, benchmark contamination, circuit analysis, dangerous
+  capabilities, feature visualization, mesa-optimization, model audit, model
+  misuse, responsible scaling.
+- Intuition was **wrong**: `RLHF` and `debate` ARE load-bearing (sole catches);
+  `model evaluation` / `benchmark contamination` are not. **Measure, don't guess.**
+- **Two divergent keyword lists exist:** `config/keywords.yml` (arXiv;
+  title+abstract; word-boundary; **no** control terms) vs
+  `lab_collector.SAFETY_KEYWORDS` (strict lab/forum; title-only; substring;
+  **has** `ai control`/`scheming`/`sandbagging`). The arXiv list is the stale
+  one — the LessWrong path's gate *would* have caught this paper.
+
+**Goal:** shrink the opening into the expensive LLM classifier **and** catch all
+relevant papers — including future ones whose vocabulary/authors we cannot
+enumerate yet. Enumerated lists alone cannot meet the second half (they are
+reactive by construction); the resolution is a cheap semantic recall stage
+(step 2) that decouples broad recall from expensive classification.
+
+**Validation harness (use on every step):** backfill a known week and diff —
+`safety-digest --until 2026-05-24 --days 7 --no-suppress --out-dir scratch/<name> -v`
+plus the should-catch regression set (step 3). NOTE: `collect_by_ids` (dev/replay)
+hits the *regular* arXiv API and rate-limits (429) on bulk pulls; the weekly run
+uses **OAI-PMH** (separate pool) and is unaffected.
+
+### Step 1 — Close the gap + unify the two keyword lists (stopgap; safe now)
+- **Add** the AI-Control cluster to `config/keywords.yml`: `AI control`,
+  `control protocol`, `control evaluation`, `untrusted model`, `trusted monitor`,
+  `trusted monitoring`, `scheming`, `sandbagging`. (Hold `collusion` — game-theory
+  noise; add only with volume monitoring.) *Proven:* matches `2605.26047` three
+  ways (`ai control`, `untrusted model`, `trusted monitor`) — `ai control` hits
+  the title alone.
+- **Reconcile** the two lists into one source of truth. Either (a) move
+  `SAFETY_KEYWORDS` into `config/` and have `lab_collector` load it, or (b) at
+  minimum sync `keywords.yml` up to terms the lab list already has (ai control,
+  scheming, sandbagging, deception, misalignment, agi safety, capability eval,
+  preparedness framework, system card). Document the deliberately different
+  match semantics (arXiv = word-boundary on title+abstract; strict = substring
+  on title).
+- **Files:** `config/keywords.yml`, `src/safety_digest/lab_collector.py`
+  (`SAFETY_KEYWORDS`), possibly new `config/safety_keywords.yml`.
+- **Acceptance:** regression test asserts `arxiv_collector._matched_keywords()`
+  is non-empty for `2605.26047`'s title+abstract under the new config, and the
+  W21–W23 HIGH/MEDIUM set is still fully caught.
+- **Risk:** low — the cluster is phrase-scoped, so the opening barely grows.
+
+### Step 2 — Semantic recall net + shrink the keyword opening (the real fix)
+- **New module** `src/safety_digest/semantic_filter.py`: embed each candidate's
+  title+abstract and a curated seed set of Aaron's concerns
+  (`config/semantic_seeds.yml`); keep candidates above a cosine-similarity
+  threshold. Catches novel terminology ("resampling untrusted models" ≈
+  control/oversight) **without enumerating it** — this is the part that addresses
+  "catch papers not out yet."
+- **Gate becomes** `tracked-author OR core-keyword OR semantically-similar`.
+  With semantic covering the long tail, **trim `keywords.yml` to the ~17
+  load-bearing terms** (drop the 11 zero-fire + redundant): the opening into the
+  LLM shrinks while recall rises — both halves of the goal at once.
+- **Cost:** embeddings are ~pennies/week even over the full cs.AI+cs.LG
+  firehose — far cheaper than today's broad-keyword LLM volume. VERIFY the
+  current Gemini embedding model + pricing via web search before building
+  (per memory: Gemini pricing is stale — never quote from memory).
+- **Zone-3 tension — RESOLVE FIRST:** the existing decision "do NOT aggressively
+  cut the pre-filter — Zone 3 needs broad intake" conflicts with trimming.
+  Reconcile by either (i) building Zone 3's field summary from the cheap
+  semantic/embedding pass (cluster + count) instead of LLM-classified low
+  papers, or (ii) keeping a wide cheap band for Zone 3 while only the relevant
+  subset is deep-read. Decide before cutting keywords.
+- **Files:** new `semantic_filter.py`, `config/semantic_seeds.yml`, wire into
+  `arxiv_collector.collect()` / `cli.py`.
+- **Acceptance:** on W21–W23, the semantic gate recalls ≥ the keyword gate's
+  positives, catches `2605.26047`, and total LLM-classified count drops vs
+  current; threshold tuned on the labeled set; cost measured and logged.
+- **Open decisions:** embedding model + threshold; semantic replaces vs augments
+  keywords; Zone-3 intake mechanism.
+
+### Step 3 — Recall audit + per-keyword volume instrumentation (guardrail)
+- **Problem:** misses are invisible today (found by luck). Make them a number.
+- **Recall audit:** new `scripts/recall_audit.py` — sample N (≈50–100) papers the
+  funnel *rejected* (in-category but un-gated), cheap-classify the sample,
+  estimate the Zone-1/2 false-negative rate; append results over time (state.db
+  table or a log) to watch drift. Needs a collector debug mode that retains the
+  full in-category set before gating.
+- **Per-keyword/author volume:** extend `arxiv_collector.collect()` logging to
+  count total matches *per keyword* and *per author* (not just the
+  kw_only/author_only/both totals). Turns "is this keyword noise?" into data and
+  makes step-2 trims evidence-based on **cost**, not just retention.
+- **Should-catch regression set:** `tests/should_catch.yml` (`2605.26047` + a
+  handful of confirmed-relevant papers); a test asserts the funnel catches them
+  under current config. This is the net that ends constant iteration.
+- **Files:** `scripts/recall_audit.py`, `arxiv_collector.collect()` (volume log +
+  retain-rejected mode), `tests/should_catch.yml`, `tests/test_funnel_recall.py`.
+- **Acceptance:** one command prints a weekly miss-rate estimate + per-keyword
+  volume; CI test over the should-catch set passes.
+
+### Step 4 — Co-author graph expansion (forward-looking authors)
+- **Problem:** author-match is blind to newcomers — we'd have added Greenblatt,
+  not Lucassen. Expand the tracked list along the co-authorship graph so junior
+  members of tracked groups are caught automatically.
+- **Design:** new `scripts/expand_authors.py` — for each `authors.yml` name,
+  pull recent papers via `s2_collector` (+ the existing author-id cache) and
+  collect frequent co-authors; emit candidates that co-authored ≥K papers with a
+  tracked author (or co-authored a tracked paper). Write a generated
+  `config/derived_authors.yml` merged at load (regenerate offline so runs stay
+  deterministic).
+- **Guards:** cap additions; co-authorship threshold; beware the
+  `_name_forms` first-initial-last collision (expansion can raise false author
+  matches) — keep the author index precise.
+- **Files:** `scripts/expand_authors.py`, `config/derived_authors.yml`,
+  `config.py` (merge derived list), possibly `s2_collector`.
+- **Acceptance:** running it surfaces Lucassen/Kaufman from the Redwood seeds;
+  the derived list is bounded; collection picks the new names up.
+
+**Sequencing:** Step 1 now (safe). Step 3's should-catch set + volume log next
+(cheap; unblocks evidence-based decisions). Step 2 is the main build (gated on
+the Zone-3 decision + the embedding-cost check). Step 4 is independent and
+cheap — do anytime.
+
+---
+
 ## Decisions log (so future sessions don't re-litigate)
 
 - Backbone scope: **WIDER** — include loss-of-control/scheming/control, not
@@ -263,3 +400,16 @@ this is what truly nails his focus.
   Aaron can miss a week. Build → validate on W21 → iterate → ship when right.
 - Cost: ~$2/run on paid Gemini 2.5 Flash (thinking ON — A/B proved thinking
   off demotes ~1 in 4 papers). Acceptable.
+- **Pre-filter cut — REVISITED (2026-06-02).** The earlier "do NOT aggressively
+  cut the pre-filter" assumed keyword breadth == Zone 3 intake. The funnel
+  rework (above) may trim keywords *behind a cheap semantic recall stage*, but
+  Zone 3 intake must then be preserved by other means. Do NOT trim keywords
+  without first resolving the Zone-3 intake question (Funnel rework, step 2).
+- **Keyword maintenance — measure, don't guess (2026-06-02).** A 3-week backtest
+  showed intuition mis-ranked keyword value (RLHF/debate load-bearing;
+  model-evaluation/benchmark-contamination dead). Add/trim only against the
+  should-catch set + per-keyword volume data (Funnel rework, step 3).
+- **Two keyword lists must be reconciled (2026-06-02).** `config/keywords.yml`
+  (arXiv) and `lab_collector.SAFETY_KEYWORDS` (strict lab/forum) have diverged;
+  the arXiv one lacked control terms the lab one already had. Treat them as one
+  source of truth going forward (Funnel rework, step 1).

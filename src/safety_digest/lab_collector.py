@@ -66,6 +66,13 @@ SAFETY_KEYWORDS = [
     "biorisk", "biosafety", "biothreat",
 ]
 
+# The strict gate's ACTIVE keyword list. Production runs override this from
+# config (config/keywords.yml `strict_keywords`, passed via collect()), so the
+# two funnel gates share one source of truth. SAFETY_KEYWORDS above is the
+# fallback for direct/test calls that don't pass a list. See PLAN.md
+# "Funnel recall & cost rework", step 1.
+_ACTIVE_SAFETY_KEYWORDS = SAFETY_KEYWORDS
+
 HTTP_TIMEOUT = 10
 # A browser-like UA, not a bot string. Some sources (notably RAND) 403 a
 # custom bot UA on their HTML article pages — which silently starved the
@@ -83,14 +90,23 @@ SITEMAP_PAGE_CAP = 25
 
 
 def collect(
-    sources: list[dict], days: int = 7, until: datetime | None = None
+    sources: list[dict],
+    days: int = 7,
+    until: datetime | None = None,
+    safety_keywords: list[str] | None = None,
 ) -> list[Paper]:
     """Pull safety-relevant lab posts in `[until - days, until]`. Returns Paper objects.
 
     `until` defaults to now. RSS / sitemap feeds typically only retain ~last
     month of entries, so backfills more than 30 days back may silently return
     nothing from some sources.
+
+    `safety_keywords` is the strict-gate title keyword list (from
+    config/keywords.yml `strict_keywords`). When None/empty, the built-in
+    SAFETY_KEYWORDS default is used.
     """
+    global _ACTIVE_SAFETY_KEYWORDS
+    _ACTIVE_SAFETY_KEYWORDS = safety_keywords or SAFETY_KEYWORDS
     until_dt = until or datetime.now(tz=timezone.utc)
     cutoff = until_dt - timedelta(days=days)
     out: list[Paper] = []
@@ -123,7 +139,7 @@ def _collect_one(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
 
 def _matches_safety(text: str) -> list[str]:
     t = text.lower()
-    return [kw for kw in SAFETY_KEYWORDS if kw in t]
+    return [kw for kw in _ACTIVE_SAFETY_KEYWORDS if kw in t]
 
 
 def _make_paper(

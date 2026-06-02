@@ -1,11 +1,23 @@
-# Keywords used to pre-filter the arXiv firehose BEFORE sending abstracts to
-# Claude for classification. Goal: keep recall high (don't miss papers) and
-# precision modest (Claude is the actual filter).
+# Single source of truth for BOTH keyword gates at the top of the funnel:
 #
-# Match is case-insensitive against title + abstract.
-# Phrases are matched as substrings; use multi-word phrases freely.
+#   keywords:         the arXiv pre-filter. Matched case-insensitively against
+#                     title + abstract on WORD BOUNDARIES (see
+#                     arxiv_collector._compile_keyword_pattern). A paper is kept
+#                     if it matches a keyword OR a tracked author.
 #
-# Replace this template with your own list — these are placeholders.
+#   strict_keywords:  the strict lab/forum gate (LessWrong, OpenAI, DeepMind,
+#                     Anthropic, RAND...). Matched as SUBSTRINGS against the
+#                     TITLE ONLY (see lab_collector._matches_safety). Loose
+#                     sources skip this gate entirely.
+#
+# These two lists were once separate (one here, one hardcoded in
+# lab_collector.py) and DRIFTED — the arXiv list lacked the AI-Control terms the
+# strict list already had, which is how an in-lane control paper got dropped
+# (PLAN.md "Funnel recall & cost rework", step 1). Keep them together here so
+# coverage gaps are visible. The match semantics differ on purpose
+# (word-boundary vs substring; title+abstract vs title-only), so the lists are
+# NOT required to be identical — but core x-risk-backbone subfields (control /
+# scheming / evals) MUST appear in both. tests/test_funnel_recall.py guards this.
 
 keywords:
   # --- Core alignment ---
@@ -32,6 +44,20 @@ keywords:
   - "prompt injection"
   - "benchmark contamination"
 
+  # --- AI control / scheming (x-risk backbone) ---
+  # Added 2026-06-02 to close the blind spot that dropped "Retrying vs
+  # Resampling in AI Control" (arXiv 2605.26047). Phrase-scoped to stay
+  # low-noise — "AI control" is the safety subfield, not control theory.
+  # ("collusion" deliberately held back: too noisy in game-theory abstracts.)
+  - "AI control"
+  - "control protocol"
+  - "control evaluation"
+  - "untrusted model"
+  - "trusted monitor"
+  - "trusted monitoring"
+  - "scheming"
+  - "sandbagging"
+
   # --- Governance / policy ---
   - "AI governance"
   - "AI policy"
@@ -51,3 +77,61 @@ keywords:
   - "weak-to-strong generalization"
   - "constitutional AI"
   - "RLHF"
+
+# Strict lab/forum title gate. Phrase-based to avoid noise from generic usage of
+# "safety" / "frontier" / "risk" in corporate news, product launches, etc.
+# Relocated here from lab_collector.SAFETY_KEYWORDS (2026-06-02) so both gates
+# live in one file. Matched as substrings against the TITLE ONLY.
+strict_keywords:
+  # Multi-word phrases — tightly scoped to AI-safety context
+  - "ai safety"
+  - "ai risk"
+  - "ai oversight"
+  - "ai misuse"
+  - "ai governance"
+  - "frontier safety"
+  - "frontier ai"
+  - "frontier model"
+  - "frontier risk"
+  - "frontier governance"
+  - "governance framework"
+  # AI-anchored, so safe for the firehose (RAND) — no non-AI false matches.
+  - "artificial general intelligence"
+  - "compute governance"
+  - "system card"
+  - "model card"
+  - "responsible scaling"
+  - "preparedness framework"
+  - "red team"
+  - "red-team"
+  - "red teaming"
+  - "dangerous capabilit"
+  - "capability eval"
+  - "capabilities eval"
+  - "model evaluation"
+  - "model evals"
+  - "safety eval"
+  - "scalable oversight"
+  - "ai control"
+  - "control protocol"
+  - "untrusted model"
+  - "trusted monitor"
+  - "adversarial robust"
+  - "weapons uplift"
+  - "mechanistic interp"
+  - "risk report"
+  - "risk assessment"
+  # Single words that are unambiguous on their own
+  - "alignment"
+  - "misalignment"
+  - "interpretability"
+  - "jailbreak"
+  - "jailbreaking"
+  - "deception"
+  - "scheming"
+  - "sandbagging"
+  - "rsp"
+  - "agi safety"
+  - "biorisk"
+  - "biosafety"
+  - "biothreat"

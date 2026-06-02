@@ -12,6 +12,10 @@ import yaml
 class Config:
     categories: list[str]
     keywords: list[str]
+    # Strict lab/forum title gate (see config/keywords.yml). Empty list means
+    # "fall back to lab_collector's built-in default" — kept optional so older
+    # configs without the key still load.
+    strict_keywords: list[str]
     auto_admit_authors: list[dict]
     review_authors: list[dict]
     lab_sources: list[dict]
@@ -19,7 +23,9 @@ class Config:
 
 def load(config_dir: Path) -> Config:
     categories = yaml.safe_load((config_dir / "arxiv_categories.yml").read_text())["categories"]
-    keywords = yaml.safe_load((config_dir / "keywords.yml").read_text())["keywords"]
+    keywords_doc = yaml.safe_load((config_dir / "keywords.yml").read_text()) or {}
+    keywords = keywords_doc["keywords"]
+    strict_keywords = list(keywords_doc.get("strict_keywords") or [])
     authors_doc = yaml.safe_load((config_dir / "authors.yml").read_text()) or {}
     auto = [a for a in (authors_doc.get("auto_admit") or []) if a.get("name")]
     review = [a for a in (authors_doc.get("review_carefully") or []) if a.get("name")]
@@ -32,6 +38,7 @@ def load(config_dir: Path) -> Config:
     return Config(
         categories=categories,
         keywords=keywords,
+        strict_keywords=strict_keywords,
         auto_admit_authors=auto,
         review_authors=review,
         lab_sources=lab_sources,

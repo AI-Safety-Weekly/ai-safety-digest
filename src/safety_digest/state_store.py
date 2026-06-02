@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from .models import ClassifiedPaper, Paper
@@ -54,6 +54,39 @@ def week_tag(dt: datetime) -> str:
     """ISO week label, e.g. ``2026-W22`` — zero-padded so it sorts lexically."""
     iso = dt.isocalendar()
     return f"{iso.year}-W{iso.week:02d}"
+
+
+def _fmt_day(d: date) -> str:
+    """Month-abbrev + non-zero-padded day, e.g. ``May 5`` (portable, no %-d)."""
+    return f"{d.strftime('%b')} {d.day}"
+
+
+def week_range_dates(year: int, week: int) -> tuple[date, date]:
+    """The Monday and Sunday bounding ISO week ``week`` of ``year``."""
+    monday = date.fromisocalendar(year, week, 1)
+    return monday, date.fromisocalendar(year, week, 7)
+
+
+def format_week_range(year: int, week: int) -> str:
+    """Human date range for an ISO week, e.g. ``May 25 – 31, 2026``.
+
+    Collapses repeated month/year across the two ends:
+    same month   → ``May 25 – 31, 2026``;
+    same year    → ``Jun 29 – Jul 5, 2026``;
+    cross-year   → ``Dec 29, 2025 – Jan 4, 2026``.
+    """
+    start, end = week_range_dates(year, week)
+    if start.year != end.year:
+        return f"{_fmt_day(start)}, {start.year} – {_fmt_day(end)}, {end.year}"
+    if start.month != end.month:
+        return f"{_fmt_day(start)} – {_fmt_day(end)}, {end.year}"
+    return f"{_fmt_day(start)} – {end.day}, {end.year}"
+
+
+def week_range_label(dt: datetime) -> str:
+    """``format_week_range`` for the ISO week containing ``dt``."""
+    iso = dt.isocalendar()
+    return format_week_range(iso.year, iso.week)
 
 
 @dataclass

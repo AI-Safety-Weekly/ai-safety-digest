@@ -10,6 +10,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .state_store import format_week_range
+
 DIGEST_PATTERN = re.compile(r"^digest-(\d{4})-W(\d{2})\.md$")
 
 
@@ -26,7 +28,7 @@ def _digest_files(out_dir: Path) -> list[tuple[int, int, Path]]:
 
 def _counts_line(md_text: str) -> str:
     for line in md_text.splitlines():
-        if line.startswith("_") and "papers total" in line:
+        if line.startswith("_") and "items shown" in line:
             return line
     return ""
 
@@ -53,7 +55,7 @@ def build_index(out_dir: Path) -> Path:
         year, week, latest = entries[0]
         counts = _counts_line(latest.read_text(encoding="utf-8"))
         lines += [
-            f'!!! tip "Latest digest — {year}, week {week:02d}"',
+            f'!!! tip "Latest digest — {format_week_range(year, week)}"',
             f"    **{counts.strip('_')}**" if counts else "",
             "",
             f"    [Read the full digest :material-arrow-right:]"
@@ -63,7 +65,7 @@ def build_index(out_dir: Path) -> Path:
             "",
         ]
         for y, w, path in entries:
-            lines.append(f"- [**{y} · Week {w:02d}**]({path.name})")
+            lines.append(f"- [**{format_week_range(y, w)}**]({path.name})")
         lines.append("")
 
     lines += [
@@ -72,6 +74,10 @@ def build_index(out_dir: Path) -> Path:
         "- **High relevance** — papers a safety researcher would genuinely want to read this week.",
         "- **Medium relevance** — adjacent or partially relevant; skim-worthy.",
         "- **Low relevance** — included for context only.",
+        "- **Capabilities watch** — high-profile frontier releases (new models, major SOTA) for situational awareness.",
+        "",
+        "Every item is tagged **Paper**, **Blog post**, or **Other**, and each "
+        "digest page has a filter to show only the types you want.",
         "",
         "## Suggest a paper",
         "",

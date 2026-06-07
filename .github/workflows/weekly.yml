@@ -72,7 +72,11 @@ jobs:
           DAYS: ${{ github.event.inputs.days || '7' }}
           MAX_PAPERS: ${{ github.event.inputs.max_papers || '' }}
         run: |
-          ARGS="--days ${DAYS} --config-dir config --out-dir docs"
+          # -v (INFO): surface the funnel volume breakdown + semantic-rescue
+          # scores in the run log so the step-2 threshold can be calibrated from
+          # real production data, and so the debut of the new pipeline (semantic
+          # net, caching, UX overhaul) is observable. Logging-only; reversible.
+          ARGS="-v --days ${DAYS} --config-dir config --out-dir docs"
           if [ -n "${MAX_PAPERS}" ]; then
             ARGS="${ARGS} --max-papers ${MAX_PAPERS}"
           fi

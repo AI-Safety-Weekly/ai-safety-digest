@@ -42,27 +42,36 @@ class _FakeResp:
             raise RuntimeError(f"HTTP {self.status_code}")
 
 
-def _gemini_ok(relevance: str, title: str) -> dict:
+def _gemini_ok(
+    relevance: str, title: str, content_type: str | None = None, capability: bool = False
+) -> dict:
+    payload = {
+        "relevance": relevance,
+        "safety_areas": ["alignment"],
+        "summary": f"summary of {title}",
+        "rationale": f"rationale for {title}",
+        "capability": capability,
+    }
+    if content_type is not None:
+        payload["content_type"] = content_type
     return {
         "candidates": [
             {
                 "content": {
-                    "parts": [
-                        {
-                            "text": json.dumps(
-                                {
-                                    "relevance": relevance,
-                                    "safety_areas": ["alignment"],
-                                    "summary": f"summary of {title}",
-                                    "rationale": f"rationale for {title}",
-                                }
-                            )
-                        }
-                    ]
+                    "parts": [{"text": json.dumps(payload)}]
                 }
             }
         ]
     }
+
+
+@pytest.fixture(autouse=True)
+def _disable_explicit_cache(monkeypatch):
+    """These tests exercise the classify/resweep/deep-read drivers, not caching,
+    and mock ``requests.post`` with a classify-shaped body. Disable explicit
+    caching so its (differently-shaped) cache-creation POST doesn't hit those
+    fakes. The caching path has its own coverage in test_caching.py."""
+    monkeypatch.setattr(classifier, "_create_system_cache", lambda *a, **k: None)
 
 
 def test_results_in_input_order(monkeypatch):
@@ -87,6 +96,37 @@ def test_results_in_input_order(monkeypatch):
     # spot-check the classification rode along with the right paper
     assert out[0].classification.summary == "summary of Paper 0"
     assert out[3].classification.relevance == "low"
+
+
+def test_content_type_rides_through(monkeypatch):
+    """The model's content_type is parsed onto the classification."""
+    def fake_post(url, params=None, json=None, timeout=None):
+        return _FakeResp(200, _gemini_ok("high", "Paper 0", content_type="blog_post"))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    out = classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert out[0].classification.content_type == "blog_post"
+
+
+def test_capability_flag_rides_through(monkeypatch):
+    """A capability=true in the response lands on the classification."""
+    def fake_post(url, params=None, json=None, timeout=None):
+        return _FakeResp(200, _gemini_ok("off_topic", "MiniMax-M2", capability=True))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    out = classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert out[0].classification.capability is True
+
+
+def test_content_type_defaults_from_source_when_absent(monkeypatch):
+    """A response missing content_type falls back to the source-based default
+    (arXiv -> paper) rather than crashing or silently mislabelling."""
+    def fake_post(url, params=None, json=None, timeout=None):
+        return _FakeResp(200, _gemini_ok("high", "Paper 0"))  # no content_type
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    out = classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert out[0].classification.content_type == "paper"
 
 
 def test_retries_then_succeeds(monkeypatch):
@@ -334,6 +374,98 @@ def test_summarize_papers_groups_themes(monkeypatch):
     assert fs is not None
     assert fs.total == 2
     assert fs.themes == [("evals", "Evals work."), ("interpretability", "Interp work.")]
+
+
+def test_summarize_papers_membership_when_grouped(monkeypatch):
+    items = [
+        _classified("arxiv", "medium", title="P0"),
+        _classified("arxiv", "medium", title="P1"),
+        _classified("arxiv", "medium", title="P2"),
+    ]
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        text = json["contents"][0]["parts"][0]["text"]
+        # group_members numbers the papers with bracketed indices.
+        assert "[0] P0" in text and "[1] P1" in text and "[2] P2" in text
+        return _FakeResp(200, _gemini_summary_ok([
+            {"area": "evals", "sentence": "Evals.", "members": [0, 2]},
+            {"area": "control", "sentence": "Control.", "members": [1]},
+        ]))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    fs = classifier.summarize_papers(
+        items, focus="the backbone", api_key="test", group_members=True
+    )
+    assert fs is not None
+    assert fs.groups == [[0, 2], [1]]
+
+
+def test_summarize_papers_membership_dedupes_and_drops_invalid(monkeypatch):
+    items = [_classified("arxiv", "medium", title="P0"), _classified("arxiv", "medium", title="P1")]
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        # 0 is double-claimed (first theme wins); 9 is out of range (dropped).
+        return _FakeResp(200, _gemini_summary_ok([
+            {"area": "a", "sentence": "A.", "members": [0, 9]},
+            {"area": "b", "sentence": "B.", "members": [0, 1]},
+        ]))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    fs = classifier.summarize_papers(
+        items, focus="x", api_key="test", group_members=True
+    )
+    assert fs is not None
+    assert fs.groups == [[0], [1]]  # 9 dropped, 0 kept only in the first theme
+
+
+def test_summarize_papers_no_groups_without_flag(monkeypatch):
+    items = [_classified("arxiv", "low", title="P0")]
+    monkeypatch.setattr(
+        classifier.requests, "post",
+        lambda *a, **k: _FakeResp(200, _gemini_summary_ok([{"area": "x", "sentence": "X."}])),
+    )
+    fs = classifier.summarize_papers(items, focus="x", api_key="test")
+    assert fs is not None and fs.groups is None
+
+
+def test_thinking_config_default_none(monkeypatch):
+    monkeypatch.delenv("GEMINI_THINKING_BUDGET", raising=False)
+    assert classifier._thinking_config() is None
+
+
+def test_thinking_config_from_env(monkeypatch):
+    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "512")
+    assert classifier._thinking_config() == {"thinkingBudget": 512}
+    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "0")
+    assert classifier._thinking_config() == {"thinkingBudget": 0}
+    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "  ")  # blank → treated as unset
+    assert classifier._thinking_config() is None
+
+
+def test_classify_omits_thinking_config_by_default(monkeypatch):
+    monkeypatch.delenv("GEMINI_THINKING_BUDGET", raising=False)
+    captured = {}
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        captured["body"] = json
+        return _FakeResp(200, _gemini_ok("medium", "Paper 0"))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert "thinkingConfig" not in captured["body"]["generationConfig"]
+
+
+def test_classify_injects_thinking_budget_when_set(monkeypatch):
+    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "256")
+    captured = {}
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        captured["body"] = json
+        return _FakeResp(200, _gemini_ok("medium", "Paper 0"))
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
+    assert captured["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 256}
 
 
 def test_summarize_papers_empty_returns_none(monkeypatch):

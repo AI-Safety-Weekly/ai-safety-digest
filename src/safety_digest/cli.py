@@ -125,6 +125,15 @@ def main() -> None:
         help="Cap the number of papers classified (useful for testing)",
     )
     parser.add_argument(
+        "--max-items",
+        type=int,
+        default=60,
+        help="Cap the total number of items LISTED in the digest — every full "
+             "entry plus every Zone 3 one-liner (default: 60). The curated core "
+             "(Capabilities, Zone 1, Zone 2) is always shown; the Zone 3 long "
+             "tail is trimmed to fit. Pass 0 to disable the cap.",
+    )
+    parser.add_argument(
         "--max-arxiv-results",
         type=int,
         default=2000,
@@ -141,6 +150,22 @@ def main() -> None:
         choices=["gemini", "claude"],
         default="gemini",
         help="LLM backend: gemini (free tier, default) or claude (paid Sonnet 4.6)",
+    )
+    parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="Classify Pass 1 via the Gemini Batch API (50%% cheaper, async — "
+             "submits one batch and polls to completion). For the non-urgent "
+             "weekly run; falls back to the synchronous path if the batch fails "
+             "or doesn't finish in time. Gemini backend only.",
+    )
+    parser.add_argument(
+        "--no-semantic",
+        action="store_true",
+        help="Disable the semantic recall net (funnel-recall step 2). By default, "
+             "candidates the keyword/author gate rejected get a second chance via "
+             "embedding similarity to config/semantic_seeds.yml — purely additive "
+             "recall. Pass this to fall back to the keyword/author gate alone.",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -198,6 +223,8 @@ def main() -> None:
             auto_admit_authors=auto_admit_authors,
             review_authors=review_authors,
             until=until_dt,
+            semantic_seeds=None if args.no_semantic else cfg.semantic_seeds,
+            semantic_threshold=cfg.semantic_threshold,
         )
         if missed_ids:
             already = {p.arxiv_id for p in papers if p.arxiv_id}
@@ -215,7 +242,10 @@ def main() -> None:
     log.info("Collected %d papers from arXiv", len(papers))
 
     if cfg.lab_sources and not args.arxiv_ids:
-        lab_papers = lab_collector.collect(cfg.lab_sources, days=args.days, until=until_dt)
+        lab_papers = lab_collector.collect(
+            cfg.lab_sources, days=args.days, until=until_dt,
+            safety_keywords=cfg.strict_keywords,
+        )
         log.info("Collected %d items from lab feeds", len(lab_papers))
         papers = papers + lab_papers
 
@@ -297,9 +327,13 @@ def main() -> None:
     if learned_context:
         log.info("Appending %d-char learned-context block to classifier system prompt", len(learned_context))
 
+    classifier.reset_usage()
     if args.dry_run:
         log.info("Dry run: using stub classifier (no API calls)")
         classified = classifier.stub_classify(papers)
+    elif args.backend == "gemini" and args.batch:
+        log.info("Classifying via Gemini 2.5 Flash Batch API (50%% cheaper, async)")
+        classified = classifier.gemini_classify_batch(papers, extra_system_text=learned_context)
     elif args.backend == "gemini":
         log.info("Classifying via Gemini 2.5 Flash (free tier)")
         classified = classifier.gemini_classify(papers, extra_system_text=learned_context)
@@ -349,16 +383,26 @@ def main() -> None:
     medium_overview = None
     field_summary = None
     if not args.dry_run and not args.no_field_summary:
-        medium = [cp for cp in classified if cp.classification.relevance == "medium"]
+        # Mirror report.write_markdown's routing: capability-flagged items are
+        # pulled into the Capabilities watch section, so they must not feed the
+        # backbone/off-lane briefs (the medium overview's group indices have to
+        # line up with the exact medium list the report renders).
+        medium = [
+            cp for cp in classified
+            if cp.classification.relevance == "medium" and not cp.classification.capability
+        ]
         off_lane = [
             cp for cp in classified
-            if cp.classification.relevance == "low" and not cp.classification.breakthrough
+            if cp.classification.relevance == "low"
+            and not cp.classification.breakthrough
+            and not cp.classification.capability
         ]
         log.info("Summarizing %d medium + %d off-lane paper(s)", len(medium), len(off_lane))
         medium_overview = classifier.summarize_papers(
             medium,
             focus="the backbone of Aaron's lane — capability evals, "
                   "control/scheming, and frontier-lab safety work",
+            group_members=True,
         )
         field_summary = classifier.summarize_papers(
             off_lane,
@@ -371,8 +415,13 @@ def main() -> None:
     out_path = report.write_markdown(
         classified, args.out_dir / fname, run_at,
         medium_overview=medium_overview, field_summary=field_summary,
+        max_items=args.max_items or None,
     )
     index_path = site_builder.build_index(args.out_dir)
+    if not args.dry_run:
+        # Measured run cost from each call's usageMetadata (see the standing
+        # cost directive). Printed so the weekly run's $ is a number, not a guess.
+        print(classifier.USAGE.report())
     print(f"Wrote {out_path} ({len(classified)} papers); updated {index_path}")
 
 

@@ -27,6 +27,7 @@ from .models import (
     Paper,
     Relevance,
     SafetyArea,
+    default_content_type,
 )
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,23 @@ log = logging.getLogger(__name__)
 MODEL = "claude-sonnet-4-6"
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
+def _thinking_config() -> dict | None:
+    """Optional thinkingConfig for classification calls, from
+    ``GEMINI_THINKING_BUDGET``.
+
+    Thinking tokens bill as output and dominate the per-run cost. By default
+    (env unset) we send no ``thinkingConfig`` at all, so Gemini 2.5 Flash uses
+    its *dynamic* budget — the production behavior an A/B validated against
+    thinking-off. Set the env to cap it: a positive integer caps the budget
+    (cheaper), ``0`` turns thinking off, ``-1`` is explicit dynamic. Capping is
+    the main cost lever; validate tier agreement before lowering the default.
+    """
+    raw = os.environ.get("GEMINI_THINKING_BUDGET")
+    if raw is None or raw.strip() == "":
+        return None
+    return {"thinkingBudget": int(raw)}
 
 SYSTEM_PROMPT = """\
 You curate a weekly research digest for ONE specific reader, Aaron. Your job \
@@ -247,7 +265,39 @@ passing.
 
 Forum posts get NO auto-admit signal — author fame alone does not earn \
 high. Authors are not cross-checked against the tracked-authors list \
-(it's tuned for arXiv bylines)."""
+(it's tuned for arXiv bylines).
+
+CONTENT TYPE (content_type) — orthogonal to relevance; label WHAT KIND of \
+thing the item is, judged from the content itself, NOT from where it came \
+from (a lab feed carries both papers and blog posts):
+- "paper": an academic or technical research output — an arXiv preprint, a \
+peer-reviewed conference/journal paper, a formal technical report, or a \
+model/system card. Has the shape of research: authors, methods, results, \
+citations.
+- "blog_post": a blog or forum post, a newsletter issue, an organisational \
+announcement, or commentary/analysis written as prose rather than as a \
+formal paper. Most Alignment Forum / LessWrong / Substack / company-blog \
+items are this.
+- "other": anything that is neither — a video or podcast, a dataset or \
+benchmark release, a code/tool/library release, a plain news article, or \
+the text of a policy / bill / regulation.
+When genuinely torn between paper and blog_post, lean on form: a PDF with \
+a methods section and references is a paper; an HTML essay is a blog_post.
+
+HIGH-PROFILE CAPABILITIES (capability) — set capability=true for a major \
+FRONTIER CAPABILITY release Aaron should be aware of for situational \
+awareness, even though it is NOT safety research:
+- a new frontier or near-frontier model launch (e.g. MiniMax-M2, GPT-5, a \
+new Claude / Gemini / Llama / DeepSeek / Qwen / Mistral flagship);
+- a major state-of-the-art jump on a headline capability (agentic coding, \
+reasoning, multimodal, long-horizon autonomy);
+- a landmark capability milestone widely treated as a step-change.
+Set it INDEPENDENTLY of relevance — including when you would otherwise mark \
+the item "low" or even "off_topic". The pipeline pulls every capability=true \
+item into a dedicated "Capabilities watch" section, so an off_topic model \
+launch is surfaced there instead of being dropped. Keep the bar high: this \
+is for releases the field is talking about, NOT every paper that nudges a \
+benchmark or every minor fine-tune. Most items are capability=false."""
 
 CLASSIFY_TOOL: dict[str, Any] = {
     "name": "classify_paper",
@@ -292,6 +342,32 @@ CLASSIFY_TOOL: dict[str, Any] = {
                                "false for every paper. Only meaningful when "
                                "relevance is 'low'.",
             },
+            "capability": {
+                "type": "boolean",
+                "description": "True for a HIGH-PROFILE FRONTIER CAPABILITY "
+                               "release Aaron should know about even though it "
+                               "isn't safety research — a new frontier model "
+                               "launch (e.g. MiniMax-M2, GPT-5, a new "
+                               "Claude/Gemini/Llama/DeepSeek), a major SOTA jump, "
+                               "or a landmark capability milestone. Set it even "
+                               "when relevance is 'low' or 'off_topic'; the "
+                               "pipeline routes these to a 'Capabilities watch' "
+                               "section. NOT for ordinary papers that merely "
+                               "improve a benchmark.",
+            },
+            "content_type": {
+                "type": "string",
+                "enum": ["paper", "blog_post", "other"],
+                "description": "What KIND of item this is, judged from the "
+                               "content itself (NOT the source): 'paper' = an "
+                               "academic or technical research output (arXiv "
+                               "preprint, peer-reviewed paper, formal technical "
+                               "report, model/system card); 'blog_post' = a blog "
+                               "or forum post, newsletter, announcement, or "
+                               "commentary; 'other' = anything else (video, "
+                               "podcast, dataset/benchmark, code/tool release, "
+                               "news article, policy/legislation text).",
+            },
             "summary": {
                 "type": "string",
                 "description": "One specific sentence about what the paper does. <= 240 chars.",
@@ -301,7 +377,7 @@ CLASSIFY_TOOL: dict[str, Any] = {
                 "description": "One or two sentences explaining the relevance tier.",
             },
         },
-        "required": ["relevance", "safety_areas", "summary", "rationale", "breakthrough"],
+        "required": ["relevance", "safety_areas", "summary", "rationale", "breakthrough", "capability", "content_type"],
     },
 }
 
@@ -392,6 +468,8 @@ def classify(
             summary=data["summary"].strip(),
             rationale=data["rationale"].strip(),
             breakthrough=bool(data.get("breakthrough", False)),
+            capability=bool(data.get("capability", False)),
+            content_type=data.get("content_type") or default_content_type(paper.source),
         )
         results.append(ClassifiedPaper(paper=paper, classification=classification))
 
@@ -416,10 +494,12 @@ _GEMINI_RESPONSE_SCHEMA = {
             },
         },
         "breakthrough": {"type": "boolean"},
+        "capability": {"type": "boolean"},
+        "content_type": {"type": "string", "enum": ["paper", "blog_post", "other"]},
         "summary": {"type": "string"},
         "rationale": {"type": "string"},
     },
-    "required": ["relevance", "safety_areas", "breakthrough", "summary", "rationale"],
+    "required": ["relevance", "safety_areas", "breakthrough", "capability", "content_type", "summary", "rationale"],
 }
 
 
@@ -427,6 +507,75 @@ _GEMINI_RESPONSE_SCHEMA = {
 # 11 attempts, ~30 min cumulative — wide enough that exhausting it means a
 # sustained Google outage, not a normal demand spike. Overridable for tests.
 _GEMINI_RETRY_DELAYS = [0, 5, 15, 30, 60, 120, 180, 300, 300, 300, 300]
+
+# ── Cost instrumentation ───────────────────────────────────────────────────
+# Gemini 2.5 Flash list price (USD per 1M tokens), verified 2026-06 — see the
+# `Gemini pricing is stale` memory: re-verify before trusting these. Cached
+# input tokens bill at 90% off; thinking ("thoughts") tokens bill as output.
+GEMINI_PRICE_INPUT = 0.30
+GEMINI_PRICE_OUTPUT = 2.50
+GEMINI_PRICE_CACHED_INPUT = 0.30 * 0.10  # 90% discount on cache hits
+
+
+class _UsageAccumulator:
+    """Thread-safe tally of Gemini token usage across a run, from each call's
+    ``usageMetadata``. Every Gemini call (classify, deep-read, summaries) flows
+    through ``_gemini_post``, so this captures the whole run's cost. Reset at the
+    start of a run; read the report at the end. ``cachedContentTokenCount`` also
+    reveals whether implicit caching is actually firing on the repeated prompt.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.calls = 0
+        self.prompt = 0
+        self.cached = 0
+        self.output = 0
+        self.thinking = 0
+        self._cost = 0.0
+
+    def add(self, usage: dict, rate_mult: float = 1.0) -> None:
+        """Tally one call's usage. ``rate_mult`` scales the $ for discounted
+        billing tiers — 0.5 for Batch-API calls (50% off), 1.0 for synchronous.
+        Token counts are recorded raw; only the cost is scaled, so a mixed
+        sync+batch run still reports an accurate total."""
+        with self._lock:
+            self.calls += 1
+            p = int(usage.get("promptTokenCount", 0) or 0)
+            c = int(usage.get("cachedContentTokenCount", 0) or 0)
+            o = int(usage.get("candidatesTokenCount", 0) or 0)
+            t = int(usage.get("thoughtsTokenCount", 0) or 0)
+            self.prompt += p
+            self.cached += c
+            self.output += o
+            self.thinking += t
+            uncached = max(0, p - c)  # promptTokenCount includes the cached subset
+            self._cost += rate_mult * (
+                uncached * GEMINI_PRICE_INPUT
+                + c * GEMINI_PRICE_CACHED_INPUT
+                + (o + t) * GEMINI_PRICE_OUTPUT
+            ) / 1_000_000
+
+    def cost_usd(self) -> float:
+        return self._cost
+
+    def report(self) -> str:
+        return (
+            f"Gemini usage: {self.calls} calls | "
+            f"prompt {self.prompt:,} ({self.cached:,} cached) | "
+            f"output {self.output:,} | thinking {self.thinking:,} | "
+            f"≈ ${self.cost_usd():.3f}"
+        )
+
+
+# Module-global accumulator. A run resets it before classifying and logs the
+# report after; tests can inspect it directly.
+USAGE = _UsageAccumulator()
+
+
+def reset_usage() -> None:
+    global USAGE
+    USAGE = _UsageAccumulator()
 
 
 def _gemini_post(url: str, api_key: str, body: dict, label: str) -> dict:
@@ -462,14 +611,72 @@ def _gemini_post(url: str, api_key: str, body: dict, label: str) -> dict:
         raise RuntimeError(f"Gemini exhausted retries on {label}: {last_err}")
 
     data = r.json()
+    # Tally token usage for cost reporting (best-effort — never break a call
+    # over missing usageMetadata).
+    if isinstance(data.get("usageMetadata"), dict):
+        USAGE.add(data["usageMetadata"])
     try:
         return json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
     except (KeyError, IndexError, json.JSONDecodeError) as e:
         raise RuntimeError(f"Gemini unparseable response: {e}; raw: {str(data)[:400]}")
 
 
+_GEMINI_CACHE_URL = "https://generativelanguage.googleapis.com/v1beta/cachedContents"
+
+
+def _create_system_cache(
+    api_key: str, system_text: str, ttl_seconds: int = 1800, model: str = GEMINI_MODEL
+) -> str | None:
+    """Create an explicit context cache holding the large, repeated system
+    instruction, so every per-paper call references it at a 90%-off input rate
+    instead of re-sending ~3k tokens each.
+
+    Measured 2026-06: implicit caching does NOT fire on our systemInstruction
+    (cachedContentTokenCount stayed 0), so this is a real, unrealized saving.
+    Returns the cache `name`, or None on ANY failure / when the prompt is below
+    Gemini's 2048-token cache minimum — the caller then sends the prompt inline,
+    so caching is a pure optimization that never breaks a run.
+    """
+    if len(system_text) < 6000:  # ~well under the 2048-token minimum; skip
+        return None
+    body = {
+        "model": f"models/{model}",
+        "system_instruction": {"parts": [{"text": system_text}]},
+        "ttl": f"{int(ttl_seconds)}s",
+    }
+    try:
+        r = requests.post(_GEMINI_CACHE_URL, params={"key": api_key}, json=body, timeout=60)
+        if r.status_code != 200:
+            log.warning(
+                "Gemini cache create failed (HTTP %d: %s) — using inline prompt",
+                r.status_code, r.text[:160],
+            )
+            return None
+        name = r.json().get("name")
+        if name:
+            log.info("Created Gemini system-prompt cache %s (ttl %ds)", name, ttl_seconds)
+        return name
+    except Exception as e:  # noqa: BLE001 — caching is an optimization; ANY failure
+        # (network, bad JSON, unexpected shape) must degrade to the inline prompt,
+        # never abort the run.
+        log.warning("Gemini cache create error (%s) — using inline prompt", e)
+        return None
+
+
+def _delete_cache(api_key: str, name: str) -> None:
+    """Best-effort delete of an explicit cache (else it lingers until its TTL)."""
+    try:
+        requests.delete(
+            f"https://generativelanguage.googleapis.com/v1beta/{name}",
+            params={"key": api_key}, timeout=30,
+        )
+    except requests.RequestException:
+        pass
+
+
 def _gemini_classify_one(
-    paper: Paper, url: str, api_key: str, system_text: str, full_text: str | None = None
+    paper: Paper, url: str, api_key: str, system_text: str, full_text: str | None = None,
+    cached_content: str | None = None,
 ) -> ClassifiedPaper:
     """Classify a single paper via Gemini, with retry on transient failures.
 
@@ -479,18 +686,35 @@ def _gemini_classify_one(
 
     If `full_text` is given (deep-read pass), it is appended to the user
     message so the model judges on the real article body, not a thin abstract.
-    """
-    body = {
-        "contents": [{"role": "user", "parts": [{"text": _user_message(paper, full_text)}]}],
-        "systemInstruction": {"parts": [{"text": system_text}]},
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": _GEMINI_RESPONSE_SCHEMA,
-            "temperature": 0.1,
-        },
-    }
-    parsed = _gemini_post(url, api_key, body, label=repr(paper.title[:60]))
 
+    If `cached_content` is given (an explicit context-cache name), the system
+    instruction is referenced from the cache at a 90%-off input rate instead of
+    being re-sent inline. Falls back to inline when None.
+    """
+    gen_config: dict = {
+        "responseMimeType": "application/json",
+        "responseSchema": _GEMINI_RESPONSE_SCHEMA,
+        "temperature": 0.1,
+    }
+    thinking = _thinking_config()
+    if thinking is not None:
+        gen_config["thinkingConfig"] = thinking
+    body: dict = {
+        "contents": [{"role": "user", "parts": [{"text": _user_message(paper, full_text)}]}],
+        "generationConfig": gen_config,
+    }
+    if cached_content:
+        body["cachedContent"] = cached_content
+    else:
+        body["systemInstruction"] = {"parts": [{"text": system_text}]}
+    parsed = _gemini_post(url, api_key, body, label=repr(paper.title[:60]))
+    return _classification_from_parsed(paper, parsed)
+
+
+def _classification_from_parsed(paper: Paper, parsed: dict) -> ClassifiedPaper:
+    """Build a ClassifiedPaper from the model's parsed structured output. Shared
+    by the synchronous and batch classify paths so both interpret the schema
+    identically."""
     return ClassifiedPaper(
         paper=paper,
         classification=Classification(
@@ -499,6 +723,8 @@ def _gemini_classify_one(
             summary=parsed["summary"].strip(),
             rationale=parsed["rationale"].strip(),
             breakthrough=bool(parsed.get("breakthrough", False)),
+            capability=bool(parsed.get("capability", False)),
+            content_type=parsed.get("content_type") or default_content_type(paper.source),
         ),
     )
 
@@ -521,6 +747,7 @@ def _fallback_classification(paper: Paper, err: Exception) -> ClassifiedPaper:
             rationale="[auto] Could not be classified (transient API failure after "
                       "all retries); parked off-lane. Re-runs will reclassify it.",
             breakthrough=False,
+            content_type=default_content_type(paper.source),
             fallback=True,
         ),
     )
@@ -558,6 +785,11 @@ def gemini_classify(
     workers = max(1, min(max_workers, len(papers)))
     log.info("Classifying %d papers via Gemini (%d concurrent workers)", len(papers), workers)
 
+    # Cache the (large, repeated) system prompt once so all per-paper calls
+    # reference it at 90% off input instead of re-sending ~3k tokens each.
+    # None ⇒ inline prompt (cache disabled / creation failed); never blocks a run.
+    cache_name = _create_system_cache(api_key, system_text)
+
     results: list[ClassifiedPaper | None] = [None] * len(papers)
     done = 0
     lock = threading.Lock()
@@ -566,7 +798,7 @@ def gemini_classify(
         nonlocal done
         idx, paper = item
         try:
-            cp = _gemini_classify_one(paper, url, api_key, system_text)
+            cp = _gemini_classify_one(paper, url, api_key, system_text, cached_content=cache_name)
         except Exception as e:  # noqa: BLE001 — one paper must not abort the run
             cp = _fallback_classification(paper, e)
         with lock:
@@ -574,11 +806,181 @@ def gemini_classify(
             log.info("Classified %d/%d: %s", done, len(papers), paper.title[:70])
         return idx, cp
 
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        for idx, cp in ex.map(work, enumerate(papers)):
-            results[idx] = cp
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for idx, cp in ex.map(work, enumerate(papers)):
+                results[idx] = cp
+    finally:
+        if cache_name:
+            _delete_cache(api_key, cache_name)
 
     return [cp for cp in results if cp is not None]
+
+
+# ── Batch API path (50% off; async, ≤24h SLA) ──────────────────────────────
+
+_BATCH_SUBMIT_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:batchGenerateContent"
+)
+_BATCH_GET_URL = "https://generativelanguage.googleapis.com/v1beta/{name}"
+_BATCH_DISCOUNT = 0.5  # Batch API bills at 50% of synchronous list price.
+_BATCH_TERMINAL = {
+    "BATCH_STATE_SUCCEEDED", "BATCH_STATE_FAILED",
+    "BATCH_STATE_CANCELLED", "BATCH_STATE_EXPIRED",
+}
+# Default ceiling on how long to wait for a batch within one run. The SLA is
+# 24h, but small/medium batches usually finish in minutes; a run can't block
+# for a day, so on timeout we fall back to the synchronous path. Overridable.
+_BATCH_MAX_WAIT = 7200.0
+_BATCH_POLL_INTERVAL = 30.0
+
+
+def _build_batch_request(paper: Paper, system_text: str, cached_content: str | None, key: str) -> dict:
+    """One entry of the batch's inline request list. Uses snake_case config keys
+    (the batch endpoint's convention, verified against the live API)."""
+    gen: dict = {
+        "response_mime_type": "application/json",
+        "response_schema": _GEMINI_RESPONSE_SCHEMA,
+        "temperature": 0.1,
+    }
+    thinking = _thinking_config()
+    if thinking is not None:
+        gen["thinking_config"] = {"thinking_budget": thinking["thinkingBudget"]}
+    req: dict = {"contents": [{"role": "user", "parts": [{"text": _user_message(paper)}]}]}
+    if cached_content:
+        # Top-level request field (sibling to contents/generation_config) — NOT
+        # inside generation_config, which the live API rejects with HTTP 400.
+        req["cached_content"] = cached_content
+    else:
+        req["system_instruction"] = {"parts": [{"text": system_text}]}
+    req["generation_config"] = gen
+    return {"request": req, "metadata": {"key": key}}
+
+
+def gemini_classify_batch(
+    papers: list[Paper],
+    api_key: str | None = None,
+    extra_system_text: str | None = None,
+    poll_interval: float = _BATCH_POLL_INTERVAL,
+    max_wait: float | None = None,
+) -> list[ClassifiedPaper]:
+    """Classify papers via the Gemini Batch API — 50% cheaper than synchronous,
+    at the cost of asynchronous completion (≤24h SLA, usually far faster).
+
+    Submits all papers as one inline batch, polls until terminal, then maps each
+    result back to its paper by ``metadata.key``. Results are returned in input
+    order. Designed for the non-latency-sensitive weekly run.
+
+    Robustness: any per-request error becomes a flagged "low" fallback (same as
+    the sync path, so the re-sweep / cross-week self-heal recover it). If the
+    whole batch fails, is cancelled, or doesn't finish within ``max_wait``, we
+    fall back to the proven synchronous classifier so the digest still ships —
+    batch is an optimization, never a single point of failure.
+    """
+    if not papers:
+        return []
+    api_key = api_key or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not set")
+    if max_wait is None:
+        max_wait = float(os.environ.get("GEMINI_BATCH_MAX_WAIT", _BATCH_MAX_WAIT))
+
+    system_text = SYSTEM_PROMPT
+    if extra_system_text:
+        system_text = SYSTEM_PROMPT + "\n\n" + extra_system_text
+
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+
+    def _sync_fallback(reason: str) -> list[ClassifiedPaper]:
+        log.warning("Batch classify falling back to synchronous path: %s", reason)
+        return gemini_classify(papers, api_key=api_key, extra_system_text=extra_system_text)
+
+    # Cache the system prompt once (batch supports cached_content per request).
+    cache_name = _create_system_cache(api_key, system_text)
+    try:
+        requests_list = [
+            _build_batch_request(p, system_text, cache_name, str(i)) for i, p in enumerate(papers)
+        ]
+        body = {"batch": {"display_name": "safety-digest",
+                          "input_config": {"requests": {"requests": requests_list}}}}
+
+        # Submit.
+        try:
+            r = requests.post(
+                _BATCH_SUBMIT_URL.format(model=GEMINI_MODEL),
+                headers=headers, json=body, timeout=120,
+            )
+        except requests.RequestException as e:
+            return _sync_fallback(f"submit failed ({e})")
+        if r.status_code != 200:
+            return _sync_fallback(f"submit HTTP {r.status_code}: {r.text[:200]}")
+        name = r.json().get("name")
+        if not name:
+            return _sync_fallback("submit returned no batch name")
+        log.info("Submitted batch %s (%d requests); polling every %.0fs (max %.0fs)",
+                 name, len(papers), poll_interval, max_wait)
+
+        # Poll.
+        get_url = _BATCH_GET_URL.format(name=name)
+        waited = 0.0
+        state = "BATCH_STATE_PENDING"
+        job = {}
+        while waited < max_wait:
+            time.sleep(poll_interval)
+            waited += poll_interval
+            try:
+                job = requests.get(get_url, headers=headers, timeout=60).json()
+            except (requests.RequestException, ValueError) as e:
+                log.warning("Batch poll error (%s) — retrying", e)
+                continue
+            meta = job.get("metadata", {})
+            state = meta.get("state") or job.get("state") or state
+            pending = meta.get("batchStats", {}).get("pendingRequestCount")
+            log.info("Batch %s: state=%s pending=%s (%.0fs)", name, state, pending, waited)
+            if state in _BATCH_TERMINAL:
+                break
+        if state != "BATCH_STATE_SUCCEEDED":
+            return _sync_fallback(f"batch ended in state {state} (or timed out after {waited:.0f}s)")
+
+        # Collect results, mapped back by metadata.key.
+        inlined = (job.get("response", {}).get("inlinedResponses", {}) or {}).get("inlinedResponses", [])
+        by_key: dict[str, ClassifiedPaper] = {}
+        for i, entry in enumerate(inlined):
+            key = str(entry.get("metadata", {}).get("key", i))
+            try:
+                idx = int(key)
+                paper = papers[idx]
+            except (ValueError, IndexError):
+                continue
+            resp = entry.get("response")
+            if not resp:  # per-request error object instead of a response
+                by_key[key] = _fallback_classification(
+                    paper, RuntimeError(str(entry.get("error", "batch item error"))[:200])
+                )
+                continue
+            usage = resp.get("usageMetadata")
+            if isinstance(usage, dict):
+                USAGE.add(usage, rate_mult=_BATCH_DISCOUNT)
+            try:
+                text = resp["candidates"][0]["content"]["parts"][0]["text"]
+                by_key[key] = _classification_from_parsed(paper, json.loads(text))
+            except (KeyError, IndexError, json.JSONDecodeError) as e:
+                by_key[key] = _fallback_classification(paper, e)
+
+        # Assemble in input order; any paper with no returned result → fallback.
+        results: list[ClassifiedPaper] = []
+        missing = 0
+        for i, paper in enumerate(papers):
+            cp = by_key.get(str(i))
+            if cp is None:
+                cp = _fallback_classification(paper, RuntimeError("missing from batch results"))
+                missing += 1
+            results.append(cp)
+        log.info("Batch %s done: %d results, %d missing→fallback", name, len(papers) - missing, missing)
+        return results
+    finally:
+        if cache_name:
+            _delete_cache(api_key, cache_name)
 
 
 # Default pause before the targeted re-sweep (seconds). The per-paper retry
@@ -662,6 +1064,28 @@ _SUMMARY_RESPONSE_SCHEMA = {
     "required": ["themes"],
 }
 
+# When the caller wants the listing grouped under the same themes (the Zone 1
+# backbone), each theme also returns `members`: the bracketed indices of the
+# papers assigned to it. Every paper goes in exactly one theme.
+_SUMMARY_RESPONSE_SCHEMA_GROUPED = {
+    "type": "object",
+    "properties": {
+        "themes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "area": {"type": "string"},
+                    "sentence": {"type": "string"},
+                    "members": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["area", "sentence", "members"],
+            },
+        },
+    },
+    "required": ["themes"],
+}
+
 _SUMMARY_SYSTEM = """\
 You write a short, skimmable overview of a batch of AI-safety papers for one \
 busy reader. Group the papers by safety-area theme and return, for each theme, \
@@ -671,12 +1095,20 @@ concise and concrete: no preamble, no conclusion, no editorializing, and do \
 NOT enumerate every paper. A reader should grasp the shape of the whole set in \
 under a minute. Return only the structured themes."""
 
+_SUMMARY_SYSTEM_GROUPED = _SUMMARY_SYSTEM + """ \
+
+Each paper is prefixed with a bracketed index like [0], [1], [2]. For every \
+theme, also return `members`: the list of those indices for the papers in that \
+cluster. Assign EVERY paper to exactly one theme — no paper in two themes, none \
+left out. Aim for a handful of substantive themes, not one per paper."""
+
 
 def summarize_papers(
     papers: list[ClassifiedPaper],
     *,
     focus: str,
     api_key: str | None = None,
+    group_members: bool = False,
 ) -> FieldSummary | None:
     """Summarize a group of already-classified papers into a themed brief.
 
@@ -684,6 +1116,14 @@ def summarize_papers(
     field" brief. One Gemini call, grouped by safety area. `focus` describes the
     group to the model (e.g. "the backbone of Aaron's lane" vs "the rest of the
     AI-safety field outside his lane").
+
+    `group_members` (used for the backbone) additionally asks the model to
+    assign every paper to exactly one theme, returned as `FieldSummary.groups`
+    (theme-aligned lists of indices into `papers`). This lets the report render
+    the listing grouped under the same themes as the TL;DR rather than flat. Any
+    paper the model double-assigns or omits is reconciled here (first theme
+    wins; leftovers are left out of `groups` for the report to gather into an
+    "Other" group), so the indices are always a clean partition-or-subset.
 
     Degrades gracefully: empty input, a missing key, or any API/parse failure
     returns None (the report then omits the brief) — a summary must never abort
@@ -698,11 +1138,12 @@ def summarize_papers(
     url = GEMINI_URL.format(model=GEMINI_MODEL)
 
     lines: list[str] = []
-    for cp in papers:
+    for i, cp in enumerate(papers):
         c = cp.classification
         tags = ", ".join(c.safety_areas) or "untagged"
         summ = (c.summary or "").strip()[:150]
-        lines.append(f"- {cp.paper.title} [{tags}] — {summ}")
+        prefix = f"[{i}] " if group_members else "- "
+        lines.append(f"{prefix}{cp.paper.title} [{tags}] — {summ}")
     user_text = (
         f"Here are {len(papers)} papers that make up {focus}. Group them by "
         f"safety-area theme and write the brief overview as instructed.\n\n"
@@ -710,10 +1151,14 @@ def summarize_papers(
     )
     body = {
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
-        "systemInstruction": {"parts": [{"text": _SUMMARY_SYSTEM}]},
+        "systemInstruction": {
+            "parts": [{"text": _SUMMARY_SYSTEM_GROUPED if group_members else _SUMMARY_SYSTEM}]
+        },
         "generationConfig": {
             "responseMimeType": "application/json",
-            "responseSchema": _SUMMARY_RESPONSE_SCHEMA,
+            "responseSchema": (
+                _SUMMARY_RESPONSE_SCHEMA_GROUPED if group_members else _SUMMARY_RESPONSE_SCHEMA
+            ),
             "temperature": 0.2,
         },
     }
@@ -723,14 +1168,29 @@ def summarize_papers(
         log.warning("summarize_papers: brief failed (%s) — skipping", e)
         return None
 
+    raw_themes = [t for t in parsed.get("themes", []) if str(t.get("sentence", "")).strip()]
     themes = [
         (str(t.get("area", "")).strip(), str(t.get("sentence", "")).strip())
-        for t in parsed.get("themes", [])
-        if str(t.get("sentence", "")).strip()
+        for t in raw_themes
     ]
     if not themes:
         return None
-    return FieldSummary(themes=themes, total=len(papers))
+
+    groups: list[list[int]] | None = None
+    if group_members:
+        groups = []
+        claimed: set[int] = set()
+        for t in raw_themes:
+            members: list[int] = []
+            for m in t.get("members", []):
+                # Keep only valid, in-range, not-yet-claimed indices (first
+                # theme wins) so the report never double-lists or crashes.
+                if isinstance(m, int) and 0 <= m < len(papers) and m not in claimed:
+                    claimed.add(m)
+                    members.append(m)
+            groups.append(members)
+
+    return FieldSummary(themes=themes, total=len(papers), groups=groups)
 
 
 # Tiers that get listed on the site → must be verified on full content.
@@ -802,6 +1262,8 @@ def deep_read_and_reclassify(
     workers = max(1, min(max_workers, len(targets)))
     log.info("Deep-read: fetching + re-classifying %d shortlisted item(s)", len(targets))
 
+    # Same system prompt as Pass 1 → cache it once for the re-reads too.
+    cache_name = _create_system_cache(api_key, system_text)
     results = list(classified)
 
     def rework(idx: int) -> tuple[int, ClassifiedPaper | None]:
@@ -811,7 +1273,9 @@ def deep_read_and_reclassify(
             log.warning("Deep-read: no full text for %r — keeping original tier", cp.paper.title[:60])
             return idx, None
         try:
-            new_cp = _gemini_classify_one(cp.paper, url, api_key, system_text, full_text=body)
+            new_cp = _gemini_classify_one(
+                cp.paper, url, api_key, system_text, full_text=body, cached_content=cache_name
+            )
         except Exception as e:  # noqa: BLE001 — never let one bad re-read abort the run
             log.warning("Deep-read: re-classify failed for %r (%s) — keeping original", cp.paper.title[:60], e)
             return idx, None
@@ -822,10 +1286,14 @@ def deep_read_and_reclassify(
             )
         return idx, new_cp
 
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        for idx, new_cp in ex.map(rework, targets):
-            if new_cp is not None:
-                results[idx] = new_cp
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for idx, new_cp in ex.map(rework, targets):
+                if new_cp is not None:
+                    results[idx] = new_cp
+    finally:
+        if cache_name:
+            _delete_cache(api_key, cache_name)
 
     return results
 
@@ -860,6 +1328,7 @@ def stub_classify(papers: list[Paper]) -> list[ClassifiedPaper]:
                     safety_areas=areas,
                     summary=f"[dry-run] {paper.title[:200]}",
                     rationale=rationale,
+                    content_type=default_content_type(paper.source),
                 ),
             )
         )

@@ -65,3 +65,4 @@ extra_css:
 
 extra_javascript:
   - javascripts/feedback-gate.js
+  - javascripts/type-filter.js

@@ -39,6 +39,23 @@ SafetyArea = Literal[
     "other",
 ]
 Source = Literal["arxiv", "scholar", "lab", "forum"]
+# What KIND of thing the item is, independent of where it came from (`Source`).
+# A lab feed can carry either a formal paper/report or a casual blog post, and a
+# forum link can point at a video or dataset — so this is judged per item rather
+# than mapped from the source. "paper" = academic/technical research output
+# (arXiv preprint, peer-reviewed paper, formal technical report, system card);
+# "blog_post" = blog/forum post, newsletter, announcement, commentary;
+# "other" = anything else (video, podcast, dataset/benchmark, code release,
+# news article, policy/legislation text).
+ContentType = Literal["paper", "blog_post", "other"]
+
+
+def default_content_type(source: Source) -> ContentType:
+    """Heuristic fallback content type from the source alone, used when no
+    LLM-assigned type is available (transient-outage fallback, dry run, or an
+    older classification predating the field). arXiv/Scholar items are papers;
+    lab and forum items default to blog posts (their most common shape)."""
+    return "paper" if source in ("arxiv", "scholar") else "blog_post"
 
 
 @dataclass
@@ -81,6 +98,19 @@ class Classification:
     # nonetheless a truly groundbreaking AI-safety result he should know
     # about. Brutally rare. Only meaningful when relevance == "low".
     breakthrough: bool = False
+    # A high-profile FRONTIER CAPABILITY release Aaron should be aware of even
+    # though it isn't safety research — a new frontier model launch (e.g.
+    # MiniMax-M2, GPT-5, a new Claude/Gemini/Llama/DeepSeek), a major SOTA jump,
+    # or a landmark capability milestone. Routes the item into the dedicated
+    # "Capabilities watch" section regardless of its relevance tier — including
+    # items that would otherwise be dropped as off_topic. Independent of
+    # `breakthrough`, which is for out-of-lane *safety* results.
+    capability: bool = False
+    # What KIND of item this is — "paper", "blog_post", or "other". Judged by
+    # the classifier per item (a lab feed carries both papers and blog posts).
+    # Defaults to "other" so older/partial classifications stay valid; the
+    # pipeline backfills a source-based guess via default_content_type().
+    content_type: ContentType = "other"
     # True when this is NOT a real judgement but the safe default produced by
     # classifier._fallback_classification() after the full Gemini retry
     # schedule was exhausted (a transient API outage). The pipeline keys off
@@ -103,7 +133,15 @@ class FieldSummary:
     `themes` is an ordered list of (area_label, sentence) pairs, one per
     safety-area cluster the summarizer chose to call out. `total` is the number
     of papers the brief stands in for (so the report can say "all N ...").
+
+    `groups` (optional) carries paper membership per theme: it is theme-aligned
+    (``groups[i]`` belongs to ``themes[i]``) and each entry is the list of
+    indices into the summarized paper list assigned to that theme. It lets the
+    report render the backbone listing grouped under the same themes shown in
+    the TL;DR, instead of a flat list. ``None`` when the summarizer didn't
+    return membership (e.g. the Zone 3 brief, which doesn't group full entries).
     """
 
     themes: list[tuple[str, str]]
     total: int
+    groups: list[list[int]] | None = None

@@ -36,6 +36,7 @@ h2#low-relevance    { color: #6b7280; }   /* gray   */
 .tier-pill-medium { background: #ed6c02; }
 .tier-pill-low    { background: #6b7280; }
 .tier-pill-breakthrough { background: #7c3aed; }   /* Zone 2 */
+.tier-pill-capability   { background: #0891b2; }   /* Capabilities watch */
 
 .lab-badge {
   display: inline-block;
@@ -50,6 +51,67 @@ h2#low-relevance    { color: #6b7280; }   /* gray   */
   color: var(--md-default-fg-color);
   background: transparent;
   border: 1px solid var(--md-default-fg-color--lighter);
+}
+
+/* ─── Content-type badge (Paper / Blog post / Other) ──────────────── */
+.type-badge {
+  display: inline-block;
+  padding: 0.1em 0.55em;
+  border-radius: 0.35em;
+  font-size: 0.65em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-right: 0.4em;
+  vertical-align: middle;
+  text-transform: uppercase;
+  color: white;
+}
+.type-badge-paper     { background: #1565c0; }
+.type-badge-blog-post { background: #2e7d32; }
+.type-badge-other     { background: #6b7280; }
+[data-md-color-scheme="slate"] .type-badge-paper     { background: #42a5f5; color: #1f2937; }
+[data-md-color-scheme="slate"] .type-badge-blog-post { background: #66bb6a; color: #1f2937; }
+[data-md-color-scheme="slate"] .type-badge-other     { background: #9ca3af; color: #1f2937; }
+
+/* ─── Content-type filter toolbar ─────────────────────────────────── */
+.type-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4em;
+  margin: 0.6em 0 1.4em 0;
+  padding: 0.5em 0.7em;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5em;
+  background: var(--md-code-bg-color);
+}
+.type-filter-label {
+  font-size: 0.75em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+  margin-right: 0.2em;
+}
+.type-filter-btn {
+  font: inherit;
+  font-size: 0.8em;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25em 0.8em;
+  border-radius: 1em;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  background: transparent;
+  color: var(--md-default-fg-color);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.type-filter-btn:hover {
+  border-color: var(--md-accent-fg-color);
+}
+.type-filter-btn.active {
+  background: var(--md-accent-fg-color, var(--md-primary-fg-color));
+  border-color: var(--md-accent-fg-color, var(--md-primary-fg-color));
+  color: white;
 }
 
 /* ─── "Why?" disclosure — small and quiet ─────────────────────────── */
@@ -215,3 +277,4 @@ details > summary:hover { color: var(--md-default-fg-color); }
 [data-md-color-scheme="slate"] .tier-pill-medium { background: #ffa726; }
 [data-md-color-scheme="slate"] .tier-pill-low    { background: #9ca3af; color: #1f2937; }
 [data-md-color-scheme="slate"] .tier-pill-breakthrough { background: #a78bfa; color: #1f2937; }
+[data-md-color-scheme="slate"] .tier-pill-capability   { background: #22d3ee; color: #1f2937; }

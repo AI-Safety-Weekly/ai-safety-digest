@@ -159,6 +159,14 @@ def main() -> None:
              "weekly run; falls back to the synchronous path if the batch fails "
              "or doesn't finish in time. Gemini backend only.",
     )
+    parser.add_argument(
+        "--no-semantic",
+        action="store_true",
+        help="Disable the semantic recall net (funnel-recall step 2). By default, "
+             "candidates the keyword/author gate rejected get a second chance via "
+             "embedding similarity to config/semantic_seeds.yml — purely additive "
+             "recall. Pass this to fall back to the keyword/author gate alone.",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -215,6 +223,8 @@ def main() -> None:
             auto_admit_authors=auto_admit_authors,
             review_authors=review_authors,
             until=until_dt,
+            semantic_seeds=None if args.no_semantic else cfg.semantic_seeds,
+            semantic_threshold=cfg.semantic_threshold,
         )
         if missed_ids:
             already = {p.arxiv_id for p in papers if p.arxiv_id}

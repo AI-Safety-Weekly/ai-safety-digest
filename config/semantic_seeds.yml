@@ -1,0 +1,50 @@
+# Semantic recall seeds — funnel-recall step 2 (PLAN.md).
+#
+# Each seed is a short natural-language description of a slice of Aaron's lane
+# (NOT a keyword — it is embedded and compared by *meaning*). A candidate that
+# the keyword/author gate rejected is rescued if its title+abstract is close to
+# ANY seed above the threshold. The point is to catch in-lane papers whose
+# vocabulary we have not enumerated (and cannot pre-enumerate for future work) —
+# e.g. a novel phrasing of AI-control / oversight that shares no keyword.
+#
+# Keep seeds CONCEPTUAL and ON-LANE. Off-lane concepts (jailbreaks, bias,
+# generic interpretability) are deliberately absent — adding them would rescue
+# the firehose the digest exists to filter out. Seeds mirror PLAN.md Zone 1
+# (direct lane + x-risk technical backbone).
+#
+# threshold: cosine cutoff (0–1). Conservative default until calibrated on the
+# labeled W21–W23 set; override here or via the SEMANTIC_THRESHOLD env var.
+# Because the rescue is additive, an un-tuned value only over/under-rescues a
+# little — it cannot drop a kept paper or corrupt Zone 3.
+threshold: 0.70
+
+# NB: seeds are quoted scalars — several contain a colon ("X: Y"), which YAML
+# would otherwise parse as a mapping. Keep the quotes when editing.
+seeds:
+  # --- Direct lane: international coordination ---
+  - "International coordination and cooperation between states on frontier AI, including treaties, institutions, and IAEA- or NPT-style agreements for governing advanced AI."
+  - "Diplomatic and multilateral agreements to manage risks from advanced artificial intelligence between countries."
+
+  # --- Direct lane: governance & compute governance ---
+  - "AI governance and regulation of frontier AI systems, including national AI standards and regulatory regimes for advanced models."
+  - "Compute governance: export controls, compute monitoring, FLOP accounting, and tracking of AI training hardware."
+
+  # --- Direct lane: verification mechanisms (Aaron's emphasis) ---
+  - "Verification mechanisms for AI agreements: how to prove a country or lab is honoring a commitment about AI development."
+  - "Hardware-enabled mechanisms and on-chip governance for verifying and enforcing rules on AI accelerators."
+  - "Proof-of-training and training-run attestation; cryptographically verifying how an AI model was trained."
+  - "Privacy-preserving inspection and auditing of AI models for treaty or compliance verification."
+  - "Model fingerprinting and provenance methods to identify which model produced an output or was used in training."
+
+  # --- X-risk technical backbone: dangerous-capability evals ---
+  - "Evaluations of dangerous AI capabilities such as biological, chemical, or cyber-attack uplift from frontier models."
+  - "Measuring autonomous replication, self-proliferation, or autonomous-agent capabilities of AI systems."
+
+  # --- X-risk technical backbone: control / scheming / deception ---
+  - "AI control protocols and oversight of untrusted models using trusted monitors to prevent harmful actions."
+  - "Detecting scheming, sandbagging, deceptive alignment, or a model deliberately hiding its true capabilities or goals."
+  - "Loss-of-control and misalignment risk: can we detect a model pursuing goals other than those intended."
+  - "Scalable oversight of AI, including debate and recursive evaluation of model outputs that exceed human ability to check."
+
+  # --- X-risk technical backbone: frontier-lab safety releases ---
+  - "Frontier AI lab safety frameworks, responsible scaling policies, preparedness frameworks, and system cards reporting dangerous-capability evaluations."

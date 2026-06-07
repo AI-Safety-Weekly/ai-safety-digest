@@ -308,7 +308,47 @@ uses **OAI-PMH** (separate pool) and is unaffected.
   W21–W23 HIGH/MEDIUM set is still fully caught.
 - **Risk:** low — the cluster is phrase-scoped, so the opening barely grows.
 
-### Step 2 — Semantic recall net + shrink the keyword opening (the real fix)
+### Step 2 — Semantic recall net (the real fix) — MECHANISM SHIPPED 2026-06-06; threshold calibration pending
+**Shipped (additive design):** `src/safety_digest/semantic_filter.py` —
+`embed_texts()` (gemini-embedding-001 `batchEmbedContents`, taskType
+SEMANTIC_SIMILARITY, chunked), pure-Python `_cosine`, and `rescue()` which runs
+**only over the pool the cheap keyword/author gate already rejected**
+(`CollectAudit.rejected`) and recovers any candidate at/above the cosine
+threshold. Wired into `collect()` (new `semantic_seeds`/`semantic_threshold`
+params, after `_gate_papers`) and `cli.py` (`--no-semantic` bypass); seeds in
+`config/semantic_seeds.yml` (16 on-lane concept seeds), loaded via
+`config.load`. 17 unit tests (`tests/test_semantic_filter.py`); 147 green.
+
+**Decisions taken (2026-06-06):**
+- **AUGMENT, do not replace/trim.** Gate is now `author OR keyword OR semantic`
+  with the **full** keyword list retained. Rationale: the cost half of the
+  original goal is already banked by the caching+Batch work (~$2.8→~$1.4/run),
+  so trimming keywords would trade real recall risk for pennies. The semantic
+  pass is **purely additive** — it can rescue an in-lane paper the enumerated
+  gate missed but can never drop a kept one, so the curated listing cannot
+  regress and Zone 3 is untouched. The keyword trim is deferred until the step-3
+  audit gives *multi-week* per-keyword volume evidence ("measure, don't guess").
+- **Zone-3 tension dissolved, not resolved:** because we augment (not trim),
+  broad intake is preserved as-is, so Zone 3 needs no rework. Revisit only if a
+  future trim is taken.
+- **Graceful degradation:** no API key / HTTP error / bad response → `rescue()`
+  logs and returns no rescues; the run proceeds on the keyword/author gate
+  alone. Never a single point of failure.
+- **Pricing verified 2026-06:** gemini-embedding-001 $0.15/1M tok standard,
+  $0.075/1M batch, output free; embeds only the rejected pool (~2.3k/wk) ≈
+  $0.05–0.11/wk. Cost half is green.
+
+**REMAINING — threshold calibration (needs a live API run, cannot unit-test):**
+default is a conservative `0.70` (env `SEMANTIC_THRESHOLD` / config override).
+Calibrate on W21–W23: run with `-v` (every rescue's score is logged), confirm
+the rescue recovers known in-lane misses without dragging in off-lane noise,
+then set the threshold in `config/semantic_seeds.yml`. NOTE the original
+"total LLM-classified count drops" acceptance line below assumed the *trim*
+approach — under augment, Pass-1 volume grows slightly (the deliberate, cheap
+tradeoff); the live metric to watch is rescued-count and its precision, not a
+volume drop.
+
+#### Original spec (superseded by the augment decision above; kept for context)
 - **New module** `src/safety_digest/semantic_filter.py`: embed each candidate's
   title+abstract and a curated seed set of Aaron's concerns
   (`config/semantic_seeds.yml`); keep candidates above a cosine-similarity

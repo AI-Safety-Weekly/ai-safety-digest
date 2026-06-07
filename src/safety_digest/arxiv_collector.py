@@ -403,6 +403,8 @@ def collect(
     review_authors: list[str] | None = None,
     until: datetime | None = None,
     audit: "CollectAudit | None" = None,
+    semantic_seeds: list[str] | None = None,
+    semantic_threshold: float | None = None,
 ) -> list[Paper]:
     """Fetch arXiv preprints in `[until - days, until]` via OAI-PMH.
 
@@ -449,6 +451,21 @@ def collect(
     papers, kw_only, author_only, both, dropped_old = _gate_papers(
         list(seen.values()), pattern, auto_index, review_index, cutoff, until_dt, audit
     )
+
+    # Funnel-recall step 2: semantic rescue over the pool the cheap gate rejected
+    # (PLAN.md). Purely additive — it can only recover in-lane papers the
+    # enumerated keyword/author gate missed, never drop a kept one. Degrades to a
+    # no-op if seeds are unconfigured or the embedding call fails.
+    if semantic_seeds:
+        from . import semantic_filter
+
+        threshold = semantic_threshold if semantic_threshold is not None else semantic_filter.DEFAULT_THRESHOLD
+        rescued = semantic_filter.rescue(audit.rejected, semantic_seeds, threshold)
+        if rescued:
+            rescued_ids = {id(p) for p in rescued}
+            audit.rejected = [p for p in audit.rejected if id(p) not in rescued_ids]
+            papers.extend(rescued)
+            log.info("arXiv: semantic net rescued %d papers the keyword/author gate dropped", len(rescued))
 
     papers.sort(key=lambda p: p.published, reverse=True)
     log.info(

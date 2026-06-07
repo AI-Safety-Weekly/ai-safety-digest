@@ -337,7 +337,24 @@ uses **OAI-PMH** (separate pool) and is unaffected.
 - **Open decisions:** embedding model + threshold; semantic replaces vs augments
   keywords; Zone-3 intake mechanism.
 
-### Step 3 — Recall audit + per-keyword volume instrumentation (guardrail)
+### Step 3 — Recall audit + per-keyword volume instrumentation (guardrail) — DONE (2026-06-02)
+**Shipped:** `arxiv_collector.CollectAudit` + `_gate_papers()` (gating extracted
+and unit-testable, zero production behaviour change — `collect()` populates a
+throwaway audit internally so the volume breakdown always logs at `-v`);
+`_format_volume_report()` (per-keyword/author sole-catch & hits, flags
+zero-sole-catch terms with the explicit caveat that one window ≠ safe to trim);
+`scripts/recall_audit.py` (OAI-PMH collect → deterministic sample of the rejected
+pool → production Gemini cheap-classify → miss-rate + Wilson CI, `--log` appends
+JSONL for drift, `--dry-run` for plumbing); `tests/should_catch.yml` (6 confirmed
+in-lane papers w/ real abstracts, spanning control/compute-gov/scheming/oversight/
+debate/biosecurity) + parametrized guard in `tests/test_funnel_recall.py`;
+`tests/test_collect_audit.py`, `tests/test_recall_audit.py`. 112 tests green.
+Decisions taken: audit log = JSONL (not a state.db table); cheap-classify =
+production Gemini Flash; should-catch scoped to the arXiv keyword/author gate.
+First real W21 audit: 2853 in-window → kept 562, rejected 2291; per-keyword volume
+shows jailbreak (14 sole/19) + prompt-injection (10/15) as the high-volume off-lane
+load — the Zone-3-intake tension Step 2 must resolve before trimming.
+
 - **Problem:** misses are invisible today (found by luck). Make them a number.
 - **Recall audit:** new `scripts/recall_audit.py` — sample N (≈50–100) papers the
   funnel *rejected* (in-category but un-gated), cheap-classify the sample,

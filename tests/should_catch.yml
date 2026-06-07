@@ -1,0 +1,122 @@
+# Should-catch regression corpus — the net that ends constant funnel iteration.
+#
+# Each entry is a CONFIRMED in-lane paper (Aaron's lane or x-risk backbone) that
+# the arXiv funnel MUST keep. tests/test_funnel_recall.py asserts every entry's
+# declared `expect` gate fires under the CURRENT config/keywords.yml + authors.
+#
+# Why this file exists (PLAN.md "Funnel recall & cost rework", step 3): misses
+# used to be found only by luck (an in-lane AI-control paper, 2605.26047, was
+# dropped before any LLM call). This corpus makes recall a CI assertion. When
+# Step 2 trims keywords, any trim that would drop a paper here whose ONLY catch
+# was that keyword turns red — forcing a conscious "the semantic net covers it"
+# decision instead of a silent regression.
+#
+# Scope: the arXiv keyword/author gate only (where the documented miss happened
+# and where Step 2's trim lands). Lab/forum recall is governed separately by
+# per-source filter modes in lab_sources.yml, not by these keywords.
+#
+# `expect` is a list of gate signals that must catch the paper:
+#   - keyword : arxiv_collector._matched_keywords(title+abstract) is non-empty
+#   - author  : at least one author is on the tracked auto-admit/review list
+# (title+abstract are the real arXiv text; the gate matches them exactly as
+# production does, so a keyword in the title or the abstract both count.)
+
+papers:
+  - id: "2605.26047"
+    title: "Retrying vs Resampling in AI Control"
+    expect: [keyword]
+    note: >-
+      The paper that motivated this whole workstream — squarely in the AI-control
+      backbone, matched no keyword before Step 1 added the control cluster.
+    abstract: >-
+      AI coding scaffolds like Claude Code and Codex use retrying: blocking actions
+      flagged as risky and continuing the trajectory. We study retrying from an AI
+      control perspective, which treats the model as potentially adversarial. We find
+      that while retrying reduces honest suspicion scores, the untrusted model can
+      exploit monitor rationale to construct sneakier attacks, negating safety gains.
+      We also study resampling: drawing multiple samples from the same context. In
+      BashArena, with Claude Opus 4.6 as the untrusted model and MiMo-V2-Flash as the
+      trusted monitor, drawing five samples per step and auditing on the maximum
+      suspicion score raises safety from 61% to 71% at a 0.3% audit budget.
+
+  - id: "2605.29359"
+    title: "Does Distributed Training Undermine Compute Governance?"
+    expect: [keyword]
+    note: "Aaron's direct lane — compute governance / monitoring evasion."
+    abstract: >-
+      Compute governance proposals often rely on the assumption that frontier AI
+      training requires large, detectable computing clusters. However, recent advances
+      in distributed training algorithms could allow developers to conduct
+      frontier-scale training on distributed agglomerations of hardware, rather than
+      needing large datacenter facilities. Developers who prefer not to be constrained
+      by regulations may structure their hardware in a manner that evades the
+      registration and monitoring requirements associated with compute governance.
+      Therefore, regulations must be designed to detect and prevent illicit distributed
+      training operations. This paper evaluates the feasibility of such evasion and
+      outlines recommended countermeasures, including whistleblowing, chip tracking,
+      forensic accounting, and memory and compute thresholds for clusters.
+
+  - id: "2605.29601"
+    title: "Training Deliberative Monitors for Black-Box Scheming Detection"
+    expect: [keyword]
+    note: "Backbone — scheming detection / AI control monitoring."
+    abstract: >-
+      As autonomous agents become more capable of performing real-world tasks,
+      distinguishing scheming behavior from benign task pursuit may become a central AI
+      control problem. Existing monitors often rely on chain-of-thought access or
+      internal activations, or use prompted frontier models, all of which can be
+      unavailable, unreliable or expensive in deployment. In this work, we study
+      action-only deliberative monitors: smaller open-weight models trained to detect
+      scheming and sabotage from agentic trajectories without accessing the monitored
+      agent's reasoning or model internals. Our method, inspired by deliberative
+      alignment, uses a scheming specification to elicit structured rationales from a
+      frontier teacher, filters them with a separate judge, and distills the
+      highest-quality rationales into open-weight monitors with supervised fine-tuning
+      and reinforcement learning.
+
+  - id: "2605.28807"
+    title: "Calibrating Conservatism for Scalable Oversight"
+    expect: [keyword]
+    note: "Backbone — scalable oversight / maintaining control of stronger agents."
+    abstract: >-
+      Agentic AI systems capable of autonomous planning and extended environmental
+      interaction pose a fundamental control problem: how can humans maintain meaningful
+      oversight of systems that may exceed their own capabilities? Existing approaches
+      to scalable oversight rely on complex assumptions, remain largely heuristic, or
+      lack practical methods for sequential settings with statistical guarantees. We
+      introduce Calibrated Collective Oversight (CCO), which aggregates diverse
+      auxiliary scoring functions into a penalty measuring deviation from a conservative
+      baseline. On a modified version of SWE-bench, weaker overseers successfully
+      constrain an adversarially misaligned stronger agent.
+
+  - id: "2605.27483"
+    title: "Debate Helps Weak Judges Reward Stronger Models"
+    expect: [keyword]
+    note: >-
+      Backbone — debate as scalable oversight. PLAN's backtest flagged `debate`
+      as load-bearing (a sole catch), against intuition; this locks it in.
+    abstract: >-
+      Despite theoretical promise, debate as a scalable oversight protocol has produced
+      mixed empirical results: gains in some settings, and null effects in others,
+      especially when the judge does not have information hidden from it. We study
+      proposer-critic debate in a stronger-debater/weaker-judge setting on
+      programmatically verifiable code and logic tasks. Debate helps the judge over a
+      consultancy baseline when the critic provides a usable advantage. Ablating
+      rebuttal rounds from debate produces no measurable change in judge performance: a
+      single independent critique recovers the bulk of debate's benefit at lower
+      inference cost.
+
+  - id: "2605.30162"
+    title: "BioRefusalAudit: Auditing Biosecurity Refusal Depth Using General and Domain-Fine-Tuned Sparse Autoencoders"
+    expect: [keyword]
+    note: "Backbone — biosecurity / dangerous-capability refusal evaluation."
+    abstract: >-
+      Biosecurity evaluations of language models typically ask whether models produce
+      hazardous output. This paper asks a complementary question: when a model refuses,
+      is that refusal structurally sound, or does it disappear under modest changes to
+      prompt framing, formatting, or output length? Across five architectures, no model
+      cleanly discriminated benign from hazard. To measure the internal side, we
+      introduce a divergence score comparing a model's surface response label to its
+      internal sparse autoencoder (SAE) feature activations. This preliminary evidence
+      suggests activation-level auditing may surface failure modes invisible to
+      behavioral evaluation.

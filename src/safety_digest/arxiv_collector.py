@@ -13,6 +13,8 @@ import re
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import arxiv
@@ -263,6 +265,135 @@ def _matched_tracked_authors(
     return hits
 
 
+@dataclass
+class CollectAudit:
+    """Funnel-recall instrumentation captured during ``collect()`` gating.
+
+    Production runs ignore this (``collect`` populates a throwaway instance just
+    to emit the volume log); ``scripts/recall_audit.py`` passes one in to inspect
+    what the gate rejected. See PLAN.md "Funnel recall & cost rework", step 3.
+
+    - ``in_window``: candidates that passed the recency + date-window check, i.e.
+      the real per-week pool the keyword/author gate decides on.
+    - ``rejected``: in-window papers the gate dropped (matched no keyword and no
+      tracked author) — the pool the recall audit samples for missed Zone-1/2 work.
+    - ``keyword_hits`` / ``author_hits``: per-signal count of KEPT papers it
+      matched — raw volume (≈ LLM cost contribution).
+    - ``keyword_sole`` / ``author_sole``: KEPT papers where this signal was the
+      *only* thing that gated them in (no other keyword and no author, or a lone
+      author and no keyword) — papers that would be LOST if the signal were
+      trimmed. ``sole == 0`` ⇒ pure-redundant cost, a safe trim candidate.
+    """
+
+    in_window: int = 0
+    rejected: list[Paper] = field(default_factory=list)
+    keyword_hits: Counter[str] = field(default_factory=Counter)
+    keyword_sole: Counter[str] = field(default_factory=Counter)
+    author_hits: Counter[str] = field(default_factory=Counter)
+    author_sole: Counter[str] = field(default_factory=Counter)
+
+
+def _gate_papers(
+    candidates: list[Paper],
+    pattern: re.Pattern[str],
+    auto_index: dict[str, str],
+    review_index: dict[str, str],
+    cutoff: datetime,
+    until_dt: datetime,
+    audit: "CollectAudit",
+) -> tuple[list[Paper], int, int, int, int]:
+    """Apply the recency + window + keyword/author gate, annotating kept papers
+    and recording instrumentation into ``audit``.
+
+    Returns ``(kept, kw_only, author_only, both, dropped_old)``. Pulled out of
+    ``collect()`` so the gating + volume tallying is unit-testable without the
+    network (OAI-PMH fetch stays in ``collect``).
+    """
+    kept: list[Paper] = []
+    kw_only = author_only = both = 0
+    dropped_old = 0
+    for paper in candidates:
+        if not _is_recent_submission(paper.arxiv_id, reference=until_dt, max_months_old=1):
+            dropped_old += 1
+            continue
+        if paper.published < cutoff or paper.published > until_dt:
+            continue
+        audit.in_window += 1
+
+        text = f"{paper.title}\n{paper.abstract}"
+        matched_kw = _matched_keywords(text, pattern)
+        matched_auto = _matched_tracked_authors(paper.authors, auto_index)
+        matched_review = _matched_tracked_authors(paper.authors, review_index)
+        matched_authors = matched_auto + matched_review
+        matched_any_author = bool(matched_authors)
+
+        if not matched_kw and not matched_any_author:
+            audit.rejected.append(paper)
+            continue
+
+        paper.raw["matched_keywords"] = matched_kw
+        paper.raw["matched_auto_admit"] = matched_auto
+        paper.raw["matched_review"] = matched_review
+        # Combined list kept for backward-compat with downstream consumers
+        # (report.py, stub_classify) that don't yet distinguish tiers.
+        paper.raw["matched_authors"] = matched_authors
+
+        if matched_kw and matched_any_author:
+            both += 1
+        elif matched_kw:
+            kw_only += 1
+        else:
+            author_only += 1
+
+        for kw in matched_kw:
+            audit.keyword_hits[kw] += 1
+        for au in matched_authors:
+            audit.author_hits[au] += 1
+        # "Sole catch" = removing this signal would lose the paper entirely.
+        if len(matched_kw) == 1 and not matched_any_author:
+            audit.keyword_sole[matched_kw[0]] += 1
+        if len(matched_authors) == 1 and not matched_kw:
+            audit.author_sole[matched_authors[0]] += 1
+
+        kept.append(paper)
+    return kept, kw_only, author_only, both, dropped_old
+
+
+def _format_volume_report(audit: "CollectAudit", keywords: list[str]) -> str:
+    """Human-readable per-keyword / per-author volume breakdown (for -v logs and
+    the recall-audit script). Sorted by sole-catch then hits; flags zero-sole
+    keywords as trim candidates."""
+    lines: list[str] = []
+    rows = []
+    for kw in keywords:
+        k = kw.strip().lower()
+        rows.append((audit.keyword_sole.get(k, 0), audit.keyword_hits.get(k, 0), kw))
+    rows.sort(key=lambda r: (r[0], r[1]), reverse=True)
+    zero_sole = [kw for sole, _hits, kw in rows if sole == 0]
+    lines.append(f"Keyword volume (sole-catch / hits) over {audit.in_window} in-window papers:")
+    for sole, hits, kw in rows:
+        flag = "  ← 0 sole-catch this window" if sole == 0 else ""
+        lines.append(f"  {sole:>4} / {hits:<4}  {kw}{flag}")
+    if zero_sole:
+        # NB: zero sole-catch in ONE window ≠ safe to trim. A core-lane term can
+        # be low-volume or co-fire here yet be load-bearing across weeks. Trim
+        # only on multi-week evidence, and the should-catch corpus must stay green
+        # (PLAN.md "Funnel recall & cost rework", steps 2–3).
+        lines.append(
+            f"Zero sole-catch this window ({len(zero_sole)}): " + ", ".join(zero_sole)
+        )
+    if audit.author_hits:
+        lines.append("Author volume (sole-catch / hits):")
+        au_rows = sorted(
+            ((audit.author_sole.get(a, 0), h, a) for a, h in audit.author_hits.items()),
+            key=lambda r: (r[0], r[1]),
+            reverse=True,
+        )
+        for sole, hits, au in au_rows:
+            lines.append(f"  {sole:>4} / {hits:<4}  {au}")
+    return "\n".join(lines)
+
+
 def collect(
     categories: list[str],
     keywords: list[str],
@@ -271,6 +402,7 @@ def collect(
     auto_admit_authors: list[str] | None = None,
     review_authors: list[str] | None = None,
     until: datetime | None = None,
+    audit: "CollectAudit | None" = None,
 ) -> list[Paper]:
     """Fetch arXiv preprints in `[until - days, until]` via OAI-PMH.
 
@@ -284,12 +416,17 @@ def collect(
 
     `max_results` is accepted for backward-compat but ignored; OAI-PMH returns
     all records in the date window via resumption tokens.
+
+    Pass `audit` (a `CollectAudit`) to capture funnel-recall instrumentation —
+    the rejected pool and per-keyword/author volume. When omitted, a throwaway
+    instance is still used internally so the volume breakdown is logged.
     """
     _ = max_results
     until_dt = until or datetime.now(tz=timezone.utc)
     cutoff = until_dt - timedelta(days=days)
     from_date = cutoff.date().isoformat()
     until_date = until_dt.date().isoformat()
+    audit = audit if audit is not None else CollectAudit()
 
     pattern = _compile_keyword_pattern(keywords)
     auto_index = _build_author_index(auto_admit_authors or [])
@@ -309,42 +446,16 @@ def collect(
 
     log.info("OAI-PMH: %d unique papers across %d sets", len(seen), len(categories))
 
-    papers: list[Paper] = []
-    kw_only = author_only = both = 0
-    dropped_old = 0
-    for paper in seen.values():
-        if not _is_recent_submission(paper.arxiv_id, reference=until_dt, max_months_old=1):
-            dropped_old += 1
-            continue
-        if paper.published < cutoff or paper.published > until_dt:
-            continue
-        text = f"{paper.title}\n{paper.abstract}"
-        matched_kw = _matched_keywords(text, pattern)
-        matched_auto = _matched_tracked_authors(paper.authors, auto_index)
-        matched_review = _matched_tracked_authors(paper.authors, review_index)
-        matched_any_author = matched_auto or matched_review
-
-        if not matched_kw and not matched_any_author:
-            continue
-        paper.raw["matched_keywords"] = matched_kw
-        paper.raw["matched_auto_admit"] = matched_auto
-        paper.raw["matched_review"] = matched_review
-        # Combined list kept for backward-compat with downstream consumers
-        # (report.py, stub_classify) that don't yet distinguish tiers.
-        paper.raw["matched_authors"] = matched_auto + matched_review
-        if matched_kw and matched_any_author:
-            both += 1
-        elif matched_kw:
-            kw_only += 1
-        else:
-            author_only += 1
-        papers.append(paper)
+    papers, kw_only, author_only, both, dropped_old = _gate_papers(
+        list(seen.values()), pattern, auto_index, review_index, cutoff, until_dt, audit
+    )
 
     papers.sort(key=lambda p: p.published, reverse=True)
     log.info(
         "arXiv: kept %d papers (keyword-only: %d, author-only: %d, both: %d; dropped %d as old-paper updates)",
         len(papers), kw_only, author_only, both, dropped_old,
     )
+    log.info("arXiv volume breakdown:\n%s", _format_volume_report(audit, keywords))
     return papers
 
 

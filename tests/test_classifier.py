@@ -65,6 +65,15 @@ def _gemini_ok(
     }
 
 
+@pytest.fixture(autouse=True)
+def _disable_explicit_cache(monkeypatch):
+    """These tests exercise the classify/resweep/deep-read drivers, not caching,
+    and mock ``requests.post`` with a classify-shaped body. Disable explicit
+    caching so its (differently-shaped) cache-creation POST doesn't hit those
+    fakes. The caching path has its own coverage in test_caching.py."""
+    monkeypatch.setattr(classifier, "_create_system_cache", lambda *a, **k: None)
+
+
 def test_results_in_input_order(monkeypatch):
     """Even with concurrency + jittered latency, output order == input order."""
     papers = [_paper(i) for i in range(20)]

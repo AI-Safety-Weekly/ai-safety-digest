@@ -398,6 +398,44 @@ cheap — do anytime.
 
 ---
 
+## Cost reduction (added 2026-06-02) — caching + Batch API, SHIPPED & verified
+
+Standing directive: actively reduce cost. Measured the real per-run cost via
+`usageMetadata` instrumentation (`classifier.USAGE`, printed at the end of every
+non-dry run), then shipped two levers. **Verified Gemini 2.5 Flash list price
+2026-06: $0.30/1M input, $2.50/1M output (thinking bills as output); cached input
+90% off; Batch API 50% off everything.**
+
+Measured per-call (6 real papers): prompt ~3,298, **thinking ~915 (60% of cost)**,
+output ~214. Implicit caching was NOT firing (0 cached). Levers:
+- **Explicit prompt caching** (`_create_system_cache`): caches the ~3k-token system
+  prompt at 90% off; 95% of prompt tokens now cached; **−24%** (6-paper: $0.023→$0.017),
+  zero tier change. Used by `gemini_classify` + `deep_read_and_reclassify`. Degrades
+  to inline prompt on any failure.
+- **Batch API** (`gemini_classify_batch`, `--batch` flag): 50% off, async. Verified
+  live **−47%** ($0.0174→$0.0092 for 6, caching stacks). Falls back to synchronous
+  if the batch fails/times out, so it's never a single point of failure.
+- **Full-run estimate:** ~$2.8 (raw) → ~$2.15 (caching) → **~$1.4–1.5 (batch+caching)**.
+
+**Hard-won REST contract gotchas (the published docs were WRONG — don't re-derive):**
+- Batch states are `BATCH_STATE_*` (PENDING/RUNNING/SUCCEEDED/FAILED/CANCELLED/
+  EXPIRED) in `metadata.state`, NOT `JOB_STATE_*`.
+- Submit: `POST /v1beta/models/{model}:batchGenerateContent`, body
+  `{"batch":{"input_config":{"requests":{"requests":[{"request":{...},"metadata":{"key":"i"}}]}}}}`,
+  snake_case config keys; results map back by `metadata.key`, NOT array order.
+- Results: `response.inlinedResponses.inlinedResponses[]` (double-nested).
+- `cached_content` goes at the **request top level** (sibling to contents /
+  generation_config), NOT inside generation_config — the latter 400s.
+- Turnaround: even a 6-request batch sat PENDING ~5 min before RUNNING (queue
+  latency). Fine for the weekly cron; default `max_wait` 2h with sync fallback.
+
+**Open follow-ons:** (1) deep-read pass is still synchronous (~$0.44/run) — could
+batch it (fetch-then-submit) for ~$0.22 more. (2) thinking is 60% of cost; a
+*capped* `GEMINI_THINKING_BUDGET` (vs the current dynamic ~915) is the biggest
+untapped lever but needs a quality A/B (only thinking-OFF was tested: demotes
+1-in-4). (3) wiring `--batch` into the weekly cron needs the job-timeout vs
+24h-SLA decision (poll-in-job vs submit/resume).
+
 ## Decisions log (so future sessions don't re-litigate)
 
 - Backbone scope: **WIDER** — include loss-of-control/scheming/control, not

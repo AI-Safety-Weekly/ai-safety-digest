@@ -151,6 +151,14 @@ def main() -> None:
         default="gemini",
         help="LLM backend: gemini (free tier, default) or claude (paid Sonnet 4.6)",
     )
+    parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="Classify Pass 1 via the Gemini Batch API (50%% cheaper, async — "
+             "submits one batch and polls to completion). For the non-urgent "
+             "weekly run; falls back to the synchronous path if the batch fails "
+             "or doesn't finish in time. Gemini backend only.",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -309,9 +317,13 @@ def main() -> None:
     if learned_context:
         log.info("Appending %d-char learned-context block to classifier system prompt", len(learned_context))
 
+    classifier.reset_usage()
     if args.dry_run:
         log.info("Dry run: using stub classifier (no API calls)")
         classified = classifier.stub_classify(papers)
+    elif args.backend == "gemini" and args.batch:
+        log.info("Classifying via Gemini 2.5 Flash Batch API (50%% cheaper, async)")
+        classified = classifier.gemini_classify_batch(papers, extra_system_text=learned_context)
     elif args.backend == "gemini":
         log.info("Classifying via Gemini 2.5 Flash (free tier)")
         classified = classifier.gemini_classify(papers, extra_system_text=learned_context)
@@ -396,6 +408,10 @@ def main() -> None:
         max_items=args.max_items or None,
     )
     index_path = site_builder.build_index(args.out_dir)
+    if not args.dry_run:
+        # Measured run cost from each call's usageMetadata (see the standing
+        # cost directive). Printed so the weekly run's $ is a number, not a guess.
+        print(classifier.USAGE.report())
     print(f"Wrote {out_path} ({len(classified)} papers); updated {index_path}")
 
 

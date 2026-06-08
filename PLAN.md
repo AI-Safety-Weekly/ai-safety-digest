@@ -338,15 +338,41 @@ params, after `_gate_papers`) and `cli.py` (`--no-semantic` bypass); seeds in
   $0.075/1M batch, output free; embeds only the rejected pool (~2.3k/wk) ≈
   $0.05–0.11/wk. Cost half is green.
 
-**REMAINING — threshold calibration (needs a live API run, cannot unit-test):**
-default is a conservative `0.70` (env `SEMANTIC_THRESHOLD` / config override).
-Calibrate on W21–W23: run with `-v` (every rescue's score is logged), confirm
-the rescue recovers known in-lane misses without dragging in off-lane noise,
-then set the threshold in `config/semantic_seeds.yml`. NOTE the original
-"total LLM-classified count drops" acceptance line below assumed the *trim*
-approach — under augment, Pass-1 volume grows slightly (the deliberate, cheap
-tradeoff); the live metric to watch is rescued-count and its precision, not a
-volume drop.
+**DISABLED IN PRODUCTION 2026-06-08 — raw cosine doesn't discriminate; needs
+rework (not a threshold tweak).** First live run (manual dispatch, full W23
+pool) result:
+- At `0.70` the net rescued **2328/2328** rejected papers — i.e. the entire
+  off-lane pool. The pipeline then had to classify/S2-enrich/deep-read ~2947
+  papers instead of ~619 and **hit the 60-min job timeout** (no digest produced).
+- Full score distribution over the 2328: **min 0.730, max 0.872, mode 0.78**
+  (4@0.72, 38@0.74, 339@0.76, 1001@0.78, 639@0.80, 234@0.82, 48@0.84, 5@0.86).
+  A 0.14-wide compressed band — classic embedding **anisotropy**: gemini-
+  embedding-001 SEMANTIC_SIMILARITY puts *everything* near 0.78.
+- **No separating threshold exists.** The top of the band is a MIX: genuinely
+  in-lane "GPU Fingerprinting for Location Verification" (0.866) sits next to
+  off-lane "Formal Verification of Secure Encrypted Virtualization" (0.825) and
+  "NN Verification using Partial Multi-Neuron Relaxation" (0.820). The model
+  can't separate the *compliance/governance* sense of "verification" from the
+  *formal-methods* sense.
+- **But the concept has merit:** the run surfaced ≥1 real in-lane paper the
+  keyword gate missed (the GPU-fingerprinting/location-verification one). So the
+  recall idea is sound; the *raw-cosine-vs-seed-threshold* mechanism is what
+  fails.
+
+**Mitigation shipped:** `--no-semantic` added to the weekly run (#12) so
+scheduled/manual runs complete on the keyword/author path. Code is unchanged and
+still unit-tested; only the production wiring is off.
+
+**Rework options for re-enabling (pick + validate offline before prod):**
+1. **Mean-centre the embeddings** (subtract the corpus/seed mean vector before
+   cosine) to remove the dominant common component — the standard anisotropy fix;
+   should spread the 0.73–0.87 band and restore discrimination. Cheapest to try.
+2. **Rank-then-LLM-filter:** use the embedding only to rank, take top-K, and let
+   the cheap classifier make the in/out call (no magic threshold). Bounds cost by K.
+3. Different `taskType` (RETRIEVAL_QUERY/DOCUMENT) and/or output dimensionality;
+   or a learned logistic probe on labelled in/out examples instead of seed cosine.
+Validate any choice on a labelled set (the GPU-fingerprinting paper should clear,
+the formal-verification/robustness ones should not) BEFORE flipping prod back on.
 
 #### Original spec (superseded by the augment decision above; kept for context)
 - **New module** `src/safety_digest/semantic_filter.py`: embed each candidate's

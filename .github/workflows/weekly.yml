@@ -2,7 +2,7 @@ name: Weekly digest
 
 on:
   schedule:
-    # ~10:17 UTC every Monday. Cron is pinned to UTC, so local time shifts with
+    # ~10:17 UTC every Sunday. Cron is pinned to UTC, so local time shifts with
     # DST: currently 6:17am ET / 3:17am PT (EDT); in winter it's 5:17am ET /
     # 2:17am PT (EST). Note: a full run takes ~2h with thinking on, so the digest
     # is "ready" ~8:17am ET / 5:17am PT — start time, not finish time.
@@ -11,7 +11,7 @@ on:
     # best-effort and get delayed or dropped under load; the top of the hour
     # is the most congested slot, so round-minute crons are the most likely to
     # be silently skipped. An odd, off-peak minute is materially more reliable.
-    - cron: "17 10 * * 1"
+    - cron: "17 10 * * 0"
   workflow_dispatch:
     inputs:
       days:

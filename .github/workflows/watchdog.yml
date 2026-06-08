@@ -4,7 +4,7 @@ name: Digest watchdog
 #
 # GitHub scheduled runs are best-effort and can be silently dropped under load
 # (this is exactly what happened on 2026-06-01 — see weekly.yml's cron comment).
-# This workflow fires a few times every Monday at off-peak minutes, checks
+# This workflow fires a few times every Sunday at off-peak minutes, checks
 # whether the weekly pipeline has actually run/published today, and — only if it
 # hasn't — dispatches weekly.yml to recover. Each fire is an independent ~30s
 # check, so it just takes ONE of them landing to self-heal. The same dropped-run
@@ -13,14 +13,14 @@ name: Digest watchdog
 
 on:
   schedule:
-    # Mondays, after the primary 10:17 UTC run would have started (a full
+    # Sundays, after the primary 10:17 UTC run would have started (a full
     # pipeline takes ~2h). Three off-peak windows = three independent chances.
     #   11:43 — primary should be mid-run; if it never started, recover early.
     #   13:43 — primary (or an 11:43 recovery) should be finishing/published.
     #   15:43 — last-chance backstop for the day.
-    - cron: "43 11 * * 1"
-    - cron: "43 13 * * 1"
-    - cron: "43 15 * * 1"
+    - cron: "43 11 * * 0"
+    - cron: "43 13 * * 0"
+    - cron: "43 15 * * 0"
   workflow_dispatch: {}
 
 # The built-in GITHUB_TOKEN is enough to dispatch weekly.yml: per GitHub's docs,

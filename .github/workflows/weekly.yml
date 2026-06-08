@@ -73,10 +73,18 @@ jobs:
           MAX_PAPERS: ${{ github.event.inputs.max_papers || '' }}
         run: |
           # -v (INFO): surface the funnel volume breakdown + semantic-rescue
-          # scores in the run log so the step-2 threshold can be calibrated from
-          # real production data, and so the debut of the new pipeline (semantic
-          # net, caching, UX overhaul) is observable. Logging-only; reversible.
-          ARGS="-v --days ${DAYS} --config-dir config --out-dir docs"
+          # scores in the run log (observability + calibration data).
+          #
+          # --no-semantic: the step-2 semantic net is DISABLED in production. Its
+          # first live run (2026-06-08) showed threshold 0.70 rescued 2328/2328
+          # rejected papers: gemini-embedding-001 SEMANTIC_SIMILARITY scores sit in
+          # a compressed 0.70-0.83 band with ~no discriminative power (the top
+          # scorers are off-lane "semantic X" papers), so the net admitted the
+          # entire off-lane pool and the pipeline blew past the 60-min timeout.
+          # Re-enable ONLY after the net is reworked (mean-centring / different
+          # taskType / different approach) and re-calibrated — see PLAN.md step 2.
+          # The keyword/author gate is unaffected.
+          ARGS="-v --no-semantic --days ${DAYS} --config-dir config --out-dir docs"
           if [ -n "${MAX_PAPERS}" ]; then
             ARGS="${ARGS} --max-papers ${MAX_PAPERS}"
           fi

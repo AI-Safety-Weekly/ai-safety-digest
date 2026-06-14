@@ -3,7 +3,7 @@
 A weekly auto-generated reading list of new AI-safety research. Papers are pulled from arXiv every Monday morning, filtered against a curated list of safety keywords and ~300 tracked researchers, then classified by Claude into high / medium / low relevance with a one-sentence summary.
 
 !!! tip "Latest digest — Jun 8 – 14, 2026"
-    **Capabilities: 10 · Zone 1: 15 direct + 44 backbone · Zone 2: 0 · Zone 3: 0 · 69 items shown**
+    **Capabilities: 10 · Zone 1: 9 direct + 50 backbone · Zone 2: 1 · Zone 3: 0 · 70 items shown**
 
     [Read the full digest :material-arrow-right:](digest-2026-W24.md){ .md-button .md-button--primary }
 
@@ -27,4 +27,4 @@ Every item is tagged **Paper**, **Blog post**, or **Other**, and each digest pag
 
 Spot something the bot missed? <a class="missed-paper" href="#">:material-email-plus-outline: Send it in</a> (password-gated).
 
-_Last updated: 2026-06-08_
+_Last updated: 2026-06-14_

@@ -428,22 +428,31 @@ def test_summarize_papers_no_groups_without_flag(monkeypatch):
     assert fs is not None and fs.groups is None
 
 
-def test_thinking_config_default_none(monkeypatch):
-    monkeypatch.delenv("GEMINI_THINKING_BUDGET", raising=False)
-    assert classifier._thinking_config() is None
+def test_thinking_config_stage_defaults(monkeypatch):
+    monkeypatch.delenv("GEMINI_THINKING_PASS1", raising=False)
+    monkeypatch.delenv("GEMINI_THINKING_DEEP", raising=False)
+    # Pass 1 defaults to "low" (thinking is ~75% of run cost and nearly all of
+    # it is triage); the deep read defaults to the model's own level.
+    assert classifier._thinking_config("pass1") == {"thinkingLevel": "low"}
+    assert classifier._thinking_config("deep") is None
 
 
 def test_thinking_config_from_env(monkeypatch):
-    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "512")
-    assert classifier._thinking_config() == {"thinkingBudget": 512}
-    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "0")
-    assert classifier._thinking_config() == {"thinkingBudget": 0}
-    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "  ")  # blank → treated as unset
-    assert classifier._thinking_config() is None
+    monkeypatch.setenv("GEMINI_THINKING_PASS1", "high")
+    assert classifier._thinking_config("pass1") == {"thinkingLevel": "high"}
+    # A bare integer is honored as a 2.5-style thinkingBudget (A/B / rollback).
+    monkeypatch.setenv("GEMINI_THINKING_PASS1", "512")
+    assert classifier._thinking_config("pass1") == {"thinkingBudget": 512}
+    monkeypatch.setenv("GEMINI_THINKING_PASS1", "0")
+    assert classifier._thinking_config("pass1") == {"thinkingBudget": 0}
+    monkeypatch.setenv("GEMINI_THINKING_PASS1", "  ")  # blank → explicit model default
+    assert classifier._thinking_config("pass1") is None
+    monkeypatch.setenv("GEMINI_THINKING_DEEP", "medium")
+    assert classifier._thinking_config("deep") == {"thinkingLevel": "medium"}
 
 
-def test_classify_omits_thinking_config_by_default(monkeypatch):
-    monkeypatch.delenv("GEMINI_THINKING_BUDGET", raising=False)
+def test_classify_omits_thinking_config_when_env_blank(monkeypatch):
+    monkeypatch.setenv("GEMINI_THINKING_PASS1", "")
     captured = {}
 
     def fake_post(url, params=None, json=None, timeout=None):
@@ -455,17 +464,19 @@ def test_classify_omits_thinking_config_by_default(monkeypatch):
     assert "thinkingConfig" not in captured["body"]["generationConfig"]
 
 
-def test_classify_injects_thinking_budget_when_set(monkeypatch):
-    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "256")
+def test_classify_sends_default_low_thinking_level(monkeypatch):
+    monkeypatch.delenv("GEMINI_THINKING_PASS1", raising=False)
     captured = {}
 
     def fake_post(url, params=None, json=None, timeout=None):
+        captured["url"] = url
         captured["body"] = json
         return _FakeResp(200, _gemini_ok("medium", "Paper 0"))
 
     monkeypatch.setattr(classifier.requests, "post", fake_post)
     classifier.gemini_classify([_paper(0)], api_key="test", max_workers=1)
-    assert captured["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 256}
+    assert captured["body"]["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "low"}
+    assert f"/models/{classifier.GEMINI_MODEL_PASS1}:" in captured["url"]
 
 
 def test_summarize_papers_empty_returns_none(monkeypatch):
@@ -492,3 +503,54 @@ def test_summarize_papers_returns_none_on_api_failure(monkeypatch):
     items = [_classified("arxiv", "low", title="P1")]
     # A failed brief must degrade to None, never raise and abort the run.
     assert classifier.summarize_papers(items, focus="x", api_key="test") is None
+
+
+# ── Depleted-credits fail-fast ───────────────────────────────────────────────
+
+_DEPLETED_BODY = {"error": {"code": 429, "message": "Your prepayment credits are depleted."}}
+
+
+def test_gemini_post_raises_immediately_on_depleted_credits(monkeypatch):
+    """A depleted-credits 429 must not enter the ~30-min retry schedule — the
+    June–Aug 2026 outage burned four CI hours a week doing exactly that."""
+    calls = {"n": 0}
+
+    def fake_post(url, params=None, json=None, timeout=None):
+        calls["n"] += 1
+        return _FakeResp(429, _DEPLETED_BODY)
+
+    monkeypatch.setattr(classifier.requests, "post", fake_post)
+    monkeypatch.setattr(classifier.time, "sleep", lambda s: (_ for _ in ()).throw(
+        AssertionError("must not sleep/retry on depleted credits")))
+    with pytest.raises(classifier.GeminiCreditsDepleted):
+        classifier._gemini_post("http://x", "k", {}, label="t")
+    assert calls["n"] == 1
+
+
+def test_plain_429_still_retries(monkeypatch):
+    """A rate-limit 429 without the depleted marker keeps the retry behavior."""
+    responses = [_FakeResp(429, {"error": {"code": 429, "message": "Resource exhausted"}}),
+                 _FakeResp(200, _gemini_ok("low", "P"))]
+    monkeypatch.setattr(classifier.requests, "post",
+                        lambda *a, **k: responses.pop(0))
+    monkeypatch.setattr(classifier.time, "sleep", lambda s: None)
+    parsed = classifier._gemini_post("http://x", "k", {}, label="t")
+    assert parsed["relevance"] == "low"
+
+
+def test_gemini_classify_aborts_run_on_depleted_credits(monkeypatch):
+    """The per-paper fallback must NOT swallow a billing failure: an all-800-
+    fallbacks digest looks like a digest but contains no classification."""
+    monkeypatch.setattr(classifier.requests, "post",
+                        lambda *a, **k: _FakeResp(429, _DEPLETED_BODY))
+    monkeypatch.setattr(classifier.time, "sleep", lambda s: None)
+    with pytest.raises(classifier.GeminiCreditsDepleted):
+        classifier.gemini_classify([_paper(0), _paper(1)], api_key="k", max_workers=1)
+
+
+def test_batch_submit_depleted_credits_raises_instead_of_sync_fallback(monkeypatch):
+    monkeypatch.setattr(classifier.requests, "post",
+                        lambda *a, **k: _FakeResp(429, _DEPLETED_BODY))
+    monkeypatch.setattr(classifier.time, "sleep", lambda s: None)
+    with pytest.raises(classifier.GeminiCreditsDepleted):
+        classifier.gemini_classify_batch([_paper(0)], api_key="k")

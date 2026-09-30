@@ -38,3 +38,27 @@ def test_reset_usage_replaces_global():
     classifier.reset_usage()
     assert classifier.USAGE.calls == 0
     assert classifier.USAGE.prompt == 0
+
+
+def test_usage_per_model_rates_and_counts():
+    acc = classifier._UsageAccumulator()
+    usage = {"promptTokenCount": 1000, "candidatesTokenCount": 100, "thoughtsTokenCount": 400}
+    acc.add(usage, model="gemini-3.1-flash-lite")
+    acc.add(usage, model="gemini-3.6-flash")
+    lite_in, lite_out = classifier.GEMINI_PRICES["gemini-3.1-flash-lite"]
+    deep_in, deep_out = classifier.GEMINI_PRICES["gemini-3.6-flash"]
+    expected = (
+        1000 * lite_in + 500 * lite_out + 1000 * deep_in + 500 * deep_out
+    ) / 1_000_000
+    assert abs(acc.cost_usd() - expected) < 1e-9
+    assert acc.by_model == {"gemini-3.1-flash-lite": 1, "gemini-3.6-flash": 1}
+    assert "gemini-3.6-flash: 1" in acc.report()
+
+
+def test_usage_unknown_model_uses_pessimistic_fallback():
+    acc = classifier._UsageAccumulator()
+    acc.add({"promptTokenCount": 1000, "candidatesTokenCount": 100}, model="gemini-99-mystery")
+    expected = (
+        1000 * classifier.GEMINI_PRICE_INPUT + 100 * classifier.GEMINI_PRICE_OUTPUT
+    ) / 1_000_000
+    assert abs(acc.cost_usd() - expected) < 1e-9

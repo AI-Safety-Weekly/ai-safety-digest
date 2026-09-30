@@ -598,3 +598,30 @@ Measured cost at the live week's 917-paper volume: pass 1 ≈ $0.53 sync /
 ≈ $1.0 ⇒ ≈ $1.3–1.5/run now, ≈ $2.3 after the January doubling — vs ~$3.4
 (old config at new volume) and ~$9 (3.6-flash everywhere, default thinking,
 sync).
+
+---
+
+## Digest enhancements (2026-09-30) — source rescue, key points, continuity
+
+Shipped for the next weekly run (deliberately NOT retro-applied to W40):
+
+1. **Source rescue.** Apollo's 2026 site redesign killed sitemap_index.xml
+   (404 since ≥ Sep 29); now a flat sitemap.xml selected via the new
+   `url_pattern` regex knob — live check found 25 items/30d, several
+   bullseye verification posts. Substack (thezvi, importai) 403s GitHub
+   runner IPs; fetches now relay through the feedback Worker's new
+   `GET /fetch` route (allowlisted hosts only, `FEED_PROXY_URL` in
+   weekly.yml). **DEPLOY STEP: the updated scripts/worker.js must be
+   pasted into the Cloudflare dashboard** — until then those two sources
+   keep failing exactly as before (graceful).
+2. **Key points.** The deep-read pass (which already holds each listed
+   item's full text) also returns 3–5 result-stating bullets
+   (`Classification.key_points`), rendered as a collapsed "Key points"
+   fold under every listed entry — substance without the click-through.
+   Marginal cost ≈ a few hundred output tokens × ~50 items ≈ $0.05/run.
+3. **Cross-week continuity.** One deep-model call links this week's full
+   entries to prior weeks' featured papers (`state_store.featured_history`
+   — title+week already in state.db) and the report renders
+   "↩ <relation> — <title> (W##)" lines. Hallucination guard: links whose
+   title doesn't exactly match history are dropped. Degrades to nothing on
+   any failure.

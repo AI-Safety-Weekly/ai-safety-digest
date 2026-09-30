@@ -170,6 +170,24 @@ class StateStore:
         self._conn.commit()
         return inserted
 
+    def featured_history(self, before_week: str, limit: int = 250) -> list[tuple[str, str]]:
+        """Titles of papers FEATURED (tier high/medium) in weeks strictly
+        before ``before_week``, newest weeks first: [(title, week), ...].
+
+        Feeds the cross-week continuity pass ("builds on … (W24)"). The
+        strictly-earlier bound keeps same-week re-runs from linking items to
+        themselves; ``limit`` caps the prompt size as history accumulates
+        (newest weeks are the ones continuity links usually point at).
+        """
+        rows = self._conn.execute(
+            "SELECT title, first_seen_week FROM seen_papers "
+            "WHERE relevance IN ('high', 'medium') AND first_seen_week < ? "
+            "AND title IS NOT NULL AND title != '' "
+            "ORDER BY first_seen_week DESC, title LIMIT ?",
+            (before_week, limit),
+        ).fetchall()
+        return [(t, w) for t, w in rows]
+
     def close(self) -> None:
         self._conn.close()
 

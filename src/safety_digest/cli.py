@@ -386,10 +386,25 @@ def main() -> None:
         )
     )
 
+    # Cross-week continuity: link this week's full entries to prior weeks'
+    # featured papers ("↩ builds on … (W24)"), so the digest reads as an
+    # unfolding story. History comes from the state store (strictly earlier
+    # weeks only); one deep-model call; {} on any failure — never blocks.
+    continuity: dict[str, list[dict]] = {}
     if store is not None:
         recorded = store.record(classified, current_week)
         log.info("State store: recorded %d new paper(s) under %s", recorded, current_week)
+        history = store.featured_history(current_week)
         store.close()
+        if history and not args.dry_run:
+            listed = [
+                cp for cp in classified
+                if cp.classification.capability
+                or cp.classification.relevance in ("high", "medium")
+                or (cp.classification.relevance == "low" and cp.classification.breakthrough)
+            ]
+            links = classifier.link_continuity(listed, history)
+            continuity = {listed[i].paper.url: rows for i, rows in links.items()}
 
     # Themed section briefs. The medium (Zone 1 backbone) set is a lot to skim,
     # so it gets an orienting TL;DR above its full listing; the ~hundreds of
@@ -432,6 +447,7 @@ def main() -> None:
         classified, args.out_dir / fname, run_at,
         medium_overview=medium_overview, field_summary=field_summary,
         max_items=args.max_items or None,
+        continuity=continuity or None,
     )
     index_path = site_builder.build_index(args.out_dir)
     if not args.dry_run:

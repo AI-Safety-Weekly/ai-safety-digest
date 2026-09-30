@@ -17,10 +17,11 @@ treats lab posts uniformly with the existing author-tier logic.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin, urlparse
 from xml.etree import ElementTree as ET
 
 import feedparser
@@ -87,6 +88,23 @@ SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 # Cap per sitemap source to avoid pathological cases (e.g. site reindexes
 # all pages with today's lastmod after a redesign).
 SITEMAP_PAGE_CAP = 25
+
+# Hosts that block GitHub Actions runner IPs (Substack 403s every CI fetch —
+# feeds AND article bodies — while the same URLs work from residential IPs).
+# When FEED_PROXY_URL is set (weekly.yml), fetches to these hosts are routed
+# through the feedback Worker's GET /fetch relay (scripts/worker.js), which
+# fetches from Cloudflare's network. The Worker allowlists these same hosts —
+# keep the two lists in sync. Unset env ⇒ direct fetch (local dev just works).
+PROXY_HOSTS = {"thezvi.substack.com", "importai.substack.com"}
+
+
+def _proxied(url: str) -> str:
+    """Rewrite ``url`` through the CI feed relay when one is configured and
+    the host is on the blocked-from-CI list; otherwise return it unchanged."""
+    base = os.environ.get("FEED_PROXY_URL", "").strip().rstrip("/")
+    if base and urlparse(url).hostname in PROXY_HOSTS:
+        return f"{base}/fetch?url={quote(url, safe='')}"
+    return url
 
 
 def collect(
@@ -180,7 +198,7 @@ def _make_paper(
 def _from_rss(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     # Fetch via requests (uses certifi for SSL); feedparser's stdlib urllib
     # can't verify certs on system Pythons without manual cert install.
-    r = requests.get(src["feed_url"], timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
+    r = requests.get(_proxied(src["feed_url"]), timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
     r.raise_for_status()
     feed = feedparser.parse(r.content)
     if feed.bozo and not feed.entries:
@@ -294,12 +312,19 @@ def _papers_from_sitemap_xml(
     """Parse a single sitemap XML doc, filter <url> entries, fetch each page.
 
     Shared core between `_from_sitemap` (one sitemap) and `_from_sitemap_index`
-    (many sub-sitemaps). `url_prefix` is optional: when set, only URLs starting
-    with it pass; when unset, all URLs pass (relying on the caller having
-    selected an already-topic-segregated sub-sitemap).
+    (many sub-sitemaps). Two optional URL filters:
+      - `url_prefix`  — only URLs starting with it pass (and not the bare
+        prefix itself);
+      - `url_pattern` — a regex (re.search); use when one flat sitemap mixes
+        several content paths (e.g. Apollo's post-2026-redesign sitemap.xml,
+        where /blog/, /science/ and /governance/ posts sit beside /team/ and
+        /press/ pages that no single prefix can select).
+    When neither is set, all URLs pass (the caller picked an already-topic-
+    segregated sub-sitemap).
     """
     root = ET.fromstring(content)
     prefix = src.get("url_prefix") or ""
+    pattern = re.compile(src["url_pattern"]) if src.get("url_pattern") else None
 
     candidates: list[tuple[str, datetime]] = []
     for url_el in root.findall(".//sm:url", SITEMAP_NS):
@@ -307,6 +332,8 @@ def _papers_from_sitemap_xml(
         if not loc:
             continue
         if prefix and (not loc.startswith(prefix) or loc == prefix):
+            continue
+        if pattern and not pattern.search(loc):
             continue
         lastmod = (url_el.findtext("sm:lastmod", "", SITEMAP_NS) or "").strip()
         if not lastmod:
@@ -487,7 +514,7 @@ def fetch_article_body(url: str, max_chars: int = 12000) -> str:
     Truncated to `max_chars` to bound classifier token cost.
     """
     try:
-        r = requests.get(url, timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
+        r = requests.get(_proxied(url), timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
         r.raise_for_status()
     except requests.RequestException:
         return ""

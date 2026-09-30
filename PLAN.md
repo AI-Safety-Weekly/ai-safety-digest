@@ -571,12 +571,30 @@ UP all year — 2.5 Flash 0.15/0.60 → 0.30/2.50 in July; successors cost more)
   thinking envs still means a 2.5-style thinkingBudget for rollback A/Bs.
 - Per-model rates in `GEMINI_PRICES` drive the USAGE cost line; unknown
   models bill at the pessimistic fallback so cost is never under-reported.
-- A/B on a ~300-paper corpus (this week's pool + the full should-catch set),
-  old config vs new: results recorded in the 2026-09-29 PR. Pass 1 is
-  recall-gating only — every listed item is still re-judged on full text by
-  the deep model, so pass-1 tier noise that keeps items listed is tolerable;
-  losses of in-lane papers are not.
+- **A/B (2026-09-29, 286-paper corpus: 280 random from the live 917-paper
+  week + all 6 should-catch):** five arms — old config vs lite@low, lite@medium,
+  3.6-flash@low, 3.6-flash@minimal. Findings:
+  * Every arm kept every should-catch paper listed (6/6).
+  * Pass-1 cost per corpus run: old $0.83 → lite@low $0.165 (−80%).
+  * **The whole Gemini 3 family lists ~half as many mediums as 2.5-flash**
+    (old: 40 listed; lite@low 19, lite@med 17, 3.6@low 19, 3.6@min 21 — all
+    four converge on the same lost set). More thinking does NOT recover them
+    (+75% cost, −2 listed), and neither does the bigger model (2.3× cost, +0)
+    ⇒ it is a generation-wide judgment shift on the medium boundary, not a
+    cheap-model deficiency, and it is unavoidable once 2.5-flash retires.
+  * What's lost is overwhelmingly the "Nth jailbreak/reward-hacking/defense
+    variant" bucket the rubric already assigns to Zone 3 — i.e. 3.x reads the
+    rubric more strictly; 2.5-flash's extra mediums were largely the ones the
+    deep-read pass then demoted anyway. A handful are genuinely borderline
+    backbone (e.g. pretraining-time-safety, misalignment adapters).
+  * Decision: lite@low ships. **WATCH ITEM for the next live digests:** if the
+    Zone-1 backbone section reads too thin, the fix is prompt-side (loosen the
+    "medium" rubric wording / add reviewer feedback rules), NOT model-side —
+    the A/B shows every 3.x config draws the line in the same place. Add any
+    wrongly-dropped paper to tests/should_catch.yml via the feedback flow.
 
-Projected cost: ~$1.4–1.6/run batched now, ~$2.0–2.2 after the January
-doubling — vs ~$3 (old config at new volume) and ~$9 (drifting onto
-3.6-flash synchronous with default thinking).
+Measured cost at the live week's 917-paper volume: pass 1 ≈ $0.53 sync /
+≈ $0.26 batched (vs $2.65 old-config sync); deep-read + briefs on 3.6-flash
+≈ $1.0 ⇒ ≈ $1.3–1.5/run now, ≈ $2.3 after the January doubling — vs ~$3.4
+(old config at new volume) and ~$9 (3.6-flash everywhere, default thinking,
+sync).

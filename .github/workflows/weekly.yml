@@ -42,13 +42,14 @@ concurrency:
 jobs:
   digest:
     runs-on: ubuntu-latest
-    # Cap worst-case runtime. Classification now runs through an 8-worker thread
-    # pool (see classifier.py), so a full ~700-paper week is ~35 min — not the
-    # old ~2h. The bottleneck is now S2 enrichment, which is serial by design
-    # (~1 req/sec polite throttle + 429 backoff). 60 min leaves generous
-    # headroom over the ~35 min real runtime for S2/arXiv backoff stacking while
-    # still killing a genuinely hung run.
-    timeout-minutes: 60
+    # Cap worst-case runtime. Weekly arXiv volume grew from ~550 papers (2026-06)
+    # to ~800 (2026-09): the 2026-09-29 manual run was killed at the old 60-min
+    # cap ~10 min short of finishing. Budget for the worst path — ~20 min
+    # collection (S2 is serial by design: ~1 req/sec polite throttle) + up to
+    # 40 min waiting on the Batch API (GEMINI_BATCH_MAX_WAIT below) + a ~40 min
+    # synchronous fallback classify + deep-read/briefs — while still killing a
+    # genuinely hung run.
+    timeout-minutes: 150
     outputs:
       changed: ${{ steps.commit.outputs.changed }}
     steps:
@@ -71,6 +72,11 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DAYS: ${{ github.event.inputs.days || '7' }}
           MAX_PAPERS: ${{ github.event.inputs.max_papers || '' }}
+          # Cap how long --batch waits before falling back to the synchronous
+          # classifier, so batch wait + sync fallback still fits inside
+          # timeout-minutes. (The code default is 2h — sized for the 24h batch
+          # SLA, not for a CI job.)
+          GEMINI_BATCH_MAX_WAIT: "2400"
         run: |
           # -v (INFO): surface the funnel volume breakdown + semantic-rescue
           # scores in the run log (observability + calibration data).
@@ -84,7 +90,12 @@ jobs:
           # Re-enable ONLY after the net is reworked (mean-centring / different
           # taskType / different approach) and re-calibrated — see PLAN.md step 2.
           # The keyword/author gate is unaffected.
-          ARGS="-v --no-semantic --days ${DAYS} --config-dir config --out-dir docs"
+          #
+          # --batch: classify Pass 1 via the Gemini Batch API — 50% off every
+          # token, verified June 2026 (PLAN.md "Cost reduction") but never
+          # wired into this workflow until 2026-09. Falls back to the
+          # synchronous path automatically if the batch fails or times out.
+          ARGS="-v --no-semantic --batch --days ${DAYS} --config-dir config --out-dir docs"
           if [ -n "${MAX_PAPERS}" ]; then
             ARGS="${ARGS} --max-papers ${MAX_PAPERS}"
           fi

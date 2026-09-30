@@ -2,7 +2,9 @@
 
 Two backends:
 - `classify()` — Claude Sonnet 4.6 via Anthropic, structured output via tool-use
-- `gemini_classify()` — Gemini 2.5 Flash via Google AI Studio, structured output via responseSchema (free tier)
+- `gemini_classify()` — Gemini via Google AI Studio, structured output via responseSchema.
+  Two-tier: pass 1 triages on GEMINI_MODEL_PASS1 (Flash-Lite); the deep-read and
+  section briefs run on GEMINI_MODEL_DEEP (full Flash).
 
 Both honor the same SYSTEM_PROMPT and emit ClassifiedPaper objects.
 """
@@ -33,25 +35,38 @@ from .models import (
 log = logging.getLogger(__name__)
 
 MODEL = "claude-sonnet-4-6"
-GEMINI_MODEL = "gemini-2.5-flash"
+
+# Two-tier Gemini models (2026-09 migration off gemini-2.5-flash, which Google
+# retires as early as 2026-10-16). Pass 1 triages every collected paper on the
+# cheap Lite tier; the deep-read re-check and the section briefs — the calls
+# where judgment decides what Aaron actually sees — run on the full Flash tier
+# (Google's designated 2.5-flash successor). Both ids verified against the live
+# API 2026-09-29. Env overrides exist for A/B runs and emergency rollback.
+GEMINI_MODEL_PASS1 = os.environ.get("GEMINI_MODEL_PASS1", "gemini-3.1-flash-lite")
+GEMINI_MODEL_DEEP = os.environ.get("GEMINI_MODEL_DEEP", "gemini-3.6-flash")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+# Per-stage thinking defaults, overridable via GEMINI_THINKING_PASS1 /
+# GEMINI_THINKING_DEEP. Thinking tokens bill as output and are ~75% of the
+# per-run cost, nearly all of it in the ~800-paper pass 1 — so pass 1 runs at
+# "low" while the deep read keeps the model's default ("medium" on 3.x): the
+# full-text pass is where a wrong tier actually changes the digest. A level
+# name maps to Gemini 3.x thinkingLevel (verified live 2026-09-29); a bare
+# integer is honored as a 2.5-style thinkingBudget so A/B runs against the
+# legacy model still work. Empty ⇒ send no thinkingConfig (model default).
+_THINKING_DEFAULTS = {"pass1": "low", "deep": ""}
 
-def _thinking_config() -> dict | None:
-    """Optional thinkingConfig for classification calls, from
-    ``GEMINI_THINKING_BUDGET``.
 
-    Thinking tokens bill as output and dominate the per-run cost. By default
-    (env unset) we send no ``thinkingConfig`` at all, so Gemini 2.5 Flash uses
-    its *dynamic* budget — the production behavior an A/B validated against
-    thinking-off. Set the env to cap it: a positive integer caps the budget
-    (cheaper), ``0`` turns thinking off, ``-1`` is explicit dynamic. Capping is
-    the main cost lever; validate tier agreement before lowering the default.
-    """
-    raw = os.environ.get("GEMINI_THINKING_BUDGET")
-    if raw is None or raw.strip() == "":
+def _thinking_config(stage: str = "pass1") -> dict | None:
+    raw = os.environ.get(f"GEMINI_THINKING_{stage.upper()}")
+    if raw is None:
+        raw = _THINKING_DEFAULTS.get(stage, "")
+    raw = raw.strip()
+    if not raw:
         return None
-    return {"thinkingBudget": int(raw)}
+    if raw.lstrip("-").isdigit():
+        return {"thinkingBudget": int(raw)}
+    return {"thinkingLevel": raw}
 
 SYSTEM_PROMPT = """\
 You curate a weekly research digest for ONE specific reader, Aaron. Your job \
@@ -476,7 +491,7 @@ def classify(
     return results
 
 
-# ── Gemini backend (free tier) ─────────────────────────────────────────────
+# ── Gemini backend ─────────────────────────────────────────────────────────
 
 # JSON Schema for structured output. Matches CLASSIFY_TOOL's input_schema.
 _GEMINI_RESPONSE_SCHEMA = {
@@ -509,12 +524,22 @@ _GEMINI_RESPONSE_SCHEMA = {
 _GEMINI_RETRY_DELAYS = [0, 5, 15, 30, 60, 120, 180, 300, 300, 300, 300]
 
 # ── Cost instrumentation ───────────────────────────────────────────────────
-# Gemini 2.5 Flash list price (USD per 1M tokens), verified 2026-06 — see the
-# `Gemini pricing is stale` memory: re-verify before trusting these. Cached
-# input tokens bill at 90% off; thinking ("thoughts") tokens bill as output.
-GEMINI_PRICE_INPUT = 0.30
-GEMINI_PRICE_OUTPUT = 2.50
-GEMINI_PRICE_CACHED_INPUT = 0.30 * 0.10  # 90% discount on cache hits
+# List prices (USD per 1M tokens, (input, output)), verified 2026-09-29 — see
+# the `Gemini pricing is stale` memory: re-verify before trusting these.
+# Cached input tokens bill at 90% off input; thinking ("thoughts") tokens bill
+# as output. NOTE: the 3.6-flash rate is promotional and DOUBLES on 2027-01-01
+# (to 1.50/7.50) — update this table and re-run the cost math then.
+GEMINI_PRICES: dict[str, tuple[float, float]] = {
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+    "gemini-3.6-flash": (0.75, 3.75),
+}
+# Fallback rates for calls whose model isn't in the table (and the constants
+# tests pin): the most expensive known rate, so an unknown model can only
+# over-report cost, never hide it.
+GEMINI_PRICE_INPUT = 0.75
+GEMINI_PRICE_OUTPUT = 3.75
+GEMINI_PRICE_CACHED_INPUT = GEMINI_PRICE_INPUT * 0.10  # 90% discount on cache hits
 
 
 class _UsageAccumulator:
@@ -532,15 +557,23 @@ class _UsageAccumulator:
         self.cached = 0
         self.output = 0
         self.thinking = 0
+        self.by_model: dict[str, int] = {}
         self._cost = 0.0
 
-    def add(self, usage: dict, rate_mult: float = 1.0) -> None:
+    def add(self, usage: dict, rate_mult: float = 1.0, model: str | None = None) -> None:
         """Tally one call's usage. ``rate_mult`` scales the $ for discounted
         billing tiers — 0.5 for Batch-API calls (50% off), 1.0 for synchronous.
-        Token counts are recorded raw; only the cost is scaled, so a mixed
-        sync+batch run still reports an accurate total."""
+        ``model`` selects that model's rates from ``GEMINI_PRICES`` (falling
+        back to the pessimistic module constants), and shows up as a per-model
+        call count in the report. Token counts are recorded raw; only the cost
+        is scaled, so a mixed sync+batch run still reports an accurate total."""
+        price_in, price_out = GEMINI_PRICES.get(
+            model or "", (GEMINI_PRICE_INPUT, GEMINI_PRICE_OUTPUT)
+        )
         with self._lock:
             self.calls += 1
+            if model:
+                self.by_model[model] = self.by_model.get(model, 0) + 1
             p = int(usage.get("promptTokenCount", 0) or 0)
             c = int(usage.get("cachedContentTokenCount", 0) or 0)
             o = int(usage.get("candidatesTokenCount", 0) or 0)
@@ -551,20 +584,25 @@ class _UsageAccumulator:
             self.thinking += t
             uncached = max(0, p - c)  # promptTokenCount includes the cached subset
             self._cost += rate_mult * (
-                uncached * GEMINI_PRICE_INPUT
-                + c * GEMINI_PRICE_CACHED_INPUT
-                + (o + t) * GEMINI_PRICE_OUTPUT
+                uncached * price_in
+                + c * price_in * 0.10
+                + (o + t) * price_out
             ) / 1_000_000
 
     def cost_usd(self) -> float:
         return self._cost
 
     def report(self) -> str:
+        models = ""
+        if self.by_model:
+            models = " | " + ", ".join(
+                f"{m}: {n}" for m, n in sorted(self.by_model.items())
+            )
         return (
             f"Gemini usage: {self.calls} calls | "
             f"prompt {self.prompt:,} ({self.cached:,} cached) | "
             f"output {self.output:,} | thinking {self.thinking:,} | "
-            f"≈ ${self.cost_usd():.3f}"
+            f"≈ ${self.cost_usd():.3f}{models}"
         )
 
 
@@ -578,13 +616,31 @@ def reset_usage() -> None:
     USAGE = _UsageAccumulator()
 
 
-def _gemini_post(url: str, api_key: str, body: dict, label: str) -> dict:
+class GeminiCreditsDepleted(RuntimeError):
+    """The Gemini billing balance is exhausted (429 "prepayment credits are
+    depleted"). Non-retryable by definition: no amount of backoff mints money.
+    Raised immediately so a run fails in seconds with an actionable message,
+    instead of grinding every paper through the full retry schedule until the
+    CI job timeout — the silent June–Aug 2026 outage mode. Top up in Google
+    AI Studio (https://aistudio.google.com → project billing)."""
+
+
+def _credits_depleted(status_code: int, text: str) -> bool:
+    """A 429 whose body says the *prepaid balance* is gone (vs a rate spike)."""
+    lowered = text.lower()
+    return status_code == 429 and "credit" in lowered and "deplet" in lowered
+
+
+def _gemini_post(url: str, api_key: str, body: dict, label: str, model: str | None = None) -> dict:
     """POST to Gemini with retry/backoff on transient errors and return the
     parsed JSON object from the model's (structured) response text.
 
     Shared by per-paper classification and the section-summary calls so both
     use identical retry/backoff. Raises on exhausted retries or an unparseable
-    response; callers that must not abort the run catch and degrade.
+    response; callers that must not abort the run catch and degrade. The one
+    non-retryable case is a depleted-credits 429, which raises
+    ``GeminiCreditsDepleted`` on the first sight — see that class's docstring.
+    ``model`` is only for cost accounting (per-model rates in ``USAGE``).
     """
     last_err: Exception | None = None
     # Deliberately deep backoff: ~30 min of cumulative waiting across 11
@@ -602,6 +658,10 @@ def _gemini_post(url: str, api_key: str, body: dict, label: str) -> dict:
         except requests.RequestException as e:
             last_err = e
             continue
+        if _credits_depleted(r.status_code, r.text):
+            raise GeminiCreditsDepleted(
+                f"Gemini prepayment credits depleted (429 on {label}): {r.text[:200]}"
+            )
         if r.status_code in (429, 500, 502, 503, 504):
             last_err = RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:200]}")
             continue
@@ -614,7 +674,7 @@ def _gemini_post(url: str, api_key: str, body: dict, label: str) -> dict:
     # Tally token usage for cost reporting (best-effort — never break a call
     # over missing usageMetadata).
     if isinstance(data.get("usageMetadata"), dict):
-        USAGE.add(data["usageMetadata"])
+        USAGE.add(data["usageMetadata"], model=model)
     try:
         return json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
     except (KeyError, IndexError, json.JSONDecodeError) as e:
@@ -625,7 +685,7 @@ _GEMINI_CACHE_URL = "https://generativelanguage.googleapis.com/v1beta/cachedCont
 
 
 def _create_system_cache(
-    api_key: str, system_text: str, ttl_seconds: int = 1800, model: str = GEMINI_MODEL
+    api_key: str, system_text: str, ttl_seconds: int = 1800, model: str = GEMINI_MODEL_PASS1
 ) -> str | None:
     """Create an explicit context cache holding the large, repeated system
     instruction, so every per-paper call references it at a 90%-off input rate
@@ -675,28 +735,30 @@ def _delete_cache(api_key: str, name: str) -> None:
 
 
 def _gemini_classify_one(
-    paper: Paper, url: str, api_key: str, system_text: str, full_text: str | None = None,
-    cached_content: str | None = None,
+    paper: Paper, model: str, api_key: str, system_text: str, full_text: str | None = None,
+    cached_content: str | None = None, stage: str = "pass1",
 ) -> ClassifiedPaper:
     """Classify a single paper via Gemini, with retry on transient failures.
 
-    Thinking is left ON (default dynamic budget): an A/B over 50 papers showed
-    turning it off (thinkingBudget=0) demotes ~1 in 4 papers and drops most
-    out of the 'high' tier, so the latency cost is worth it.
+    ``model`` is the Gemini model id; ``stage`` ("pass1" / "deep") selects the
+    thinking level (see ``_THINKING_DEFAULTS``). Thinking stays ON: a 2026-06
+    A/B over 50 papers showed turning it off entirely demotes ~1 in 4 papers
+    and drops most out of the 'high' tier — pass 1 runs at "low", not zero.
 
     If `full_text` is given (deep-read pass), it is appended to the user
     message so the model judges on the real article body, not a thin abstract.
 
     If `cached_content` is given (an explicit context-cache name), the system
     instruction is referenced from the cache at a 90%-off input rate instead of
-    being re-sent inline. Falls back to inline when None.
+    being re-sent inline. Falls back to inline when None. Caches are bound to
+    the model that created them, so pass the cache made for this ``model``.
     """
     gen_config: dict = {
         "responseMimeType": "application/json",
         "responseSchema": _GEMINI_RESPONSE_SCHEMA,
         "temperature": 0.1,
     }
-    thinking = _thinking_config()
+    thinking = _thinking_config(stage)
     if thinking is not None:
         gen_config["thinkingConfig"] = thinking
     body: dict = {
@@ -707,7 +769,10 @@ def _gemini_classify_one(
         body["cachedContent"] = cached_content
     else:
         body["systemInstruction"] = {"parts": [{"text": system_text}]}
-    parsed = _gemini_post(url, api_key, body, label=repr(paper.title[:60]))
+    parsed = _gemini_post(
+        GEMINI_URL.format(model=model), api_key, body,
+        label=repr(paper.title[:60]), model=model,
+    )
     return _classification_from_parsed(paper, parsed)
 
 
@@ -759,7 +824,8 @@ def gemini_classify(
     extra_system_text: str | None = None,
     max_workers: int | None = None,
 ) -> list[ClassifiedPaper]:
-    """Classify papers via Gemini 2.5 Flash, concurrently.
+    """Classify papers via the pass-1 Gemini model (``GEMINI_MODEL_PASS1``),
+    concurrently.
 
     Calls run in a thread pool (default 8, override with GEMINI_MAX_WORKERS or
     the ``max_workers`` arg). On the paid tier this cuts a ~700-paper run from
@@ -767,14 +833,16 @@ def gemini_classify(
     paper that exhausts the (deep) retry schedule does NOT abort the run — it
     degrades to a flagged "low" fallback (see ``_fallback_classification``), so
     a sustained API outage costs at most a few mis-parked papers, not the whole
-    weekly digest.
+    weekly digest. The exception is ``GeminiCreditsDepleted``, which DOES abort
+    the run: with no billing balance every one of the ~800 calls is doomed, and
+    a digest of 800 parked-at-'low' fallbacks must never ship as if it were real.
     """
     if not papers:
         return []
     api_key = api_key or os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
-    url = GEMINI_URL.format(model=GEMINI_MODEL)
+    model = GEMINI_MODEL_PASS1
 
     system_text = SYSTEM_PROMPT
     if extra_system_text:
@@ -788,7 +856,7 @@ def gemini_classify(
     # Cache the (large, repeated) system prompt once so all per-paper calls
     # reference it at 90% off input instead of re-sending ~3k tokens each.
     # None ⇒ inline prompt (cache disabled / creation failed); never blocks a run.
-    cache_name = _create_system_cache(api_key, system_text)
+    cache_name = _create_system_cache(api_key, system_text, model=model)
 
     results: list[ClassifiedPaper | None] = [None] * len(papers)
     done = 0
@@ -798,7 +866,9 @@ def gemini_classify(
         nonlocal done
         idx, paper = item
         try:
-            cp = _gemini_classify_one(paper, url, api_key, system_text, cached_content=cache_name)
+            cp = _gemini_classify_one(paper, model, api_key, system_text, cached_content=cache_name)
+        except GeminiCreditsDepleted:
+            raise  # billing failure dooms every remaining call — abort the run
         except Exception as e:  # noqa: BLE001 — one paper must not abort the run
             cp = _fallback_classification(paper, e)
         with lock:
@@ -808,8 +878,14 @@ def gemini_classify(
 
     try:
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            for idx, cp in ex.map(work, enumerate(papers)):
-                results[idx] = cp
+            try:
+                for idx, cp in ex.map(work, enumerate(papers)):
+                    results[idx] = cp
+            except GeminiCreditsDepleted:
+                # Don't let the executor drain the queue: hundreds of further
+                # doomed 429s add minutes and log noise to an already-fatal run.
+                ex.shutdown(wait=False, cancel_futures=True)
+                raise
     finally:
         if cache_name:
             _delete_cache(api_key, cache_name)
@@ -843,9 +919,12 @@ def _build_batch_request(paper: Paper, system_text: str, cached_content: str | N
         "response_schema": _GEMINI_RESPONSE_SCHEMA,
         "temperature": 0.1,
     }
-    thinking = _thinking_config()
+    thinking = _thinking_config("pass1")
     if thinking is not None:
-        gen["thinking_config"] = {"thinking_budget": thinking["thinkingBudget"]}
+        if "thinkingBudget" in thinking:
+            gen["thinking_config"] = {"thinking_budget": thinking["thinkingBudget"]}
+        else:
+            gen["thinking_config"] = {"thinking_level": thinking["thinkingLevel"]}
     req: dict = {"contents": [{"role": "user", "parts": [{"text": _user_message(paper)}]}]}
     if cached_content:
         # Top-level request field (sibling to contents/generation_config) — NOT
@@ -896,7 +975,7 @@ def gemini_classify_batch(
         return gemini_classify(papers, api_key=api_key, extra_system_text=extra_system_text)
 
     # Cache the system prompt once (batch supports cached_content per request).
-    cache_name = _create_system_cache(api_key, system_text)
+    cache_name = _create_system_cache(api_key, system_text, model=GEMINI_MODEL_PASS1)
     try:
         requests_list = [
             _build_batch_request(p, system_text, cache_name, str(i)) for i, p in enumerate(papers)
@@ -907,11 +986,17 @@ def gemini_classify_batch(
         # Submit.
         try:
             r = requests.post(
-                _BATCH_SUBMIT_URL.format(model=GEMINI_MODEL),
+                _BATCH_SUBMIT_URL.format(model=GEMINI_MODEL_PASS1),
                 headers=headers, json=body, timeout=120,
             )
         except requests.RequestException as e:
             return _sync_fallback(f"submit failed ({e})")
+        if _credits_depleted(r.status_code, r.text):
+            # No billing balance: the sync fallback would just burn the retry
+            # schedule on 800 more doomed 429s. Fail the run fast and loud.
+            raise GeminiCreditsDepleted(
+                f"Gemini prepayment credits depleted (429 on batch submit): {r.text[:200]}"
+            )
         if r.status_code != 200:
             return _sync_fallback(f"submit HTTP {r.status_code}: {r.text[:200]}")
         name = r.json().get("name")
@@ -960,7 +1045,7 @@ def gemini_classify_batch(
                 continue
             usage = resp.get("usageMetadata")
             if isinstance(usage, dict):
-                USAGE.add(usage, rate_mult=_BATCH_DISCOUNT)
+                USAGE.add(usage, rate_mult=_BATCH_DISCOUNT, model=GEMINI_MODEL_PASS1)
             try:
                 text = resp["candidates"][0]["content"]["parts"][0]["text"]
                 by_key[key] = _classification_from_parsed(paper, json.loads(text))
@@ -1135,7 +1220,9 @@ def summarize_papers(
     if not api_key:
         log.warning("summarize_papers: GEMINI_API_KEY not set — skipping the brief")
         return None
-    url = GEMINI_URL.format(model=GEMINI_MODEL)
+    # Briefs are a handful of calls where synthesis quality is the point →
+    # the deep model, not the pass-1 triage model.
+    url = GEMINI_URL.format(model=GEMINI_MODEL_DEEP)
 
     lines: list[str] = []
     for i, cp in enumerate(papers):
@@ -1163,7 +1250,10 @@ def summarize_papers(
         },
     }
     try:
-        parsed = _gemini_post(url, api_key, body, label=f"summary of {len(papers)} papers")
+        parsed = _gemini_post(
+            url, api_key, body,
+            label=f"summary of {len(papers)} papers", model=GEMINI_MODEL_DEEP,
+        )
     except Exception as e:  # noqa: BLE001 — a failed brief must never abort the run
         log.warning("summarize_papers: brief failed (%s) — skipping", e)
         return None
@@ -1244,7 +1334,7 @@ def deep_read_and_reclassify(
     api_key = api_key or os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
-    url = GEMINI_URL.format(model=GEMINI_MODEL)
+    model = GEMINI_MODEL_DEEP
     system_text = SYSTEM_PROMPT
     if extra_system_text:
         system_text = SYSTEM_PROMPT + "\n\n" + extra_system_text
@@ -1262,8 +1352,9 @@ def deep_read_and_reclassify(
     workers = max(1, min(max_workers, len(targets)))
     log.info("Deep-read: fetching + re-classifying %d shortlisted item(s)", len(targets))
 
-    # Same system prompt as Pass 1 → cache it once for the re-reads too.
-    cache_name = _create_system_cache(api_key, system_text)
+    # Same system prompt as Pass 1, but caches are model-bound → make a fresh
+    # one for the deep model rather than reusing Pass 1's.
+    cache_name = _create_system_cache(api_key, system_text, model=model)
     results = list(classified)
 
     def rework(idx: int) -> tuple[int, ClassifiedPaper | None]:
@@ -1274,7 +1365,8 @@ def deep_read_and_reclassify(
             return idx, None
         try:
             new_cp = _gemini_classify_one(
-                cp.paper, url, api_key, system_text, full_text=body, cached_content=cache_name
+                cp.paper, model, api_key, system_text, full_text=body,
+                cached_content=cache_name, stage="deep",
             )
         except Exception as e:  # noqa: BLE001 — never let one bad re-read abort the run
             log.warning("Deep-read: re-classify failed for %r (%s) — keeping original", cp.paper.title[:60], e)

@@ -149,7 +149,8 @@ def main() -> None:
         "--backend",
         choices=["gemini", "claude"],
         default="gemini",
-        help="LLM backend: gemini (free tier, default) or claude (paid Sonnet 4.6)",
+        help="LLM backend: gemini (default; two-tier, see classifier.GEMINI_MODEL_*) "
+             "or claude (Sonnet 4.6)",
     )
     parser.add_argument(
         "--batch",
@@ -328,39 +329,54 @@ def main() -> None:
         log.info("Appending %d-char learned-context block to classifier system prompt", len(learned_context))
 
     classifier.reset_usage()
-    if args.dry_run:
-        log.info("Dry run: using stub classifier (no API calls)")
-        classified = classifier.stub_classify(papers)
-    elif args.backend == "gemini" and args.batch:
-        log.info("Classifying via Gemini 2.5 Flash Batch API (50%% cheaper, async)")
-        classified = classifier.gemini_classify_batch(papers, extra_system_text=learned_context)
-    elif args.backend == "gemini":
-        log.info("Classifying via Gemini 2.5 Flash (free tier)")
-        classified = classifier.gemini_classify(papers, extra_system_text=learned_context)
-    else:
-        log.info("Classifying via Claude Sonnet 4.6")
-        classified = classifier.classify(papers, extra_system_text=learned_context)
+    try:
+        if args.dry_run:
+            log.info("Dry run: using stub classifier (no API calls)")
+            classified = classifier.stub_classify(papers)
+        elif args.backend == "gemini" and args.batch:
+            log.info("Classifying via %s Batch API (50%% cheaper, async)",
+                     classifier.GEMINI_MODEL_PASS1)
+            classified = classifier.gemini_classify_batch(papers, extra_system_text=learned_context)
+        elif args.backend == "gemini":
+            log.info("Classifying via %s", classifier.GEMINI_MODEL_PASS1)
+            classified = classifier.gemini_classify(papers, extra_system_text=learned_context)
+        else:
+            log.info("Classifying via Claude Sonnet 4.6")
+            classified = classifier.classify(papers, extra_system_text=learned_context)
 
-    # Targeted re-sweep: if any paper degraded to a transient-failure fallback
-    # during the main pass (a Gemini outage), pause briefly and re-classify
-    # just those papers — the outage often clears by now. Runs BEFORE deep-read
-    # and the state-store record so a rescued paper flows through normally.
-    # Skipped under --dry-run (no API) and --no-resweep.
-    if not args.dry_run and not args.no_resweep:
-        classified = classifier.resweep_fallbacks(
-            classified, extra_system_text=learned_context,
-            wait_seconds=args.resweep_wait,
-        )
+        # Targeted re-sweep: if any paper degraded to a transient-failure fallback
+        # during the main pass (a Gemini outage), pause briefly and re-classify
+        # just those papers — the outage often clears by now. Runs BEFORE deep-read
+        # and the state-store record so a rescued paper flows through normally.
+        # Skipped under --dry-run (no API) and --no-resweep.
+        if not args.dry_run and not args.no_resweep:
+            classified = classifier.resweep_fallbacks(
+                classified, extra_system_text=learned_context,
+                wait_seconds=args.resweep_wait,
+            )
 
-    # Deep-read pass: anything that would be LISTED on the site (Zone 1/2) and
-    # comes from a lab/blog/forum source gets its full article body fetched and
-    # re-classified — a thin OpenGraph blurb isn't enough to put something in
-    # front of Aaron. arXiv items keep their (substantive) abstract. Skipped
-    # for --dry-run (no API) and --no-deep-read.
-    if not args.dry_run and not args.no_deep_read:
-        classified = classifier.deep_read_and_reclassify(
-            classified, extra_system_text=learned_context
+        # Deep-read pass: anything that would be LISTED on the site (Zone 1/2) and
+        # comes from a lab/blog/forum source gets its full article body fetched and
+        # re-classified — a thin OpenGraph blurb isn't enough to put something in
+        # front of Aaron. arXiv items keep their (substantive) abstract. Skipped
+        # for --dry-run (no API) and --no-deep-read.
+        if not args.dry_run and not args.no_deep_read:
+            classified = classifier.deep_read_and_reclassify(
+                classified, extra_system_text=learned_context
+            )
+    except classifier.GeminiCreditsDepleted as e:
+        # Billing failure, not a bug: fail in seconds with the fix, instead of
+        # publishing a digest of unclassified fallbacks or hanging until the CI
+        # timeout (the silent June–Aug 2026 outage mode).
+        if store is not None:
+            store.close()
+        print(
+            "FATAL: Gemini prepayment credits are depleted — the run cannot "
+            "classify anything. Top up billing in Google AI Studio "
+            f"(https://aistudio.google.com), then re-run.\n{e}",
+            file=sys.stderr,
         )
+        sys.exit(2)
 
     _tier_order = {"high": 0, "medium": 1, "low": 2, "off_topic": 3}
     classified.sort(

@@ -113,8 +113,8 @@ def test_batch_applies_50pct_discount_to_cost(monkeypatch):
     monkeypatch.setattr(classifier.requests, "get", lambda *a, **k: _Resp(200, job))
 
     classifier.gemini_classify_batch([_paper(0)], api_key="k")
-    full = (4000 * classifier.GEMINI_PRICE_INPUT
-            + 1150 * classifier.GEMINI_PRICE_OUTPUT) / 1_000_000
+    price_in, price_out = classifier.GEMINI_PRICES[classifier.GEMINI_MODEL_PASS1]
+    full = (4000 * price_in + 1150 * price_out) / 1_000_000
     assert abs(classifier.USAGE.cost_usd() - 0.5 * full) < 1e-9
 
 

@@ -534,3 +534,67 @@ untapped lever but needs a quality A/B (only thinking-OFF was tested: demotes
   (arXiv) and `lab_collector.SAFETY_KEYWORDS` (strict lab/forum) have diverged;
   the arXiv one lacked control terms the lab one already had. Treat them as one
   source of truth going forward (Funnel rework, step 1).
+
+---
+
+## Model migration + outage hardening (2026-09-29) — SHIPPED
+
+Context: the weekly run was dark June 21 → Sep 29. Three stacked causes, fixed
+together (see the PR of 2026-09-29 for the full diff):
+
+1. **Billing (June 21 – Aug 9):** Gemini prepaid credits ran dry; every 429
+   ground through the ~30-min/paper retry schedule until the CI timeout.
+   → `GeminiCreditsDepleted`: a depleted-credits 429 now aborts the run in
+   seconds with the fix in the message (top up in AI Studio). A plain 429
+   still retries. The Batch submit path raises too (its sync fallback would
+   just re-run the same doom at 800× scale).
+2. **Cron auto-disable (after Aug 16):** GitHub silently disables scheduled
+   workflows after 60 days without repo activity (last commit was June 7).
+   Both crons were off; `watchdog.yml` was re-enabled by hand 2026-09-29.
+   Merging this PR resets the inactivity clock. Watch for it after any future
+   quiet stretch — the watchdog cannot catch it because the watchdog's own
+   cron is disabled by the same mechanism.
+3. **Volume outgrew the timeout (Sep 29 manual run):** ~800 papers/week now
+   vs ~550 in June; the run needed ~70 min against a 60-min cap.
+   → `timeout-minutes: 150`, and `--batch` finally wired into weekly.yml
+   (verified −47% in June, never enabled in prod) with
+   `GEMINI_BATCH_MAX_WAIT=2400` so batch-wait + sync-fallback fits the cap.
+
+**Model split** (gemini-2.5-flash retires as early as 2026-10-16; prices went
+UP all year — 2.5 Flash 0.15/0.60 → 0.30/2.50 in July; successors cost more):
+
+- Pass 1 (~800 papers, recall gate): `gemini-3.1-flash-lite` (0.25/1.50),
+  thinking level "low" (`GEMINI_THINKING_PASS1`). Thinking was ~75% of run $.
+- Deep-read + briefs (judgment): `gemini-3.6-flash` (0.75/3.75 **promo —
+  DOUBLES 2027-01-01**; revisit the cost table in classifier.py then).
+- Both env-overridable (`GEMINI_MODEL_PASS1/_DEEP`); a bare integer in the
+  thinking envs still means a 2.5-style thinkingBudget for rollback A/Bs.
+- Per-model rates in `GEMINI_PRICES` drive the USAGE cost line; unknown
+  models bill at the pessimistic fallback so cost is never under-reported.
+- **A/B (2026-09-29, 286-paper corpus: 280 random from the live 917-paper
+  week + all 6 should-catch):** five arms — old config vs lite@low, lite@medium,
+  3.6-flash@low, 3.6-flash@minimal. Findings:
+  * Every arm kept every should-catch paper listed (6/6).
+  * Pass-1 cost per corpus run: old $0.83 → lite@low $0.165 (−80%).
+  * **The whole Gemini 3 family lists ~half as many mediums as 2.5-flash**
+    (old: 40 listed; lite@low 19, lite@med 17, 3.6@low 19, 3.6@min 21 — all
+    four converge on the same lost set). More thinking does NOT recover them
+    (+75% cost, −2 listed), and neither does the bigger model (2.3× cost, +0)
+    ⇒ it is a generation-wide judgment shift on the medium boundary, not a
+    cheap-model deficiency, and it is unavoidable once 2.5-flash retires.
+  * What's lost is overwhelmingly the "Nth jailbreak/reward-hacking/defense
+    variant" bucket the rubric already assigns to Zone 3 — i.e. 3.x reads the
+    rubric more strictly; 2.5-flash's extra mediums were largely the ones the
+    deep-read pass then demoted anyway. A handful are genuinely borderline
+    backbone (e.g. pretraining-time-safety, misalignment adapters).
+  * Decision: lite@low ships. **WATCH ITEM for the next live digests:** if the
+    Zone-1 backbone section reads too thin, the fix is prompt-side (loosen the
+    "medium" rubric wording / add reviewer feedback rules), NOT model-side —
+    the A/B shows every 3.x config draws the line in the same place. Add any
+    wrongly-dropped paper to tests/should_catch.yml via the feedback flow.
+
+Measured cost at the live week's 917-paper volume: pass 1 ≈ $0.53 sync /
+≈ $0.26 batched (vs $2.65 old-config sync); deep-read + briefs on 3.6-flash
+≈ $1.0 ⇒ ≈ $1.3–1.5/run now, ≈ $2.3 after the January doubling — vs ~$3.4
+(old config at new volume) and ~$9 (3.6-flash everywhere, default thinking,
+sync).

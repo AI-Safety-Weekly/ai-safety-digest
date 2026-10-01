@@ -77,6 +77,11 @@ jobs:
           # timeout-minutes. (The code default is 2h — sized for the 24h batch
           # SLA, not for a CI job.)
           GEMINI_BATCH_MAX_WAIT: "2400"
+          # Substack 403s GitHub runner IPs; fetches to the hosts in
+          # lab_collector.PROXY_HOSTS are relayed through the feedback
+          # Worker's GET /fetch route (scripts/worker.js). If the relay is
+          # ever down, those sources just fail-and-log as before.
+          FEED_PROXY_URL: "https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev"
         run: |
           # -v (INFO): surface the funnel volume breakdown + semantic-rescue
           # scores in the run log (observability + calibration data).

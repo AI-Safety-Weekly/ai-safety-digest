@@ -611,9 +611,11 @@ Shipped for the next weekly run (deliberately NOT retro-applied to W40):
    bullseye verification posts. Substack (thezvi, importai) 403s GitHub
    runner IPs; fetches now relay through the feedback Worker's new
    `GET /fetch` route (allowlisted hosts only, `FEED_PROXY_URL` in
-   weekly.yml). **DEPLOY STEP: the updated scripts/worker.js must be
-   pasted into the Cloudflare dashboard** — until then those two sources
-   keep failing exactly as before (graceful).
+   weekly.yml). Worker DEPLOYED 2026-09-30 via `npx wrangler deploy`
+   (wrangler.toml added; `keep_vars = true` protects dashboard vars, and a
+   one-time `wrangler login` browser approval by Ben authed this machine).
+   Relay verified live end-to-end: zvi 14 items/14d through the collector,
+   non-allowlisted hosts 403, feedback route + secrets intact.
 2. **Key points.** The deep-read pass (which already holds each listed
    item's full text) also returns 3–5 result-stating bullets
    (`Classification.key_points`), rendered as a collapsed "Key points"

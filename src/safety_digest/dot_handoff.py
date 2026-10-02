@@ -245,18 +245,45 @@ class CollectionLog(logging.Handler):
     def emit(self, record):
         if record.name.startswith('safety_digest.'):
             # Store no exception message/URL: provider responses may contain query secrets.
-            self.events.append({'module': record.name, 'level': record.levelname,
-                                'event_template': str(record.msg)})
+            template = str(record.msg)
+            recovered = (record.name, template) in {
+                ('safety_digest.s2_collector', 'S2 retry %d after %ds'),
+                ('safety_digest.s2_collector', 'S2 network error: %s'),
+                ('safety_digest.arxiv_collector', 'OAI-PMH retry — sleeping %ds'),
+                ('safety_digest.arxiv_collector', 'OAI-PMH network error %s — will retry'),
+                ('safety_digest.arxiv_collector', 'OAI-PMH 503 — Retry-After %ds'),
+                ('safety_digest.arxiv_collector',
+                 'arXiv 429 — sleeping %ds before retry %d/%d'),
+            }
+            # These retry paths either return successfully or emit a terminal
+            # failure/raise. Unknown warnings remain fail-closed.
+            event = {'module': record.name, 'level': record.levelname,
+                     'event_template': template,
+                     'kind': 'retry' if recovered else 'terminal_failure'}
+            if record.args and isinstance(record.args, tuple):
+                if template.startswith(('lab source %s', 'S2 author/papers failed',
+                                        'S2 author-search failed', 'HN query')):
+                    event['source'] = str(record.args[0])[:500]
+                elif template.startswith(('page fetch failed', 'sub-sitemap fetch failed')):
+                    url = urlsplit(str(record.args[0]))
+                    event['source'] = f'{url.hostname}{url.path}'[:1000]
+            self.events.append(event)
 
 
-def collect_export(root, destination, run_at, days):
+def collect_export(root, destination, run_at, days, checkpoint_dir=None, progress=None):
     """Preserve current collection/filtering, disable embeddings, no model imports."""
     from . import config, arxiv_collector, lab_collector, hn_collector, s2_collector
-    root = Path(root)
-    if Path(destination).exists():
+    from .dot_checkpoint import Checkpoints, DeferredSource, service_aware_http
+    root, destination = Path(root).resolve(), Path(destination).resolve()
+    checkpoint_dir = Path(checkpoint_dir or destination.with_suffix('.checkpoint')).resolve()
+    if any(p == root or root in p.parents for p in (destination, checkpoint_dir)):
+        raise Invalid('collection outputs/checkpoints must be outside the checkout')
+    if destination.exists():
         raise Invalid('export destination already exists')
     before = provenance(root)
     state_before = snapshot_rows(root / 'state.db')
+    checkpoints = Checkpoints(checkpoint_dir, digest({'files':before, 'state':state_before,
+                              'run_at':run_at.isoformat(), 'days':days}), progress)
     cfg = config.load(root / 'config')
     auto = [a['name'] for a in cfg.auto_admit_authors]
     review = [a['name'] for a in cfg.review_authors]
@@ -267,44 +294,74 @@ def collect_export(root, destination, run_at, days):
         raise Invalid('empty Semantic Scholar author cache')
     handler = CollectionLog()
     logging.getLogger('safety_digest').addHandler(handler)
-    counts, forced = {}, set()
+    counts, forced, pending_authors = {}, set(), []
     try:
         audit = arxiv_collector.CollectAudit()
-        papers = arxiv_collector.collect(cfg.categories, cfg.keywords, days=days,
-                                        auto_admit_authors=auto, review_authors=review,
-                                        until=run_at, semantic_seeds=None, audit=audit)
+        def arxiv_fetch():
+            papers = arxiv_collector.collect(cfg.categories, cfg.keywords, days=days,
+                                            auto_admit_authors=auto, review_authors=review,
+                                            until=run_at, semantic_seeds=None, audit=audit)
+            return papers, {'rejected':[paper_dict(p) for p in audit.rejected], 'in_window':audit.in_window}
+        papers, arxiv_audit = checkpoints.collect('arxiv', arxiv_fetch, handler.events)
         counts['arxiv'] = len(papers)
         already = {p.arxiv_id for p in papers}
         ids = [i for i in missed if i not in already]
         if ids:
-            extra = arxiv_collector.collect_by_ids(ids, keywords=cfg.keywords,
-                                                  auto_admit_authors=auto, review_authors=review)
-            if {p.arxiv_id for p in extra} != set(ids):
-                raise Invalid('missed-paper feedback collection incomplete')
-            forced = {p.dedupe_key for p in extra}
+            def missed_fetch():
+                extra = arxiv_collector.collect_by_ids(ids, keywords=cfg.keywords,
+                                                      auto_admit_authors=auto, review_authors=review)
+                if {p.arxiv_id for p in extra} != set(ids):
+                    raise Invalid('missed-paper feedback collection incomplete')
+                return extra, {}
+            extra, _ = checkpoints.collect('feedback_missing', missed_fetch, handler.events)
             papers += extra
-        for name, items in [
-            ('lab_forum', lab_collector.collect(cfg.lab_sources, days=days, until=run_at,
-                                                safety_keywords=cfg.strict_keywords)),
-            ('hn', hn_collector.collect(days=days, until=run_at)),
-            ('scholar', s2_collector.collect(auto + review, cache, days=days,
-                                             auto_admit_authors=auto, review_authors=review,
-                                             until=run_at, use_env_key=False)),
+        for name, callback in [
+            ('lab_forum', lambda: lab_collector.collect(cfg.lab_sources, days=days, until=run_at,
+                                                       safety_keywords=cfg.strict_keywords)),
+            ('hn', lambda: hn_collector.collect(days=days, until=run_at)),
         ]:
+            items, _ = checkpoints.collect(name, lambda: (callback(), {}), handler.events)
             counts[name] = len(items)
             papers += items
+        # Cache by author so a service-wide 429 resumes without recrawling all
+        # successful sources/authors. Preserve the legacy first-trigger dedupe.
+        scholar, seen_s2 = [], set()
+        tracked = list(dict.fromkeys(auto + review))
+        for index, name in enumerate(tracked):
+            if not cache.get(name):
+                continue
+            def author_fetch():
+                return s2_collector.collect([name], cache, days=days,
+                                            auto_admit_authors=auto, review_authors=review,
+                                            until=run_at, use_env_key=False,
+                                            http=service_aware_http), {}
+            try:
+                items, _ = checkpoints.collect('scholar:' + name, author_fetch, handler.events)
+            except DeferredSource:
+                pending_authors = [n for n in tracked[index:] if cache.get(n)]
+                break
+            for item in items:
+                key = item.raw.get('s2_paper_id') or item.dedupe_key
+                if key not in seen_s2:
+                    seen_s2.add(key)
+                    scholar.append(item)
+        counts['scholar'] = len(scholar)
+        papers += scholar
     finally:
         logging.getLogger('safety_digest').removeHandler(handler)
+    forced = {p.dedupe_key for p in papers if p.arxiv_id in set(missed)}
     health = {
-        'complete': not handler.events,
+        'complete': not pending_authors and not any(e['kind'] != 'retry' for e in handler.events),
         'warnings': handler.events,
         'counts_before_dedupe': counts,
         'window_start': (run_at - timedelta(days=days)).isoformat(),
         'window_end': run_at.isoformat(),
         'semantic_embeddings': False,
         'filter_policy': 'existing keyword/author/date/source gates; no candidate cap',
-        'arxiv_rejected': [paper_dict(p) for p in audit.rejected],
-        'arxiv_in_window': audit.in_window,
+        'arxiv_rejected': arxiv_audit.get('rejected', []),
+        'arxiv_in_window': arxiv_audit.get('in_window'),
+        'pending_s2_authors': pending_authors,
+        'checkpoint_binding': checkpoints.binding,
         's2_authors_without_cached_ids': sorted(set(auto + review) - set(cache)),
         'bluesky_enabled': False,
     }
@@ -589,6 +646,7 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--until', required=True, help='Exact timezone-aware UTC ISO timestamp')
     p.add_argument('--days', type=int, default=7)
+    p.add_argument('--checkpoint-dir', type=Path)
     for name in ('template', 'validate', 'retry', 'enrich', 'import'):
         p = sub.add_parser(name)
         p.add_argument('--bundle', type=Path, required=True)
@@ -605,7 +663,8 @@ def main():
         if args.command == 'export':
             if not 1 <= args.days <= 31:
                 raise Invalid('days must be 1-31')
-            b = collect_export(args.root, args.out, utc(args.until), args.days)
+            b = collect_export(args.root, args.out, utc(args.until), args.days, args.checkpoint_dir,
+                               progress=lambda event: print(json.dumps(event), flush=True))
             print(json.dumps({'bundle_sha256': b['bundle_sha256'],
                               'candidates': len(b['candidates']),
                               'collection_complete': b['collection']['complete']}))

@@ -5,6 +5,7 @@ on:
     paths: ['dot-requests/*.json']
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: dot-validation-${{ github.ref }}
   cancel-in-progress: false
@@ -22,11 +23,25 @@ jobs:
           python-version: '3.11'
       - name: Install collection and rendering dependencies (no model SDK)
         run: pip install arxiv requests beautifulsoup4 feedparser pyyaml python-dateutil mkdocs-material
+      - name: Resolve frozen artifact reference
+        id: request
+        env:
+          PYTHONPATH: src
+          BEFORE_SHA: ${{ github.event.before }}
+        run: python -m safety_digest.dot_transport --prepare --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output"
+      - name: Download immutable frozen inputs
+        if: steps.request.outputs.artifact_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.request.outputs.artifact_run_id }}
+          name: ${{ steps.request.outputs.artifact_name }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dot-frozen-input
       - name: Process immutable request
         env:
           PYTHONPATH: src
           BEFORE_SHA: ${{ github.event.before }}
-        run: python -m safety_digest.dot_transport --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output"
+        run: python -m safety_digest.dot_transport --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output" --artifact-dir "$RUNNER_TEMP/dot-frozen-input"
       - name: Upload validated transport output
         uses: actions/upload-artifact@v4
         with:

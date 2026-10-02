@@ -7,6 +7,7 @@ import argparse
 import os
 import re
 import subprocess
+import shutil
 
 from . import dot_handoff as dot
 
@@ -28,7 +29,41 @@ def input_file(root, spec):
     return path
 
 
-def run(root, request_path, out):
+def artifact_reference(spec):
+    dot.keys(spec, {'artifact_run_id', 'artifact_name', 'bundle_sha256'}, 'artifact reference')
+    if type(spec['artifact_run_id']) is not int or spec['artifact_run_id'] < 1:
+        raise dot.Invalid('positive artifact run ID required')
+    if not isinstance(spec['artifact_name'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,160}', spec['artifact_name']):
+        raise dot.Invalid('invalid artifact name')
+    if not isinstance(spec['bundle_sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', spec['bundle_sha256']):
+        raise dot.Invalid('expected canonical bundle hash required')
+    return spec
+
+
+def load_results(root, spec):
+    if 'manifest' not in spec:
+        return dot.read_json(input_file(root, spec))
+    dot.keys(spec, {'manifest'}, 'sharded results reference')
+    manifest = dot.read_json(input_file(root, spec['manifest']))
+    dot.keys(manifest, {'schema_version', 'bundle_sha256', 'decision_shards', 'summaries'}, 'results manifest')
+    shards = manifest['decision_shards']
+    if not isinstance(shards, list) or not 1 <= len(shards) <= 4096:
+        raise dot.Invalid('nonempty bounded decision shard list required')
+    decisions, seen = [], set()
+    for ref in shards:
+        path = input_file(root, ref)
+        if path in seen:
+            raise dot.Invalid('duplicate shard reference')
+        seen.add(path)
+        values = dot.read_json(path)
+        if not isinstance(values, list):
+            raise dot.Invalid('each decision shard must be a JSON array')
+        decisions.extend(values)
+    return {'schema_version':manifest['schema_version'], 'bundle_sha256':manifest['bundle_sha256'],
+            'decisions':decisions, 'summaries':manifest['summaries']}
+
+
+def run(root, request_path, out, artifact_dir=None):
     root, out = Path(root).resolve(), Path(out).resolve()
     if root == out or root in out.parents or out.exists():
         raise dot.Invalid('output must be a new directory outside checkout')
@@ -39,7 +74,10 @@ def run(root, request_path, out):
              'enrich': {'bundle', 'results'}, 'validate': {'bundle', 'results'}}
     if mode not in extra:
         raise dot.Invalid('only smoke/export/enrich/validate allowed; publication is disabled')
-    dot.keys(req, common | extra[mode], 'request')
+    fields = common | extra[mode]
+    if mode == 'export' and 'resume' in req:
+        fields = fields | {'resume'}
+    dot.keys(req, fields, 'request')
     if req['schema_version'] != 1 or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}', req['run_id']):
         raise dot.Invalid('invalid schema/run ID')
     base = req['base_commit']
@@ -60,13 +98,33 @@ def run(root, request_path, out):
     elif mode == 'export':
         if type(req['days']) is not int or not 1 <= req['days'] <= 31:
             raise dot.Invalid('days must be 1-31')
-        bundle = dot.collect_export(root, out / 'bundle.json', dot.utc(req['until']), req['days'])
+        checkpoint_dir = out / 'checkpoints'
+        if 'resume' in req:
+            spec = artifact_reference(req['resume'])
+            if artifact_dir is None:
+                raise dot.Invalid('resume artifact required')
+            previous = dot.load_bundle(Path(artifact_dir) / 'bundle.json')
+            if previous['bundle_sha256'] != spec['bundle_sha256'] or previous['run_at'] != dot.utc(req['until']).isoformat() or previous['days'] != req['days']:
+                raise dot.Invalid('resume bundle hash/window mismatch')
+            checkpoint_dir.mkdir()
+            shutil.copyfile(Path(artifact_dir) / 'checkpoints/collection-checkpoint.json',
+                            checkpoint_dir / 'collection-checkpoint.json')
+        bundle = dot.collect_export(root, out / 'bundle.json', dot.utc(req['until']), req['days'],
+                                    checkpoint_dir, progress=lambda event: print(dot.canonical(event).decode(), flush=True))
         dot.write_json(out / 'results-template.json', dot.template(bundle))
         metadata.update(candidate_count=len(bundle['candidates']), bundle_sha256=bundle['bundle_sha256'],
                         collection_complete=bundle['collection']['complete'])
     else:
-        bundle = dot.load_bundle(input_file(root, req['bundle']))
-        results = dot.read_json(input_file(root, req['results']))
+        if 'artifact_run_id' in req['bundle']:
+            spec = artifact_reference(req['bundle'])
+            if artifact_dir is None:
+                raise dot.Invalid('artifact materialization required')
+            bundle = dot.load_bundle(Path(artifact_dir) / 'bundle.json')
+            if bundle['bundle_sha256'] != spec['bundle_sha256']:
+                raise dot.Invalid('artifact bundle hash mismatch')
+        else:
+            bundle = dot.load_bundle(input_file(root, req['bundle']))
+        results = load_results(root, req['results'])
         if mode == 'enrich':
             enriched, pending = dot.enrich(bundle, results)
             dot.write_json(out / 'bundle.json', enriched)
@@ -87,6 +145,8 @@ def main():
     p.add_argument('--root', type=Path, default=Path('.'))
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--before', required=True)
+    p.add_argument('--artifact-dir', type=Path)
+    p.add_argument('--prepare', action='store_true')
     a = p.parse_args()
     # The before SHA comes from an environment variable, never shell-expanded JSON.
     if not re.fullmatch(r'[0-9a-f]{40}', a.before) or a.before == '0' * 40:
@@ -100,7 +160,18 @@ def main():
     if old.returncode == 0:
         p.error('requests are immutable; use a new run ID/path')
     try:
-        print(run(a.root, a.root / requests[0], a.out))
+        request_path = a.root / requests[0]
+        if a.prepare:
+            req = dot.read_json(request_path)
+            spec = req.get('resume', req.get('bundle', {}))
+            if isinstance(spec, dict) and 'artifact_run_id' in spec:
+                spec = artifact_reference(spec)
+                # Values are restricted before writing the Actions output file.
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                    f.write(f"artifact_run_id={spec['artifact_run_id']}\n")
+                    f.write(f"artifact_name={spec['artifact_name']}\n")
+            return
+        print(run(a.root, request_path, a.out, a.artifact_dir))
     except (dot.Invalid, OSError, subprocess.CalledProcessError) as e:
         p.exit(2, f'Blocked: {e}\n')
 

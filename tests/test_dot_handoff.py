@@ -345,3 +345,143 @@ def test_transport_build_failure_preserves_live_files(root, tmp_path, monkeypatc
         transport.run(root, request, tmp_path / 'transport')
     assert before == {str(p):p.read_bytes() for p in root.rglob('*') if p.is_file()}
     assert not (tmp_path / 'transport/transport-receipt.json').exists()
+
+
+def test_recovered_retry_is_not_terminal_and_feedback_already_collected_is_forced(root, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from safety_digest import config, arxiv_collector, lab_collector, hn_collector, s2_collector
+    cfg = SimpleNamespace(auto_admit_authors=[{'name':'Known'}], review_authors=[],
+                          categories=[], keywords=[], strict_keywords=[], lab_sources=[])
+    monkeypatch.setattr(config, 'load', lambda p: cfg)
+    monkeypatch.setattr(s2_collector, 'load_author_id_cache', lambda p: {'Known':'123'})
+    monkeypatch.setattr(dot.feedback_loader, 'missed_paper_arxiv_ids', lambda f: [paper().arxiv_id])
+    with sqlite3.connect(root / 'state.db') as c:
+        c.execute('INSERT INTO seen_papers VALUES (?,?,?,?,?,?)',
+                  (paper().dedupe_key, '2026-W39', 'previous', 'Study', 'arxiv', 'low'))
+    def recovered(*a, **kw):
+        logging.getLogger('safety_digest.s2_collector').warning('S2 retry %d after %ds', 1, 5)
+        return [paper()]
+    monkeypatch.setattr(arxiv_collector, 'collect', lambda *a, **kw: [paper()])
+    monkeypatch.setattr(arxiv_collector, 'collect_by_ids', lambda *a, **kw: pytest.fail('should not refetch'))
+    monkeypatch.setattr(lab_collector, 'collect', lambda *a, **kw: [])
+    monkeypatch.setattr(hn_collector, 'collect', lambda *a, **kw: [])
+    monkeypatch.setattr(s2_collector, 'collect', recovered)
+    b = dot.collect_export(root, tmp_path / 'export.json', NOW, 7)
+    assert b['collection']['complete'] is True
+    assert b['collection']['warnings'][0]['kind'] == 'retry'
+    assert b['forced_keys'] == [paper().dedupe_key]
+    assert len(b['candidates']) == 1 and not b['suppressed']
+    def failed(*a, **kw):
+        logging.getLogger('safety_digest.s2_collector').warning('S2 retry %d after %ds', 1, 5)
+        logging.getLogger('safety_digest.s2_collector').warning('S2 author/papers failed for %s (status=%s)', '123', 429)
+        return []
+    monkeypatch.setattr(s2_collector, 'collect', failed)
+    b = dot.collect_export(root, tmp_path / 'failed.json', NOW, 7)
+    assert b['collection']['complete'] is False
+    assert b['collection']['warnings'][-1]['source'] == '123'
+
+
+def test_artifact_reference_and_sharded_full_results(root, tmp_path, monkeypatch):
+    from safety_digest import dot_transport as transport
+    b = bundle(root)
+    r = completed(b)
+    (root / 'dot-inputs').mkdir()
+    refs = []
+    for i, d in enumerate(r['decisions']):
+        path = root / f'dot-inputs/shard-{i}.json'
+        dot.write_json(path, [d])
+        refs.append({'path':str(path.relative_to(root)), 'sha256':dot.bytehash(path.read_bytes())})
+    manifest = root / 'dot-inputs/manifest.json'
+    dot.write_json(manifest, {'schema_version':1, 'bundle_sha256':b['bundle_sha256'],
+                             'decision_shards':refs, 'summaries':r['summaries']})
+    spec = {'manifest':{'path':'dot-inputs/manifest.json', 'sha256':dot.bytehash(manifest.read_bytes())}}
+    assert transport.load_results(root, spec) == r
+    artifact = tmp_path / 'downloaded'
+    artifact.mkdir()
+    dot.write_json(artifact / 'bundle.json', b)
+    req = {'schema_version':1, 'run_id':'test', 'mode':'enrich',
+           'base_commit':transport.git(root, 'rev-parse', 'HEAD'), 'results':spec,
+           'bundle':{'artifact_run_id':123,'artifact_name':'dot-handoff-test', 'bundle_sha256':b['bundle_sha256']}}
+    path = tmp_path / 'request.json'
+    dot.write_json(path, req)
+    result = transport.run(root, path, tmp_path / 'out', artifact)
+    assert result['candidate_count'] == 2
+    req['bundle']['bundle_sha256'] = '0' * 64
+    dot.write_json(path, req)
+    with pytest.raises(dot.Invalid, match='artifact bundle hash'):
+        transport.run(root, path, tmp_path / 'bad', artifact)
+    (root / 'dot-inputs/shard-0.json').write_text('[]')
+    with pytest.raises(dot.Invalid, match='transport file hash'):
+        transport.load_results(root, spec)
+
+
+def test_checkpoints_resume_deferred_source_and_bind_window(root, tmp_path):
+    from safety_digest.dot_checkpoint import Checkpoints, DeferredSource
+    events, progress = [], []
+    store = Checkpoints(tmp_path / 'checkpoints', 'binding', progress.append)
+    calls = []
+    def fetch():
+        calls.append(True)
+        return [paper()], {'count':1}
+    first, _ = store.collect('arxiv', fetch, events)
+    resumed = Checkpoints(tmp_path / 'checkpoints', 'binding', progress.append)
+    second, _ = resumed.collect('arxiv', fetch, [])
+    assert len(calls) == 1 and first[0].dedupe_key == second[0].dedupe_key
+    with pytest.raises(dot.Invalid, match='provenance mismatch'):
+        Checkpoints(tmp_path / 'checkpoints', 'different-window')
+    def rate_limited():
+        raise DeferredSource('2099-01-01T00:00:00+00:00')
+    with pytest.raises(DeferredSource):
+        resumed.collect('scholar:Known', rate_limited, events)
+    with pytest.raises(DeferredSource):
+        Checkpoints(tmp_path / 'checkpoints', 'binding').collect('scholar:Known', fetch, [])
+    assert len(calls) == 1
+    assert events[-1]['kind'] == 'deferred'
+    def broken():
+        raise RuntimeError('do not expose request secrets')
+    partial, _ = resumed.collect('hn', broken, events)
+    assert partial == [] and events[-1]['kind'] == 'terminal_failure'
+    assert 'request secrets' not in json.dumps(resumed.data)
+
+
+def test_http429_retry_after_defers_without_silent_author_omission(monkeypatch):
+    from types import SimpleNamespace
+    from safety_digest import s2_collector
+    from safety_digest.dot_checkpoint import service_aware_http, DeferredSource
+    monkeypatch.setattr(s2_collector, '_default_http', lambda *a, **kw:
+                        SimpleNamespace(status_code=429, headers={'Retry-After':'120'}))
+    before = datetime.now(timezone.utc)
+    with pytest.raises(DeferredSource) as error:
+        service_aware_http('GET', 'https://api.semanticscholar.org/graph/v1/author/123/papers')
+    assert (dot.utc(error.value.retry_at) - before).total_seconds() >= 119
+
+
+def test_export_resumes_all_pending_authors_without_recrawling_completed_sources(root, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from safety_digest import config, arxiv_collector, lab_collector, hn_collector, s2_collector
+    from safety_digest.dot_checkpoint import DeferredSource
+    cfg = SimpleNamespace(auto_admit_authors=[{'name':'A'},{'name':'B'}], review_authors=[],
+                          categories=[], keywords=[], strict_keywords=[], lab_sources=[])
+    monkeypatch.setattr(config, 'load', lambda p: cfg)
+    monkeypatch.setattr(s2_collector, 'load_author_id_cache', lambda p: {'A':'1','B':'2'})
+    calls = []
+    def arxiv(*a, **kw):
+        calls.append('arxiv')
+        return []
+    def scholar(names, *a, **kw):
+        calls.append(names[0])
+        if names[0] == 'B' and calls.count('B') == 1:
+            raise DeferredSource('2000-01-01T00:00:00+00:00')
+        return [paper(1 if names[0] == 'A' else 2)]
+    monkeypatch.setattr(arxiv_collector, 'collect', arxiv)
+    monkeypatch.setattr(lab_collector, 'collect', lambda *a, **kw: [])
+    monkeypatch.setattr(hn_collector, 'collect', lambda *a, **kw: [])
+    monkeypatch.setattr(s2_collector, 'collect', scholar)
+    checkpoint = tmp_path / 'checkpoint'
+    first = dot.collect_export(root, tmp_path / 'first.json', NOW, 7, checkpoint)
+    assert first['collection']['pending_s2_authors'] == ['B']
+    assert first['collection']['complete'] is False and len(first['candidates']) == 1
+    second = dot.collect_export(root, tmp_path / 'second.json', NOW, 7, checkpoint)
+    assert second['collection']['complete'] is True and len(second['candidates']) == 2
+    assert calls == ['arxiv', 'A', 'B', 'B']
+    assert dot.snapshot_rows(root / 'state.db') == []

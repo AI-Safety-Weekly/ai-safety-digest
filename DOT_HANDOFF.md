@@ -25,13 +25,33 @@ Export adds `until` (explicit UTC ISO timestamp) and `days` (1–31):
 ```
 
 Download `bundle.json` and `results-template.json` from the successful artifact.
+For the cloud connector, use its artifact-download result's `file_id` with
+`download_file`; direct signed-URL retrieval is not the verified route.
 The receipt records candidate count, source health, immutable bundle hash, request
 commit and requested base. A degraded export remains inspectable but cannot import.
 No non-transport file may change between the request base and execution commit.
 
-For `enrich` or `validate`, replace `until`/`days` with `bundle` and `results`, each
-an object containing `path` under `dot-inputs/` and the SHA-256 of that JSON file's
-bytes. Commit those immutable files and one new request together. JSON is parsed
+For `enrich` or `validate`, replace `until`/`days` with `bundle` and `results`.
+Prefer an immutable artifact reference for the large bundle:
+
+```json
+{"artifact_run_id":123456,"artifact_name":"dot-handoff-REQUEST_COMMIT","bundle_sha256":"EXPECTED_CANONICAL_BUNDLE_HASH"}
+```
+
+Actions downloads that artifact from the same repository using the standard
+short-lived Actions token with `actions:read`, then verifies the canonical bundle
+hash. It does not need a new credential. For small local fixtures, `bundle` may
+instead contain `path` under `dot-inputs/` and its file-byte `sha256`.
+
+`results` may reference a single file in the same path/hash form, or
+`{"manifest":{"path":"dot-inputs/result-manifest.json","sha256":"FILE_HASH"}}`.
+The result manifest has exactly `schema_version`, `bundle_sha256`,
+`decision_shards` (ordered path/hash references) and `summaries`. Each shard is a
+JSON array of decision records. Use modest shards (for example 50 decisions);
+measure actual bytes against connector write limits. The importer verifies every
+shard hash and exact full candidate accounting after merging, including duplicate
+and omitted IDs. Commit the result files/manifest and one new request together.
+The original bundle never needs to pass through a text-file write operation. JSON is parsed
 in Python, never interpolated into shell commands. `enrich` fetches public article
 text without inference and returns a newly hashed bundle plus pending decisions.
 `validate` stages the edition and runs a strict MkDocs build. Only a successful
@@ -97,8 +117,10 @@ Synthetic scale checks establish plumbing, **not semantic parity**.
 A full real frozen-corpus review and unattended connector push/download/return/
 strict-build test remain required. Historical September 30 exact original input
 texts were not saved, so the earlier reconstructed comparison cannot prove parity.
-Source warnings conservatively mark collection degraded, including recovered
-warnings; inspect and re-export rather than overriding health. Existing upstream
+Terminal source failures and unknown warnings mark collection degraded. Explicit
+retry notices remain in the diagnostics but do not block a collection that
+subsequently returns successfully. Exhausted retries either raise or record a
+terminal failure. Inspect and re-export rather than overriding terminal health. Existing upstream
 source limits (HN search caps, S2 cache coverage, timeouts and keyword gating) are
 retained and are not an exhaustive crawl guarantee. The 12,000-character body
 limit is inherited. Retries of failed body retrieval need a new enrichment policy
@@ -117,3 +139,45 @@ build before mutation, deploy the same validated artifact, and support idempoten
 retries. Gate **both** the scheduled Gemini workflow and watchdog only after these
 tests succeed. A schedule alone is not an execution/publishing proof. No such
 cutover, scheduler change or publisher is implemented here.
+
+
+## Verified transport checkpoint
+
+On October 2, 2026 the cloud connector committed `smoke-001` at
+`c4809d76d68477b3593fcd40487ff132f4ffc1e1`, triggering successful
+[Actions run 37065155803](https://github.com/AI-Safety-Weekly/ai-safety-digest/actions/runs/37065155803).
+The coordinator materialized artifact `11252720547` through the supported file-ID
+route and verified its 403-byte ZIP hash against GitHub:
+`25e963db16ec9f0a4fe8f6b38af2015378a9e7d44898536bf2280a132ed25e49`.
+Its receipt records the exact base/request commits and `published:false`.
+This proves the small connector push/Actions/artifact round trip only; a real
+full-corpus return, artifact-reference enrichment/build and publication remain
+separate acceptance gates.
+
+## Collection progress and recovery
+
+New exports write an atomic `collection-checkpoint.json` under the chosen scratch
+checkpoint directory, bound to the exact source/config/archive/state snapshot,
+window and days. CLI `--checkpoint-dir` lets a later export to a new output file
+reuse that directory. Successful sources and individual Semantic Scholar authors
+are reused with their original text; failed sources are attempted again. Progress
+identifies the current source/author and completed/reused/deferred counts.
+
+The dot-only S2 HTTP wrapper treats HTTP 429 separately: it records Retry-After
+(seconds or HTTP date, default 60 seconds when absent/invalid), stops further S2
+requests for that attempt, and lists every pending author. A returned partial
+bundle is explicitly incomplete and cannot import. Rerun the same frozen window
+after the retry time; no unseen paper is lost to a rolling-window change because
+nothing is marked seen. Terminal failures also retain completed checkpoints and
+block import. Exception messages are excluded from checkpoint diagnostics.
+
+Cloud export artifacts include the checkpoint directory. To resume, add `resume`
+to the next `export` request using the same artifact-reference shape as `bundle`,
+and keep the exact same `until`/`days`. Actions materializes the prior artifact,
+checks the bundle hash/window and then verifies the checkpoint provenance binding.
+Changed code/config/state requires a new export, not an override. Failed source
+attempts and missing cached author IDs remain explicit coverage limitations.
+
+The legacy production collector is unchanged by this dot-only checkpoint/retry
+wrapper. The first uninstrumented export from commit `f7b4a4d` predates these
+recovery features and must retain its original provenance.

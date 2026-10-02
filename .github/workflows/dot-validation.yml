@@ -1,0 +1,36 @@
+name: Dot frozen handoff (validation only)
+on:
+  push:
+    branches: [dot-frozen-handoff]
+    paths: ['dot-requests/*.json']
+permissions:
+  contents: read
+concurrency:
+  group: dot-validation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install collection and rendering dependencies (no model SDK)
+        run: pip install arxiv requests beautifulsoup4 feedparser pyyaml python-dateutil mkdocs-material
+      - name: Process immutable request
+        env:
+          PYTHONPATH: src
+          BEFORE_SHA: ${{ github.event.before }}
+        run: python -m safety_digest.dot_transport --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output"
+      - name: Upload validated transport output
+        uses: actions/upload-artifact@v4
+        with:
+          name: dot-handoff-${{ github.sha }}
+          path: ${{ runner.temp }}/dot-output
+          retention-days: 30
+          if-no-files-found: error

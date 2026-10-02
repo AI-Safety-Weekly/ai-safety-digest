@@ -217,10 +217,11 @@ def fetch_author_papers(
     days: int,
     http: HTTPClient | None = None,
     api_key: str | None = None,
+    until: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch this author's recent papers from S2. Returns raw paper dicts."""
     http = http or _default_http
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    cutoff = (until or datetime.now(tz=timezone.utc)) - timedelta(days=days)
     out: list[dict[str, Any]] = []
     offset = 0
     while True:
@@ -283,6 +284,7 @@ def collect(
     api_key: str | None = None,
     sleep_sec: float = _DEFAULT_SLEEP_SEC,
     until: datetime | None = None,
+    use_env_key: bool = True,
 ) -> list[Paper]:
     """Fetch papers for tracked authors published in `[until - days, until]`.
 
@@ -294,7 +296,8 @@ def collect(
     """
     if not tracked_authors:
         return []
-    api_key = api_key or os.environ.get("S2_API_KEY")
+    if use_env_key:
+        api_key = api_key or os.environ.get("S2_API_KEY")
     auto_set = set(auto_admit_authors or [])
     review_set = set(review_authors or [])
     until_dt = until or datetime.now(tz=timezone.utc)
@@ -309,7 +312,9 @@ def collect(
         if not author_id:
             skipped += 1
             continue
-        raw_papers = fetch_author_papers(author_id, days=days, http=http, api_key=api_key)
+        raw_papers = fetch_author_papers(
+            author_id, days=days, http=http, api_key=api_key, until=until_dt
+        )
         for rp in raw_papers:
             pid = rp.get("paperId")
             if not pid or pid in seen_paper_ids:

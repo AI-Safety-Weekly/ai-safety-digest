@@ -1,11 +1,28 @@
 """Reconcile a recovered source pass with retained frozen evidence and exact reviews."""
 import copy
+import base64
+import yaml
 from safety_digest import dot_handoff as dot
 
 
 def same_basis(a,b):
     for field in ('run_at','days','state_rows','system_prompt','forced_keys'):
         if a[field]!=b[field]:raise dot.Invalid(f'reconciliation basis differs: {field}')
+    names={k for x in (a,b) for k in x['files'] if k.startswith(('config/','feedback/'))}
+    for name in names:
+        before,after=a['files'].get(name),b['files'].get(name)
+        if before==after:continue
+        if name!='config/lab_sources.yml' or before is None or after is None:
+            raise dot.Invalid(f'reconciliation configuration differs: {name}')
+        # The sole authorized configuration exception is Apollo's sitemap repair.
+        def without_apollo_transport(value):
+            data=yaml.safe_load(base64.b64decode(value))
+            for source in data['sources']:
+                if source['name']=='apollo':
+                    for field in ('strategy','sitemap_url','sub_sitemap_pattern','url_prefix','url_pattern'):source.pop(field,None)
+            return data
+        if without_apollo_transport(before)!=without_apollo_transport(after):
+            raise dot.Invalid('source configuration changed beyond the authorized Apollo repair')
 
 
 def reconcile(original, enriched, recovery):
@@ -52,6 +69,9 @@ def reconcile(original, enriched, recovery):
     b['collection']['reconciliation']={'original_bundle_sha256':original['bundle_sha256'],
         'enriched_bundle_sha256':enriched['bundle_sha256'],'recovery_bundle_sha256':recovery['bundle_sha256'],
         'retained_previous_ids':retained,'records':records,
+        'configuration_changes':[{'path':name,'before_sha256':dot.bytehash(base64.b64decode(original['files'][name])),
+            'after_sha256':dot.bytehash(base64.b64decode(recovery['files'][name]))}
+            for name in original['files'] if name.startswith(('config/','feedback/')) and original['files'][name]!=recovery['files'].get(name)],
         'source_completion_inherited_from_recovery':recovery['collection']['complete']}
     return dot.validate_bundle(dot.seal(b))
 

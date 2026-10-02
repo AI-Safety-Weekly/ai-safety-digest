@@ -115,3 +115,10 @@ def test_reconcile_does_not_erase_unavailable_body_attempt(root):
     merged=reconciliation.reconcile(original,original,recovery)
     assert merged['candidates'][0]['body']==recovery['candidates'][0]['body']
     assert merged['candidates'][0]['body']['status']=='unavailable'
+
+def test_reconcile_rejects_author_configuration_change(root):
+    import base64,copy
+    original=bundle(root);recovery=copy.deepcopy(original)
+    recovery['files']['config/authors.yml']=base64.b64encode(b'changed authors').decode()
+    recovery=dot.seal({k:v for k,v in recovery.items() if k!='bundle_sha256'})
+    with pytest.raises(dot.Invalid,match='configuration differs'):reconciliation.reconcile(original,original,recovery)

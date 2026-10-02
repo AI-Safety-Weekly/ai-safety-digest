@@ -42,6 +42,10 @@ jobs:
           PYTHONPATH: src
           BEFORE_SHA: ${{ github.event.before }}
         run: python -m safety_digest.dot_transport --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output" --artifact-dir "$RUNNER_TEMP/dot-frozen-input"
+      - name: Add synthetic acceptance fixture to smoke artifacts
+        env:
+          PYTHONPATH: src
+        run: python scripts/dot_fixture.py --out "$RUNNER_TEMP/dot-output"
       - name: Upload validated transport output
         uses: actions/upload-artifact@v4
         with:

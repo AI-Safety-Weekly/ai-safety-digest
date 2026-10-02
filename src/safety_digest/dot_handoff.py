@@ -315,14 +315,21 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
                 return extra, {}
             extra, _ = checkpoints.collect('feedback_missing', missed_fetch, handler.events)
             papers += extra
-        for name, callback in [
-            ('lab_forum', lambda: lab_collector.collect(cfg.lab_sources, days=days, until=run_at,
-                                                       safety_keywords=cfg.strict_keywords)),
-            ('hn', lambda: hn_collector.collect(days=days, until=run_at)),
-        ]:
-            items, _ = checkpoints.collect(name, lambda: (callback(), {}), handler.events)
-            counts[name] = len(items)
-            papers += items
+        lab_papers = []
+        for source in cfg.lab_sources:
+            if source.get('disabled'):
+                continue
+            name = 'lab:' + source['name']
+            items, _ = checkpoints.collect(name, lambda: (
+                lab_collector.collect([source], days=days, until=run_at,
+                                      safety_keywords=cfg.strict_keywords), {}), handler.events)
+            lab_papers += items
+        counts['lab_forum'] = len(lab_papers)
+        papers += lab_papers
+        items, _ = checkpoints.collect('hn', lambda: (
+            hn_collector.collect(days=days, until=run_at), {}), handler.events)
+        counts['hn'] = len(items)
+        papers += items
         # Cache by author so a service-wide 429 resumes without recrawling all
         # successful sources/authors. Preserve the legacy first-trigger dedupe.
         scholar, seen_s2 = [], set()
@@ -476,6 +483,13 @@ def validate_results(bundle, results, *, final=False):
     return decisions
 
 
+def validate_for_publication(bundle, results):
+    """Required final publisher gate; synthetic staging can never authorize publishing."""
+    validate_results(bundle, results, final=True)
+    if bundle['collection'].get('synthetic_fixture', False) is not False:
+        raise Invalid('synthetic fixtures are forbidden from production publication')
+
+
 def validate_summary(summary, eligible):
     if not eligible:
         if summary is not None:
@@ -498,17 +512,20 @@ def validate_summary(summary, eligible):
         raise Invalid('section themes must partition every eligible stable ID exactly once')
 
 
-def enrich(bundle, results, fetch=None):
+def enrich(bundle, results, fetch=None, requested_ids=()):
     """Freeze deep reads after triage; completed decisions on changed inputs reset."""
     from . import lab_collector
     fetch = fetch or lab_collector.fetch_article_body
     decisions = validate_results(bundle, results)
+    requested = set(requested_ids)
+    if not requested <= set(decisions):
+        raise Invalid('unknown explicit deep-read ID')
     b = copy.deepcopy(bundle)
     b.pop('bundle_sha256')
     b['parent_bundle_sha256'] = bundle['bundle_sha256']
     for candidate in b['candidates']:
         d = decisions[candidate['id']]
-        if d['status'] != 'complete' or not listed(d['classification']):
+        if candidate['id'] not in requested and (d['status'] != 'complete' or not listed(d['classification'])):
             continue
         if candidate['body']['status'] != 'not_attempted':
             continue
@@ -527,12 +544,18 @@ def enrich(bundle, results, fetch=None):
                              'limit_chars': 12000}
         candidate['input_text'] = _user_message(paper, body or None)
         candidate['input_sha256'] = bytehash(candidate['input_text'].encode())
+    prior_records = {r['id']:r for r in bundle['collection'].get('enrichment_records', [])}
+    b['collection']['enrichment_records'] = [
+        {**prior_records.get(c['id'], {}), 'id':c['id'], 'body_sha256':bytehash(c['body']['text'].encode()),
+         'input_sha256':c['input_sha256'], 'status':c['body']['status'],
+         'url':c['body']['url'], 'fetched_at':c['body']['fetched_at']}
+        for c in b['candidates'] if c['body']['status'] != 'not_attempted']
     b = seal(b)
     pending = template(b)
     # Preserve completed low decisions; listed decisions must explicitly be reviewed again.
     for index, candidate in enumerate(b['candidates']):
         old = decisions[candidate['id']]
-        if old['status'] == 'complete' and not listed(old['classification']):
+        if old['status'] == 'complete' and not listed(old['classification']) and candidate['id'] not in requested and old['input_sha256'] == candidate['input_sha256']:
             pending['decisions'][index] = copy.deepcopy(old)
     return b, pending
 
@@ -618,6 +641,7 @@ def stage_import(root, bundle, results, destination):
         receipt = {'schema_version': VERSION, 'request_sha256': request_hash,
                    'bundle_sha256': bundle['bundle_sha256'], 'decision_count': len(decisions),
                    'week': week, 'base_git_commit': bundle['git_commit'],
+                   'synthetic_fixture': bundle['collection'].get('synthetic_fixture', False),
                    'output_sha256': outputs, 'status': 'staged_not_published'}
         write_json(staging / 'dot-receipt.json', receipt)
         # No partial docs/state publication. A second writer cannot replace a nonempty stage.
@@ -656,6 +680,7 @@ def main():
             p.add_argument('--out', type=Path, required=True)
         if name == 'enrich':
             p.add_argument('--results-out', type=Path, required=True)
+            p.add_argument('--ids-file', type=Path, help='JSON array of explicit deep-read stable IDs; no relevance promotion')
         if name == 'import':
             p.add_argument('--root', type=Path, default=Path('.'))
     args = parser.parse_args()
@@ -686,7 +711,10 @@ def main():
             else:
                 if args.out.exists() or args.results_out.exists():
                     raise Invalid('enrichment output already exists')
-                result, pending = enrich(b, r)
+                requested = read_json(args.ids_file) if args.ids_file else []
+                if not isinstance(requested, list) or any(not isinstance(i, str) for i in requested):
+                    raise Invalid('explicit deep-read IDs must be a JSON string array')
+                result, pending = enrich(b, r, requested_ids=requested)
                 write_json(args.results_out, pending)
         if args.out.exists():
             raise Invalid('output already exists')

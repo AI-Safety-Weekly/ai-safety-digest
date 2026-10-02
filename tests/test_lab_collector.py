@@ -317,3 +317,16 @@ def test_single_sitemap_strategy_still_works(monkeypatch) -> None:
     )
     assert len(papers) == 1
     assert "keeper" in papers[0].url
+
+
+def test_apollo_flat_sitemap_keeps_research_paths_only(monkeypatch):
+    now = datetime(2026, 10, 2, tzinfo=timezone.utc)
+    recent = now - timedelta(days=1)
+    sm = _sitemap_xml([(f'https://apolloresearch.ai/{path}',recent)
+                      for path in ['blog/research','science/evals','governance/policy','team/person','press/news']])
+    monkeypatch.setattr(lab_collector, '_scrape_meta', lambda url: ('Research', 'AI safety study'))
+    papers = lab_collector._papers_from_sitemap_xml(sm, {
+        'name':'apollo', 'label':'Apollo Research', 'filter':'loose', 'auto_admit':True,
+        'url_pattern':r'apolloresearch\.ai/(blog|science|governance)/.'}, now-timedelta(days=7), now)
+    assert len(papers) == 3
+    assert all('/team/' not in p.url and '/press/' not in p.url for p in papers)

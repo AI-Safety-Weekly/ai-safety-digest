@@ -127,8 +127,8 @@ limit is inherited. Retries of failed body retrieval need a new enrichment polic
 before claiming unattended recovery of that failure class.
 
 Before any cutover, reconcile unmerged PR #15 (`digest-enhancements`, b2cecf7c):
-Apollo/Substack fixes, key-point folds and cross-week continuity are absent from
-this base. Its continuity path calls Gemini and must instead use frozen prior
+This branch includes the verified Apollo source fix only; Substack relay fixes,
+key-point folds and cross-week continuity remain to be reconciled. Its continuity path calls Gemini and must instead use frozen prior
 history and dot reasoning. Its newer PLAN records a Sept 30 Worker deployment;
 verify the live endpoint before proposing another. This pilot authorizes neither
 merging that PR nor redeploying its Worker.
@@ -181,3 +181,31 @@ attempts and missing cached author IDs remain explicit coverage limitations.
 The legacy production collector is unchanged by this dot-only checkpoint/retry
 wrapper. The first uninstrumented export from commit `f7b4a4d` predates these
 recovery features and must retain its original provenance.
+
+The positive artifact-reference/sharded-result test also passed on October 2:
+[run 37068243113](https://github.com/AI-Safety-Weekly/ai-safety-digest/actions/runs/37068243113),
+request commit `48193734032bf67eab0f330ef67211660699ab35`. The cloud reviewer
+materialized artifact `11253347630` (2,824,100 bytes), checked the ZIP digest and
+all 14 staged output hashes, and inspected the rendered HTML. Its receipts show
+`strict_build_passed:true`, `published:false`, and `staged_not_published` for one
+explicit synthetic candidate. Main remained `29700ce`. This verifies the positive
+cloud artifact/shard/import/build path, not semantic quality or production publishing.
+
+Explicit `deep_read_ids` on an enrichment request (or CLI `--ids-file`) can fetch
+thin evidence without first promoting an unresolved/low candidate. Requested
+items reset for review; unchanged completed decisions remain usable. Cumulative
+records preserve measured body hashes, status and any supplied truncation fields.
+
+The replacement branch applies only PR #15's verified Apollo source fix: the old
+sitemap index returned 404, while the flat sitemap returned 200 on October 2.
+Research-path regex selection excludes team/press pages. Other PR features remain
+pending reconciliation; no PR merge or Worker deployment is implied. Lab feeds
+now checkpoint individually, so one failed feed does not recrawl successful feeds.
+Repeated 429 responses increase client backoff up to one hour while respecting
+any later Retry-After time. Deferred authors remain explicitly pending.
+
+Any future publisher must call `validate_for_publication` immediately before its
+production mutation. This gate explicitly rejects `collection.synthetic_fixture`
+even after complete results and a successful strict build. Synthetic staging is
+allowed and its receipt carries the flag; no production publisher is implemented
+or enabled by this validation branch.

@@ -76,12 +76,16 @@ class Checkpoints:
         try:
             papers, extra = callback()
         except DeferredSource as e:
+            defer_count = (previous or {}).get('defer_count', 0) + 1
+            if defer_count > 1:
+                client_floor = datetime.now(timezone.utc) + timedelta(seconds=min(60 * 2**min(defer_count-1, 6), 3600))
+                e.retry_at = max(dot.utc(e.retry_at), client_floor).isoformat()
             event = {'module':'safety_digest.s2_collector', 'level':'WARNING',
                      'event_template':'HTTP 429 Retry-After; pending author',
                      'kind':'deferred', 'source':name, 'retry_at':e.retry_at}
             events.append(event)
             self.data['parts'][name] = {'complete':False, 'papers':[], 'extra':{},
-                                       'events':events[start:], 'retry_at':e.retry_at}
+                                       'events':events[start:], 'retry_at':e.retry_at, 'defer_count':defer_count}
             self.save()
             self.progress({'source':name, 'status':'deferred', 'retry_at':e.retry_at})
             raise

@@ -77,6 +77,8 @@ def run(root, request_path, out, artifact_dir=None):
     fields = common | extra[mode]
     if mode == 'export' and 'resume' in req:
         fields = fields | {'resume'}
+    if mode == 'enrich' and 'deep_read_ids' in req:
+        fields = fields | {'deep_read_ids'}
     dot.keys(req, fields, 'request')
     if req['schema_version'] != 1 or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}', req['run_id']):
         raise dot.Invalid('invalid schema/run ID')
@@ -126,7 +128,10 @@ def run(root, request_path, out, artifact_dir=None):
             bundle = dot.load_bundle(input_file(root, req['bundle']))
         results = load_results(root, req['results'])
         if mode == 'enrich':
-            enriched, pending = dot.enrich(bundle, results)
+            ids = req.get('deep_read_ids', [])
+            if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
+                raise dot.Invalid('deep_read_ids must be a JSON string array')
+            enriched, pending = dot.enrich(bundle, results, requested_ids=ids)
             dot.write_json(out / 'bundle.json', enriched)
             dot.write_json(out / 'results-template.json', pending)
             metadata.update(candidate_count=len(enriched['candidates']), bundle_sha256=enriched['bundle_sha256'])

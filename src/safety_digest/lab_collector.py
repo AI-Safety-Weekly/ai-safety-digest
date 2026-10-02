@@ -300,6 +300,7 @@ def _papers_from_sitemap_xml(
     """
     root = ET.fromstring(content)
     prefix = src.get("url_prefix") or ""
+    url_pattern = re.compile(src["url_pattern"]) if src.get("url_pattern") else None
 
     candidates: list[tuple[str, datetime]] = []
     for url_el in root.findall(".//sm:url", SITEMAP_NS):
@@ -307,6 +308,8 @@ def _papers_from_sitemap_xml(
         if not loc:
             continue
         if prefix and (not loc.startswith(prefix) or loc == prefix):
+            continue
+        if url_pattern and not url_pattern.search(loc):
             continue
         lastmod = (url_el.findtext("sm:lastmod", "", SITEMAP_NS) or "").strip()
         if not lastmod:

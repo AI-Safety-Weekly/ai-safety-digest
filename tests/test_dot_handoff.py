@@ -272,7 +272,7 @@ def test_export_anchor_filters_credentials_and_degraded_capture(root, tmp_path, 
     from types import SimpleNamespace
     from safety_digest import config, arxiv_collector, lab_collector, hn_collector, s2_collector
     cfg = SimpleNamespace(auto_admit_authors=[{'name':'Known'}], review_authors=[],
-                          categories=[], keywords=[], strict_keywords=[], lab_sources=[])
+                          categories=[], keywords=[], strict_keywords=[], lab_sources=[{'name':'test-lab'}])
     monkeypatch.setattr(config, 'load', lambda p: cfg)
     monkeypatch.setattr(s2_collector, 'load_author_id_cache', lambda p: {'Known':'123'})
     calls = []
@@ -485,3 +485,85 @@ def test_export_resumes_all_pending_authors_without_recrawling_completed_sources
     assert second['collection']['complete'] is True and len(second['candidates']) == 2
     assert calls == ['arxiv', 'A', 'B', 'B']
     assert dot.snapshot_rows(root / 'state.db') == []
+
+
+def test_explicit_deep_read_does_not_require_relevance_promotion(root):
+    b = bundle(root)
+    pending = dot.template(b)
+    c = b['candidates'][0]
+    enriched, results = dot.enrich(b, pending, fetch=lambda url: BODY, requested_ids=[c['id']])
+    assert enriched['candidates'][0]['body']['text'] == BODY
+    assert enriched['candidates'][1]['body']['status'] == 'not_attempted'
+    assert all(d['status'] == 'unresolved' for d in results['decisions'])
+    assert enriched['collection']['enrichment_records'][0]['body_sha256'] == dot.bytehash(BODY.encode())
+    low = completed(b)
+    _, reset = dot.enrich(b, low, fetch=lambda url: BODY, requested_ids=[c['id']])
+    assert reset['decisions'][0]['status'] == 'unresolved'
+    assert reset['decisions'][1]['status'] == 'complete'
+    with pytest.raises(dot.Invalid, match='unknown explicit'):
+        dot.enrich(b, low, requested_ids=['unknown'])
+
+
+def test_cumulative_enrichment_preserves_measured_truncation(root):
+    b = bundle(root)
+    first, _ = dot.enrich(b, dot.template(b), fetch=lambda url: BODY,
+                          requested_ids=[b['candidates'][0]['id']])
+    raw = {k:v for k,v in first.items() if k != 'bundle_sha256'}
+    raw['collection']['enrichment_records'][0]['truncated'] = True
+    first = dot.seal(raw)
+    second, _ = dot.enrich(first, dot.template(first), fetch=lambda url: BODY,
+                           requested_ids=[b['candidates'][1]['id']])
+    assert second['collection']['enrichment_records'][0]['truncated'] is True
+    assert len(second['collection']['enrichment_records']) == 2
+
+
+def test_repeated_429_increases_client_backoff(tmp_path):
+    from safety_digest.dot_checkpoint import Checkpoints, DeferredSource
+    store = Checkpoints(tmp_path / 'checkpoints', 'binding')
+    def deferred():
+        raise DeferredSource('2000-01-01T00:00:00+00:00')
+    with pytest.raises(DeferredSource):
+        store.collect('scholar:A', deferred, [])
+    before = datetime.now(timezone.utc)
+    with pytest.raises(DeferredSource) as error:
+        store.collect('scholar:A', deferred, [])
+    assert (dot.utc(error.value.retry_at) - before).total_seconds() >= 119
+    assert store.data['parts']['scholar:A']['defer_count'] == 2
+
+
+def test_lab_checkpoints_retry_only_failed_feed(root, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from safety_digest import config, arxiv_collector, lab_collector, hn_collector, s2_collector
+    cfg = SimpleNamespace(auto_admit_authors=[{'name':'A'}], review_authors=[],
+                          categories=[], keywords=[], strict_keywords=[],
+                          lab_sources=[{'name':'good'},{'name':'broken'}])
+    monkeypatch.setattr(config, 'load', lambda p: cfg)
+    monkeypatch.setattr(s2_collector, 'load_author_id_cache', lambda p: {'A':'1'})
+    monkeypatch.setattr(arxiv_collector, 'collect', lambda *a, **kw: [])
+    monkeypatch.setattr(hn_collector, 'collect', lambda *a, **kw: [])
+    monkeypatch.setattr(s2_collector, 'collect', lambda *a, **kw: [])
+    calls=[]
+    def lab(sources, **kw):
+        name=sources[0]['name'];calls.append(name)
+        if name=='broken' and calls.count(name)==1:
+            logging.getLogger('safety_digest.lab_collector').error('lab source %s failed: %s',name,'failure')
+            return []
+        return [paper(1 if name=='good' else 2)]
+    monkeypatch.setattr(lab_collector, 'collect', lab)
+    cp=tmp_path/'checkpoint'
+    first=dot.collect_export(root,tmp_path/'first.json',NOW,7,cp)
+    second=dot.collect_export(root,tmp_path/'second.json',NOW,7,cp)
+    assert not first['collection']['complete'] and second['collection']['complete']
+    assert calls==['good','broken','broken'] and len(second['candidates'])==2
+
+
+def test_synthetic_can_stage_but_never_pass_publication_gate(root, tmp_path):
+    b = bundle(root)
+    raw = {k:v for k,v in b.items() if k!='bundle_sha256'}
+    raw['collection']['synthetic_fixture']=True
+    b=dot.seal(raw)
+    r=completed(b)
+    receipt=dot.stage_import(root,b,r,tmp_path/'stage')
+    assert receipt['synthetic_fixture'] is True
+    with pytest.raises(dot.Invalid,match='synthetic fixtures'):
+        dot.validate_for_publication(b,r)

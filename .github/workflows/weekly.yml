@@ -41,6 +41,8 @@ concurrency:
 
 jobs:
   digest:
+    # Independent cutover gate: unset preserves the existing scheduled pipeline.
+    if: ${{ vars.DOT_REPLACE_GEMINI != 'true' || github.event.inputs.build_only == 'true' }}
     runs-on: ubuntu-latest
     # Cap worst-case runtime. Weekly arXiv volume grew from ~550 papers (2026-06)
     # to ~800 (2026-09): the 2026-09-29 manual run was killed at the old 60-min

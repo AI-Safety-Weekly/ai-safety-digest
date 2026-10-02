@@ -209,3 +209,34 @@ production mutation. This gate explicitly rejects `collection.synthetic_fixture`
 even after complete results and a successful strict build. Synthetic staging is
 allowed and its receipt carries the flag; no production publisher is implemented
 or enabled by this validation branch.
+
+## Gated publication implementation
+
+`dot-publish.yml` runs the complete regression suite and isolated bare-remote
+publication tests on validation-branch code changes. Immutable requests under
+`dot-publish-requests/` reference a canonical hashed Actions bundle and hashed
+result shards. Validation requires a real, complete-source bundle, complete
+review decisions, unchanged code/config/feedback/archive/state, and a strict
+MkDocs build. Synthetic fixtures cannot enter this path.
+
+The write job additionally requires `DOT_PUBLISH_ENABLED=true`, the `main`
+branch, and request mode `publish`. It revalidates and rebuilds before creating
+one fast-forward commit containing docs, state, and an audit receipt. It never
+force-pushes or edits its checkout. Replays of the same request reuse that
+commit; conflicting results fail. Newer changed or added pages prevent stale
+redeployment. The Pages artifact is built from the same validated snapshot,
+and deployment checks that its commit remains the main head. Workflow-level
+`weekly-digest` concurrency also serializes the legacy publisher. An unrelated
+external writer can still race the final Pages check; production repository
+write discipline remains necessary.
+
+`DOT_REPLACE_GEMINI` is an independent cutover flag shared by the old scheduled
+pipeline and watchdog. Unset flags preserve existing behavior. Neither flag is
+enabled by this branch. A successful commit receipt means
+`committed_pending_deploy`; only a successful Pages deployment establishes live
+publication. No recurring dot task is created here.
+
+`scripts/dot_external_evidence.py` records explicitly partial public previews
+with URL, capture time, text hash, original abstract, and parent bundle hash.
+It preserves failed full-body attempts and changes the input hash, requiring a
+new editorial decision. A preview is never labeled a successful full-text read.

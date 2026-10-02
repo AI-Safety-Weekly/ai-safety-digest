@@ -1,0 +1,91 @@
+"""Exercise publication against disposable local bare remotes."""
+import importlib.util
+from pathlib import Path
+import subprocess
+import pytest
+from safety_digest import dot_handoff as dot
+from test_dot_handoff import root, bundle, completed
+
+def module(name):
+    s=importlib.util.spec_from_file_location(name,Path(__file__).parents[1]/'scripts'/f'{name}.py')
+    m=importlib.util.module_from_spec(s);s.loader.exec_module(m);return m
+p=module('dot_publish');evidence=module('dot_external_evidence')
+@pytest.fixture
+def remote(root,tmp_path):
+    p.git(root,'branch','-M','main');r=tmp_path/'origin.git'
+    subprocess.run(['git','clone','--bare',str(root),str(r)],check=True,capture_output=True)
+    p.git(root,'remote','add','origin',str(r));return r
+
+def build(stage,site):
+    assert (stage/'docs/index.md').exists()
+    site.mkdir(parents=True);(site/'index.html').write_text('test build')
+def head(r):return p.git(r,'rev-parse','main').decode().strip()
+def advance(root,r):
+    p.git(root,'-c','user.name=Test','-c','user.email=t@example.invalid','commit','--allow-empty','-qm','race')
+    p.git(root,'push','origin','HEAD:main');return head(r)
+
+def test_disabled_and_fixture(root,remote,tmp_path):
+    b=bundle(root);before=head(remote)
+    with pytest.raises(dot.Invalid,match='disabled'):p.publish(root,b,completed(b),'one',tmp_path/'a',build=build)
+    b['collection']['synthetic_fixture']=True;b=dot.seal({k:v for k,v in b.items() if k!='bundle_sha256'})
+    with pytest.raises(dot.Invalid,match='synthetic'):p.publish(root,b,completed(b),'one',tmp_path/'b',enabled=True,build=build)
+    assert head(remote)==before
+
+def test_atomic_idempotent(root,remote,tmp_path):
+    b=bundle(root);r=completed(b);before=head(remote);state=(root/'state.db').read_bytes();docs=(root/'docs/index.md').read_bytes()
+    result=p.publish(root,b,r,'one',tmp_path/'a',enabled=True,build=build)
+    assert result['deploy'] and not result['published'] and head(remote)==result['commit']!=before
+    assert (root/'state.db').read_bytes()==state and (root/'docs/index.md').read_bytes()==docs
+    assert p.git(remote,'rev-parse','main^').decode().strip()==before
+    assert p.read_remote_receipt(root,result['commit'],'.dot-receipts/one.json')['candidate_count']==2
+    repeat=p.publish(root,b,r,'one',tmp_path/'b',enabled=True,build=build)
+    assert repeat['status']=='already_committed' and repeat['deploy'] and head(remote)==result['commit']
+    r['decisions'][0]['classification']['summary']='Changed judgment.'
+    with pytest.raises(dot.Invalid,match='different'):p.publish(root,b,r,'one',tmp_path/'c',enabled=True,build=build)
+
+@pytest.mark.parametrize('kind',['build','stale','during'])
+def test_failure_no_commit(root,remote,tmp_path,kind):
+    b=bundle(root);before=head(remote)
+    if kind=='stale':(root/'docs/index.md').write_text('edit')
+    def check(stage,site):
+        if kind=='build':raise RuntimeError('failure')
+        build(stage,site)
+        if kind=='during':(root/'docs/index.md').write_text('edit')
+    with pytest.raises((RuntimeError,dot.Invalid)):p.publish(root,b,completed(b),'one',tmp_path/'a',enabled=True,build=check)
+    assert head(remote)==before
+
+def test_moved_remote(root,remote,tmp_path):
+    b=bundle(root);old=head(remote);new=advance(root,remote);p.git(root,'reset','--hard',old)
+    with pytest.raises(dot.Invalid,match='remote main moved'):p.publish(root,b,completed(b),'one',tmp_path/'a',enabled=True,build=build)
+    assert head(remote)==new
+
+def test_push_race(root,remote,tmp_path):
+    b=bundle(root);new=[]
+    with pytest.raises(subprocess.CalledProcessError):
+        p.publish(root,b,completed(b),'one',tmp_path/'a',enabled=True,build=build,before_push=lambda:new.append(advance(root,remote)))
+    assert head(remote)==new[0] and p.read_remote_receipt(root,head(remote),'.dot-receipts/one.json') is None
+
+def test_partial_preview(root):
+    b=bundle(root);c=b['candidates'][0];c['body'].update(status='unavailable',url=c['paper']['url'],fetched_at='2026-10-02T23:26:09Z')
+    b=dot.seal({k:v for k,v in b.items() if k!='bundle_sha256'})
+    r={'id':c['id'],'expected_input_sha256':c['input_sha256'],'url':c['paper']['url'],'retrieved_at':'2026-10-02T23:26:09Z','text':'A limited public preview.','retrieval_method':'public_web_page','scope':'public_preview'}
+    e=evidence.add_public_preview(b,r);n=e['candidates'][0]
+    assert n['body']==c['body'] and n['paper']['raw']['original_frozen_abstract']==c['paper']['abstract']
+    assert 'PARTIAL PUBLIC PREVIEW' in n['input_text'] and n['input_sha256']!=c['input_sha256']
+    for k,v in [('expected_input_sha256','0'*64),('url','https://example.invalid'),('scope','full_article')]:
+        with pytest.raises(dot.Invalid):evidence.add_public_preview(b,{**r,k:v})
+
+def test_strict_build_publication(root,remote,tmp_path):
+    b=bundle(root)
+    result=p.publish(root,b,completed(b),'strict',tmp_path/'strict',enabled=True)
+    assert result['deploy'] and (tmp_path/'strict/site/index.html').is_file()
+
+@pytest.mark.parametrize('change',['edit','add'])
+def test_newer_docs_block_stale_redeployment(root,remote,tmp_path,change):
+    b=bundle(root);r=completed(b)
+    first=p.publish(root,b,r,'one',tmp_path/'a',enabled=True,build=build)
+    p.git(root,'reset','--hard',first['commit'])
+    (root/'docs'/('index.md' if change=='edit' else 'new.md')).write_text('newer publication')
+    p.git(root,'add','docs');advance(root,remote)
+    result=p.publish(root,b,r,'one',tmp_path/'b',enabled=True,build=build)
+    assert result['status']=='superseded' and not result['deploy']

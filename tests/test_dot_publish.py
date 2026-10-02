@@ -89,3 +89,29 @@ def test_newer_docs_block_stale_redeployment(root,remote,tmp_path,change):
     p.git(root,'add','docs');advance(root,remote)
     result=p.publish(root,b,r,'one',tmp_path/'b',enabled=True,build=build)
     assert result['status']=='superseded' and not result['deploy']
+
+reconciliation=module('dot_reconcile')
+
+def test_reconcile_retains_missing_and_freezes_new(root):
+    from test_dot_handoff import BODY,paper
+    original=bundle(root);enriched,_=dot.enrich(original,dot.template(original),fetch=lambda _:BODY,requested_ids=[original['candidates'][0]['id']])
+    recovery=dot.make_bundle(root,[paper(1),paper(3)],__import__('test_dot_handoff').NOW,7,{'complete':False,'warnings':[]})
+    merged=reconciliation.reconcile(original,enriched,recovery)
+    assert len(merged['candidates'])==3 and merged['collection']['complete'] is False
+    assert merged['collection']['reconciliation']['retained_previous_ids']==[paper(2).dedupe_key]
+    assert merged['candidates'][0]['body']['text']==BODY
+    results,ledger=reconciliation.rebase_reviews(original,completed(original),merged)
+    assert sum(x['reused'] for x in ledger)==1
+    assert sum(x['status']=='unresolved' for x in results['decisions'])==2
+
+def test_reconcile_rejects_changed_rubric(root):
+    original=bundle(root);recovery=__import__('copy').deepcopy(original)
+    recovery['system_prompt']+='changed';recovery=dot.seal({k:v for k,v in recovery.items() if k!='bundle_sha256'})
+    with pytest.raises(dot.Invalid,match='system_prompt'):reconciliation.reconcile(original,original,recovery)
+
+def test_reconcile_does_not_erase_unavailable_body_attempt(root):
+    original=bundle(root)
+    recovery,_=dot.enrich(original,dot.template(original),fetch=lambda _:'',requested_ids=[original['candidates'][0]['id']])
+    merged=reconciliation.reconcile(original,original,recovery)
+    assert merged['candidates'][0]['body']==recovery['candidates'][0]['body']
+    assert merged['candidates'][0]['body']['status']=='unavailable'

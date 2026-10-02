@@ -240,3 +240,22 @@ publication. No recurring dot task is created here.
 with URL, capture time, text hash, original abstract, and parent bundle hash.
 It preserves failed full-body attempts and changes the input hash, requiring a
 new editorial decision. A preview is never labeled a successful full-text read.
+
+### Verified cloud checks, October 2
+
+- `512346f2d0808882153ae9236415dbf762e5f561`, run
+  `37078497704`: 211 tests passed on GitHub; no request, validation/write/deploy
+  jobs skipped.
+- `dbd678dfaac354cfaf317f3221e90e945d89f5ac`, run
+  `37078625638`: intentional negative test. Downloaded synthetic artifact and
+  hashed result shards, then rejected them with `synthetic fixtures are
+  forbidden from production publication`. Publish/deploy skipped. The red
+  validation job is the expected safety assertion, not a production outage.
+
+`scripts/dot_reconcile.py` checks identical window, seen-state, forced IDs, and
+rubric before reusing evidence. Enrichment cannot change original source
+metadata except a documented partial preview. Unchanged candidate inputs retain
+exact judgments; changed/new inputs require review. Earlier in-window candidates
+missing from recovery are explicitly retained and audited. Unavailable deep-read
+attempts remain preserved even when their text hash matches the initial abstract.
+Source-completion status is inherited unchanged from the recovery pass.

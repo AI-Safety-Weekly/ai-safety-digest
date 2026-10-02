@@ -6,6 +6,7 @@ on:
       - 'dot-publish-requests/*.json'
       - 'scripts/dot_publish.py'
       - 'scripts/dot_external_evidence.py'
+      - 'scripts/dot_reconcile.py'
       - 'tests/test_dot_publish.py'
       - '.github/workflows/dot-publish.yml'
 permissions:

@@ -122,3 +122,32 @@ def test_reconcile_rejects_author_configuration_change(root):
     recovery['files']['config/authors.yml']=base64.b64encode(b'changed authors').decode()
     recovery=dot.seal({k:v for k,v in recovery.items() if k!='bundle_sha256'})
     with pytest.raises(dot.Invalid,match='configuration differs'):reconciliation.reconcile(original,original,recovery)
+
+def test_public_preview_cloud_transport_contract(root,tmp_path):
+    import os,json
+    b=bundle(root);r=completed(b);c=b['candidates'][0]
+    artifact=tmp_path/'artifact';artifact.mkdir();dot.write_json(artifact/'bundle.json',b)
+    inputs=root/'dot-inputs';inputs.mkdir();requests=root/'dot-evidence-requests';requests.mkdir()
+    dot.write_json(inputs/'results.json',r)
+    record={'id':c['id'],'expected_input_sha256':c['input_sha256'],'url':c['paper']['url'],
+            'retrieved_at':'2026-10-02T23:26:09Z','text':'Synthetic public-preview transport evidence; not research.',
+            'retrieval_method':'public_web_page','scope':'public_preview'}
+    dot.write_json(inputs/'previews.json',[record])
+    before=p.git(root,'rev-parse','HEAD').decode().strip()
+    ref=lambda name:{'path':'dot-inputs/'+name,'sha256':dot.bytehash((inputs/name).read_bytes())}
+    request={'schema_version':1,'base_commit':before,'bundle':{'artifact_run_id':1,'artifact_name':'fixture','bundle_sha256':b['bundle_sha256']},'results':ref('results.json'),'previews':ref('previews.json')}
+    dot.write_json(requests/'test.json',request);p.git(root,'add','.')
+    p.git(root,'-c','user.name=Test','-c','user.email=t@example.invalid','commit','-qm','request')
+    repo=Path(__file__).parents[1]
+    cmd=[__import__('sys').executable,str(repo/'scripts/dot_external_evidence.py'),'--before',before,'--artifact-dir',str(artifact),'--out',str(tmp_path/'output')]
+    env={**os.environ,'PYTHONPATH':str(repo/'src')}
+    subprocess.run(cmd,cwd=root,env=env,check=True,capture_output=True)
+    updated=dot.load_bundle(tmp_path/'output/bundle.json');pending=dot.read_json(tmp_path/'output/results.json')
+    assert updated['candidates'][0]['body']==c['body']
+    assert pending['decisions'][0]['status']=='unresolved' and pending['decisions'][1]['status']=='complete'
+    assert dot.read_json(tmp_path/'output/evidence-receipt.json')['published'] is False
+    newer=p.git(root,'rev-parse','HEAD').decode().strip()
+    (requests/'test.json').write_text(json.dumps(request,indent=2))
+    p.git(root,'add','.');p.git(root,'-c','user.name=Test','-c','user.email=t@example.invalid','commit','-qm','edit request')
+    rejected=subprocess.run([*cmd[:3],newer,'--metadata'],cwd=root,env=env,capture_output=True,text=True)
+    assert rejected.returncode==2 and 'immutable' in rejected.stderr

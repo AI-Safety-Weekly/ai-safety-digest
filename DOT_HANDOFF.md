@@ -259,3 +259,13 @@ exact judgments; changed/new inputs require review. Earlier in-window candidates
 missing from recovery are explicitly retained and audited. Unavailable deep-read
 attempts remain preserved even when their text hash matches the initial abstract.
 Source-completion status is inherited unchanged from the recovery pass.
+
+Partial public previews also have a read-only cloud path: immutable
+`dot-evidence-requests/*.json` requests reference an existing hashed bundle
+artifact, results/shard manifest, and a hashed JSON array of preview records.
+`dot-evidence.yml` records those already-verified short excerpts with provenance,
+keeps full-body status unchanged, resets changed decisions, and emits a new
+bundle/results artifact. It does not independently verify a supplied quotation
+against the live website; dot must verify the public page before submitting it.
+It cannot publish, and synthetic input remains synthetic. This supports limited
+public previews without treating a paywall failure as a successful full read.

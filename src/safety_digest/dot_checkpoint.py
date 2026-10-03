@@ -8,6 +8,10 @@ import tempfile
 from . import dot_handoff as dot
 
 
+class PendingCheckpoint(Exception):
+    """A checkpoint-only snapshot must not fetch a missing source."""
+
+
 class DeferredSource(Exception):
     def __init__(self, retry_at):
         self.retry_at = retry_at
@@ -33,7 +37,8 @@ def service_aware_http(method, url, **kwargs):
 
 
 class Checkpoints:
-    def __init__(self, directory, binding, progress=None):
+    def __init__(self, directory, binding, progress=None, read_only=False):
+        self.read_only = read_only
         self.directory = Path(directory)
         self.path = self.directory / 'collection-checkpoint.json'
         self.binding = binding
@@ -68,6 +73,13 @@ class Checkpoints:
             papers = [dot.paper_from(p) for p in previous['papers']]
             self.progress({'source':name, 'status':'reused', 'count':len(papers)})
             return papers, previous['extra']
+        if self.read_only:
+            recorded = (previous or {}).get('events', [])
+            events.extend(recorded or [{'module':'safety_digest.collection','level':'WARNING',
+                'event_template':'source pending in checkpoint-only snapshot','kind':'pending','source':name}])
+            if name.startswith('scholar:'):
+                raise PendingCheckpoint(name)
+            return [dot.paper_from(p) for p in (previous or {}).get('papers',[])], (previous or {}).get('extra',{})
         if previous and previous.get('retry_at') and dot.utc(previous['retry_at']) > datetime.now(timezone.utc):
             events.extend(previous['events'])
             raise DeferredSource(previous['retry_at'])

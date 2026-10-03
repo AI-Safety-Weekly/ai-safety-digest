@@ -267,13 +267,21 @@ class CollectionLog(logging.Handler):
                 elif template.startswith(('page fetch failed', 'sub-sitemap fetch failed')):
                     url = urlsplit(str(record.args[0]))
                     event['source'] = f'{url.hostname}{url.path}'[:1000]
+            status = getattr(record, "source_http_status", None)
+            if type(status) is int:
+                event["http_status"] = status
             self.events.append(event)
 
 
-def collect_export(root, destination, run_at, days, checkpoint_dir=None, progress=None):
+def collection_binding(files, state, run_at, days, transport):
+    return digest({'files':files,'state':state,'run_at':run_at.isoformat(),'days':days,
+                   'feed_transport':transport})
+
+
+def collect_export(root, destination, run_at, days, checkpoint_dir=None, progress=None, checkpoint_only=False):
     """Preserve current collection/filtering, disable embeddings, no model imports."""
     from . import config, arxiv_collector, lab_collector, hn_collector, s2_collector
-    from .dot_checkpoint import Checkpoints, DeferredSource, service_aware_http
+    from .dot_checkpoint import Checkpoints, DeferredSource, PendingCheckpoint, service_aware_http
     root, destination = Path(root).resolve(), Path(destination).resolve()
     checkpoint_dir = Path(checkpoint_dir or destination.with_suffix('.checkpoint')).resolve()
     if any(p == root or root in p.parents for p in (destination, checkpoint_dir)):
@@ -282,8 +290,9 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
         raise Invalid('export destination already exists')
     before = provenance(root)
     state_before = snapshot_rows(root / 'state.db')
-    checkpoints = Checkpoints(checkpoint_dir, digest({'files':before, 'state':state_before,
-                              'run_at':run_at.isoformat(), 'days':days}), progress)
+    transport = lab_collector.feed_transport()
+    checkpoints = Checkpoints(checkpoint_dir, collection_binding(before, state_before, run_at, days, transport),
+                              progress, read_only=checkpoint_only)
     cfg = config.load(root / 'config')
     auto = [a['name'] for a in cfg.auto_admit_authors]
     review = [a['name'] for a in cfg.review_authors]
@@ -344,7 +353,7 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
                                             http=service_aware_http), {}
             try:
                 items, _ = checkpoints.collect('scholar:' + name, author_fetch, handler.events)
-            except DeferredSource:
+            except (DeferredSource, PendingCheckpoint):
                 pending_authors = [n for n in tracked[index:] if cache.get(n)]
                 break
             for item in items:
@@ -369,6 +378,8 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
         'arxiv_in_window': arxiv_audit.get('in_window'),
         'pending_s2_authors': pending_authors,
         'checkpoint_binding': checkpoints.binding,
+        'feed_transport': transport,
+        'checkpoint_only': checkpoint_only,
         's2_authors_without_cached_ids': sorted(set(auto + review) - set(cache)),
         'bluesky_enabled': False,
     }

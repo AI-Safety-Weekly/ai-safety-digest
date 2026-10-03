@@ -17,10 +17,11 @@ treats lab posts uniformly with the existing author-tier logic.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin, urlparse
 from xml.etree import ElementTree as ET
 
 import feedparser
@@ -89,6 +90,24 @@ SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 SITEMAP_PAGE_CAP = 25
 
 
+# Existing public application integration from PR15; no Worker deployment here.
+PROXY_HOSTS = {"thezvi.substack.com", "importai.substack.com"}
+PUBLIC_FEED_PROXY = "https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev"
+
+def feed_transport():
+    base = os.environ.get("FEED_PROXY_URL", "").strip().rstrip("/")
+    if base and base != PUBLIC_FEED_PROXY:
+        raise ValueError("unrecognized feed application endpoint")
+    return {"proxy_url": base, "hosts": sorted(PROXY_HOSTS) if base else []}
+
+def _proxied(url):
+    base = feed_transport()["proxy_url"]
+    parsed = urlparse(url)
+    if base and parsed.scheme == "https" and parsed.hostname in PROXY_HOSTS and not parsed.username and not parsed.password:
+        return f"{base}/fetch?url={quote(url, safe='')}"
+    return url
+
+
 def collect(
     sources: list[dict],
     days: int = 7,
@@ -117,7 +136,8 @@ def collect(
         try:
             items = _collect_one(src, cutoff, until_dt)
         except Exception as e:
-            log.error("lab source %s failed: %s", src.get("name"), e)
+            log.error("lab source %s failed: %s", src.get("name"), type(e).__name__,
+                      extra={"source_http_status":getattr(getattr(e,"response",None),"status_code",None)})
             continue
         log.info("lab source %s: kept %d items", src.get("name"), len(items))
         out.extend(items)
@@ -180,7 +200,7 @@ def _make_paper(
 def _from_rss(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     # Fetch via requests (uses certifi for SSL); feedparser's stdlib urllib
     # can't verify certs on system Pythons without manual cert install.
-    r = requests.get(src["feed_url"], timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
+    r = requests.get(_proxied(src["feed_url"]), timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
     r.raise_for_status()
     feed = feedparser.parse(r.content)
     if feed.bozo and not feed.entries:
@@ -490,7 +510,7 @@ def fetch_article_body(url: str, max_chars: int = 12000) -> str:
     Truncated to `max_chars` to bound classifier token cost.
     """
     try:
-        r = requests.get(url, timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
+        r = requests.get(_proxied(url), timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
         r.raise_for_status()
     except requests.RequestException:
         return ""

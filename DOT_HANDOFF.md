@@ -313,3 +313,51 @@ state commit. A newer edition blocks stale redeployment. For missing source
 coverage or editorial decisions, retain the pending run and resume it; do not
 publish a smaller edition or substitute defaults. The 11 preexisting authors
 without cached S2 IDs remain an explicitly disclosed baseline coverage gap.
+
+## Cloud feed recovery and bounded collection
+
+The existing public feed application's HTTPS `/fetch` integration is narrowly
+allowlisted to `thezvi.substack.com` and `importai.substack.com`. Its public base
+URL is set in the read-only handoff workflow; no Worker deployment, credentials,
+or security settings are changed. Feed/article canonical URLs remain original.
+`feed_transport` is included in collection provenance and checkpoint binding.
+A `feed_probe` request covers exactly these two sources and stops on an access
+or rate denial; safe HTTP statuses are recorded without provider exception text.
+
+An export may specify `collection_budget_seconds` (1–3300). It retries within
+that budget, honors Retry-After and existing exponential backoff, reuses finished
+parts, and yields early if the next permitted retry exceeds its remaining time.
+A supervised child is terminated at the deadline; a network-free snapshot then
+retains completed candidates and explicitly marks missing sources pending.
+Checkpoints exist before the first request and are updated atomically per part.
+The workflow uploads partial output with `if: always()` and retains 35 minutes
+of headroom below its 90-minute hard limit. Abrupt runner loss can still lose
+progress since the last uploaded artifact; the previous durable artifact remains
+valid. Do not claim that `always()` guarantees upload after hard runner loss.
+
+Old checkpoint bindings remain invalid after code/transport changes. For this
+one reviewed upgrade, `resume_migration` references a hashed policy under
+`dot-inputs/`: schema 1, kind `feed_relay_and_bounded_retry_v1`, exact source
+bundle/checkpoint hashes, exact before/after file hashes, and the two invalidated
+feed parts. Only the five named recovery/routing source files and approved About
+copy may differ. Authors, keywords, feedback, rubric source, all other parsers,
+window, and seen state must remain identical. Retained parts are copied byte for
+byte and recorded in `checkpoints/migration-receipt.json`. Migration is explicit;
+never rewrite a binding without the verified policy.
+
+## First release without replaying transport history
+
+Use a non-fast-forward merge prepared without committing. Restore
+`dot-requests`, `dot-publish-requests`, `dot-evidence-requests`, and `dot-inputs`
+from the pre-merge main tree in both index and working tree before committing.
+Use `git restore --source=HEAD --staged --worktree -- <paths>` while HEAD is still
+pre-merge main; abort on any error. This retains main's prior transport data and
+merge ancestry while excluding historical branch requests. Verify the staged
+diff has no transport-path changes. The code-only release should run only the
+publisher contracts/preparation jobs, with preparation returning `mode: none`.
+New live requests are separate, unique data commits after release.
+
+The About page is updated before this recovery's provenance is frozen. Do not
+edit it after final-input validation. Public verification must match the actual
+built edition content/receipt and successful Pages deployment; an unchanged W40
+heading is insufficient when replacing an existing W40 edition.

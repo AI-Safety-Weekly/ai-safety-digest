@@ -70,13 +70,13 @@ def run(root, request_path, out, artifact_dir=None):
     req = dot.read_json(request_path)
     common = {'schema_version', 'run_id', 'mode', 'base_commit'}
     mode = req.get('mode')
-    extra = {'export': {'until', 'days'}, 'smoke': set(),
+    extra = {'export': {'until', 'days'}, 'feed_probe': {'until','days','sources'}, 'smoke': set(),
              'enrich': {'bundle', 'results'}, 'validate': {'bundle', 'results'}}
     if mode not in extra:
-        raise dot.Invalid('only smoke/export/enrich/validate allowed; publication is disabled')
+        raise dot.Invalid('only smoke/feed_probe/export/enrich/validate allowed; publication is disabled')
     fields = common | extra[mode]
-    if mode == 'export' and 'resume' in req:
-        fields = fields | {'resume'}
+    if mode == 'export':
+        fields |= {k for k in ('resume','resume_migration','collection_budget_seconds') if k in req}
     if mode == 'enrich' and 'deep_read_ids' in req:
         fields = fields | {'deep_read_ids'}
     dot.keys(req, fields, 'request')
@@ -97,6 +97,27 @@ def run(root, request_path, out, artifact_dir=None):
                 'base_commit': base, 'published': False}
     if mode == 'smoke':
         metadata['message'] = 'Connector artifact transport only; no collection or inference.'
+    elif mode == 'feed_probe':
+        import logging
+        from . import config, lab_collector
+        if type(req['days']) is not int or not 1<=req['days']<=31:
+            raise dot.Invalid('probe days must be 1-31')
+        if set(req['sources']) != {'substack-zvi','substack-import-ai'} or len(req['sources'])!=2:
+            raise dot.Invalid('probe must cover exactly the two affected public feeds')
+        cfg=config.load(root/'config');sources=[s for s in cfg.lab_sources if s['name'] in req['sources']]
+        if len(sources)!=2:raise dot.Invalid('configured probe sources are missing or duplicated')
+        handler=dot.CollectionLog();logging.getLogger('safety_digest').addHandler(handler)
+        papers=[]
+        try:
+            for source in sources:
+                papers+=lab_collector.collect([source],days=req['days'],until=dot.utc(req['until']),safety_keywords=cfg.strict_keywords)
+                if any(e.get('http_status') in {401,403,407,429} for e in handler.events):break
+        finally:logging.getLogger('safety_digest').removeHandler(handler)
+        complete=not handler.events
+        dot.write_json(out/'feed-probe.json',{'schema_version':1,'complete':complete,
+            'feed_transport':lab_collector.feed_transport(),'warnings':handler.events,
+            'candidates':[dot.make_candidate(p) for p in papers]})
+        metadata.update(feed_probe_complete=complete,candidate_count=len(papers))
     elif mode == 'export':
         if type(req['days']) is not int or not 1 <= req['days'] <= 31:
             raise dot.Invalid('days must be 1-31')
@@ -111,8 +132,20 @@ def run(root, request_path, out, artifact_dir=None):
             checkpoint_dir.mkdir()
             shutil.copyfile(Path(artifact_dir) / 'checkpoints/collection-checkpoint.json',
                             checkpoint_dir / 'collection-checkpoint.json')
-        bundle = dot.collect_export(root, out / 'bundle.json', dot.utc(req['until']), req['days'],
-                                    checkpoint_dir, progress=lambda event: print(dot.canonical(event).decode(), flush=True))
+            if (Path(artifact_dir)/'checkpoints/migration-receipt.json').exists():
+                shutil.copyfile(Path(artifact_dir)/'checkpoints/migration-receipt.json',checkpoint_dir/'migration-receipt.json')
+        if 'resume_migration' in req:
+            if 'resume' not in req:raise dot.Invalid('migration requires an existing resume artifact')
+            from . import dot_recovery
+            policy=dot.read_json(input_file(root,req['resume_migration']))
+            dot_recovery.migrate(root,previous,checkpoint_dir,policy)
+        if 'collection_budget_seconds' in req:
+            from . import dot_recovery
+            bundle=dot_recovery.collect(root,out/'bundle.json',dot.utc(req['until']),req['days'],
+                                         checkpoint_dir,req['collection_budget_seconds'])
+        else:
+            bundle = dot.collect_export(root, out / 'bundle.json', dot.utc(req['until']), req['days'],
+                                        checkpoint_dir, progress=lambda event: print(dot.canonical(event).decode(), flush=True))
         dot.write_json(out / 'results-template.json', dot.template(bundle))
         metadata.update(candidate_count=len(bundle['candidates']), bundle_sha256=bundle['bundle_sha256'],
                         collection_complete=bundle['collection']['complete'])
@@ -142,6 +175,8 @@ def run(root, request_path, out, artifact_dir=None):
             metadata.update(candidate_count=len(bundle['candidates']), bundle_sha256=bundle['bundle_sha256'],
                             strict_build_passed=True)
     dot.write_json(out / 'transport-receipt.json', metadata)
+    if mode=='feed_probe' and not metadata['feed_probe_complete']:
+        raise dot.Invalid('feed diagnostic failed; retained artifact contains safe details')
     return metadata
 
 

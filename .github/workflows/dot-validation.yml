@@ -13,6 +13,8 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      FEED_PROXY_URL: https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,6 +49,7 @@ jobs:
           PYTHONPATH: src
         run: python scripts/dot_fixture.py --out "$RUNNER_TEMP/dot-output"
       - name: Upload validated transport output
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dot-handoff-${{ github.sha }}

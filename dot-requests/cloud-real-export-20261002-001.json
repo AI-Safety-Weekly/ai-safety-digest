@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "run_id": "cloud-real-export-20261002-001",
+  "mode": "export",
+  "base_commit": "7e4824f8ffa03f93c0ce30947ab6ad831d645e47",
+  "until": "2026-10-02T21:07:25Z",
+  "days": 7
+}

@@ -1,7 +1,7 @@
 name: Dot frozen handoff (validation only)
 on:
   push:
-    branches: [dot-frozen-handoff]
+    branches: [main, dot-frozen-handoff]
     paths: ['dot-requests/*.json']
 permissions:
   contents: read

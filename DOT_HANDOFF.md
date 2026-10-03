@@ -269,3 +269,47 @@ bundle/results artifact. It does not independently verify a supplied quotation
 against the live website; dot must verify the public page before submitting it.
 It cannot publish, and synthetic input remains synthetic. This supports limited
 public previews without treating a paywall failure as a successful full read.
+
+## Weekly orchestration contract (not enabled by this branch)
+
+Keep the existing cadence: Sunday at **10:17 UTC**, seven-day look-back. The
+scheduler should start a new run; it must not place recurrence inside a model
+prompt or rely on a Mac staying awake. All three request workflows accept `main`
+after merge as well as the validation branch. They contain no cron schedule.
+
+1. Read current main HEAD, feedback/config, and any pending run. For a pending
+   run, keep its original `until`, `days`, and frozen inputs. Respect the saved
+   `retry_at`; never silently advance its window or drop pending candidates.
+2. Push one new `dot-requests/<run-id>.json` with schema version 1, unique
+   `run_id`, `mode: export`, `base_commit` equal to HEAD before the data push,
+   `until` as an exact UTC timestamp, and `days: 7`. A retry adds `resume` with
+   the preceding artifact's integer `artifact_run_id`, exact `artifact_name`,
+   and canonical `bundle_sha256`. Download the resulting `dot-handoff-<SHA>`
+   artifact and retain its checkpoint, bundle, and receipt.
+3. Dot reviews **every** frozen candidate against its frozen rubric and active
+   feedback. Persist unfinished decisions explicitly. Upload immutable hashed
+   decision shards and a manifest under `dot-inputs/`; write the triggering
+   request last, in a separate push. No SDK or inference API is used here.
+4. Submit `mode: enrich` requests referencing the exact bundle artifact and
+   results manifest. Optional `deep_read_ids` requests additional bodies without
+   promoting them. Review changed inputs again; preserve verified identical
+   decisions. Public previews use the separate evidence request workflow.
+5. Submit `mode: validate` after collection and every decision are complete.
+   Its strict build must pass. A publication request under
+   `dot-publish-requests/` has schema version 1, `run_id`, `mode` (`validate` or
+   `publish`), `base_commit`, `bundle` artifact reference, and `results` manifest
+   reference. Always use current HEAD before these data commits as the base;
+   the frozen source/config/state check is additional and mandatory.
+6. Only after the real-edition gates and controlled deployment proof are
+   accepted, enable `DOT_PUBLISH_ENABLED` for main publication requests.
+   Confirm the workflow's Pages deployment succeeds and the public page matches
+   its receipt. A commit alone is insufficient. Only then enable the independent
+   `DOT_REPLACE_GEMINI` cutover flag and activate the weekly dot task. Never
+   disable the old publisher merely because a draft build or fixture passed.
+
+For a failed deployment, rerun the same workflow/request: its exact receipt
+allows rebuilding and deploying the already committed snapshot without a second
+state commit. A newer edition blocks stale redeployment. For missing source
+coverage or editorial decisions, retain the pending run and resume it; do not
+publish a smaller edition or substitute defaults. The 11 preexisting authors
+without cached S2 IDs remain an explicitly disclosed baseline coverage gap.

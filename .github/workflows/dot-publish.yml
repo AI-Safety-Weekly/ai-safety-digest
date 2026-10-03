@@ -9,6 +9,7 @@ on:
       - 'scripts/dot_reconcile.py'
       - 'tests/test_dot_publish.py'
       - '.github/workflows/dot-publish.yml'
+      - '.github/workflows/dot-validation.yml'
 permissions:
   contents: read
   actions: read

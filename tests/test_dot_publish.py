@@ -151,3 +151,20 @@ def test_public_preview_cloud_transport_contract(root,tmp_path):
     p.git(root,'add','.');p.git(root,'-c','user.name=Test','-c','user.email=t@example.invalid','commit','-qm','edit request')
     rejected=subprocess.run([*cmd[:3],newer,'--metadata'],cwd=root,env=env,capture_output=True,text=True)
     assert rejected.returncode==2 and 'immutable' in rejected.stderr
+
+def test_live_request_routes_and_disabled_publish_gates():
+    import yaml
+    directory=Path(__file__).parents[1]/'.github/workflows'
+    load=lambda name:yaml.load((directory/name).read_text(),Loader=yaml.BaseLoader)
+    for name in ('dot-validation.yml','dot-evidence.yml','dot-publish.yml'):
+        workflow=load(name)
+        assert set(workflow['on']['push']['branches'])=={'main','dot-frozen-handoff'}
+        assert 'schedule' not in workflow['on']
+    publisher=load('dot-publish.yml')
+    assert "vars.DOT_PUBLISH_ENABLED == 'true'" in publisher['jobs']['publish']['if']
+    assert "github.ref == 'refs/heads/main'" in publisher['jobs']['publish']['if']
+    assert publisher['concurrency']['group']==load('weekly.yml')['concurrency']['group']
+    for name,job in [('weekly.yml','digest'),('watchdog.yml','check')]:
+        assert "vars.DOT_REPLACE_GEMINI != 'true'" in load(name)['jobs'][job]['if']
+    for name in ('dot-validation.yml','dot-evidence.yml'):
+        assert load(name)['permissions']=={'contents':'read','actions':'read'}

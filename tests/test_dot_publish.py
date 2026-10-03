@@ -168,3 +168,14 @@ def test_live_request_routes_and_disabled_publish_gates():
         assert "vars.DOT_REPLACE_GEMINI != 'true'" in load(name)['jobs'][job]['if']
     for name in ('dot-validation.yml','dot-evidence.yml'):
         assert load(name)['permissions']=={'contents':'read','actions':'read'}
+
+def test_reconcile_preserves_original_attempt_binding_after_preview(root):
+    original=bundle(root)
+    fetched,_=dot.enrich(original,dot.template(original),fetch=lambda _:'',requested_ids=[original['candidates'][0]['id']])
+    c=fetched['candidates'][0]
+    preview=evidence.add_public_preview(fetched,{'id':c['id'],'expected_input_sha256':c['input_sha256'],
+        'url':c['paper']['url'],'retrieved_at':'2026-10-02T23:26:09Z','text':'A limited public preview.',
+        'retrieval_method':'public_web_page','scope':'public_preview'})
+    merged=reconciliation.reconcile(original,preview,original)
+    assert merged['collection']['enrichment_records']==fetched['collection']['enrichment_records']
+    assert merged['candidates'][0]['input_sha256']!=fetched['candidates'][0]['input_sha256']

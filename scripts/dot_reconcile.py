@@ -56,12 +56,24 @@ def reconcile(original, enriched, recovery):
         b['candidates'].append(copy.deepcopy(saved[ident]));retained.append(ident)
         records.append({'id':ident,'status':'retained_previous_export_not_returned_by_recovery',
                         'recovery_input_sha256':None,'final_input_sha256':saved[ident]['input_sha256']})
-    metadata={r['id']:r for r in enriched['collection'].get('enrichment_records',[])}
-    metadata.update({r['id']:r for r in recovery['collection'].get('enrichment_records',[])})
-    b['collection']['enrichment_records']=[{**metadata.get(c['id'],{}),'id':c['id'],
-        'body_sha256':dot.bytehash(c['body']['text'].encode()),'input_sha256':c['input_sha256'],
-        'status':c['body']['status'],'url':c['body']['url'],'fetched_at':c['body']['fetched_at']}
-        for c in b['candidates'] if c['body']['status']!='not_attempted']
+    records_by_id={}
+    for source in (enriched,recovery):
+        for record in source['collection'].get('enrichment_records',[]):
+            records_by_id.setdefault(record['id'],[]).append(record)
+    preserved=[]
+    for c in b['candidates']:
+        body=c['body']
+        if body['status']=='not_attempted':continue
+        body_hash=dot.bytehash(body['text'].encode())
+        matching=[r for r in records_by_id.get(c['id'],[]) if r['body_sha256']==body_hash
+                  and r['status']==body['status'] and r['fetched_at']==body['fetched_at']]
+        if matching:
+            # Retain the attempt's original input binding, even after a later public preview.
+            preserved.append(copy.deepcopy(matching[-1]))
+        else:
+            preserved.append({'id':c['id'],'body_sha256':body_hash,'input_sha256':c['input_sha256'],
+                'status':body['status'],'url':body['url'],'fetched_at':body['fetched_at']})
+    b['collection']['enrichment_records']=preserved
     external={dot.digest(r):r for source in (enriched,recovery) for r in source['collection'].get('external_enrichment_records',[])}
     b['collection']['external_enrichment_records']=copy.deepcopy(list(external.values()))
     if 'reconciliation' in b['collection']:

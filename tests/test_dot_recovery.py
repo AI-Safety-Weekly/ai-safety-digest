@@ -168,9 +168,101 @@ def test_code_only_release_does_not_replay_historical_requests(root):
     (root/'new-code.py').write_text('# release code\n');git('add','.')
     git('-c','user.name=Test','-c','user.email=t@example.invalid','commit','-qm','feature and history')
     git('checkout','-b','release',base)
-    git('merge','--no-ff','--no-commit','candidate')
+    git('-c','user.name=Test','-c','user.email=t@example.invalid','merge','--no-ff','--no-commit','candidate')
     git('restore','--source=HEAD','--staged','--worktree','--',*dirs)
     git('-c','user.name=Test','-c','user.email=t@example.invalid','commit','-qm','code-only release')
     assert git('diff','--name-only',base,'HEAD')=='new-code.py'
     assert len(git('rev-list','--parents','-n','1','HEAD').split())==3
     assert all(not (root/name).exists() for name in dirs)
+
+
+def test_simultaneous_parent_child_cancellation_retains_snapshot(root,tmp_path,monkeypatch):
+    import signal
+    class ExitedChild:
+        returncode=-signal.SIGTERM
+        def poll(self):
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM,None)
+            return self.returncode
+    b=bundle(root);calls=[]
+    monkeypatch.setattr(recovery.subprocess,'Popen',lambda command:ExitedChild())
+    def snapshot(root,out,run_at,days,checkpoints,**kwargs):
+        assert kwargs['checkpoint_only'] is True
+        calls.append(True);dot.write_json(out,b);return b
+    monkeypatch.setattr(dot,'collect_export',snapshot)
+    out=tmp_path/'bundle.json'
+    assert recovery.collect(root,out,NOW,7,tmp_path/'cp',1)==b
+    assert calls==[True] and dot.load_bundle(out)==b
+    receipt=dot.read_json(tmp_path/'recovery-receipt.json')
+    assert receipt['stop_reason']=='cancelled'
+    assert receipt['checkpoint_sha256']==dot.read_json(tmp_path/'cp/collection-checkpoint.json')['sha256']
+
+
+def test_checkpoint_snapshot_visits_completed_authors_after_incomplete(root,tmp_path,monkeypatch):
+    from safety_digest import config,arxiv_collector,hn_collector,s2_collector
+    names=['Failed','CompleteB','Missing','CompleteD']
+    cfg=SimpleNamespace(auto_admit_authors=[{'name':n} for n in names],review_authors=[],categories=[],keywords=[],strict_keywords=[],lab_sources=[])
+    monkeypatch.setattr(config,'load',lambda _:cfg)
+    monkeypatch.setattr(s2_collector,'load_author_id_cache',lambda _:{n:str(i) for i,n in enumerate(names)})
+    cp=Checkpoints(tmp_path/'cp',dot.collection_binding(dot.provenance(root),[],NOW,7,lab.feed_transport()))
+    cp.collect('arxiv',lambda:([],{}),[]);cp.collect('hn',lambda:([],{}),[])
+    def failed():raise ValueError('terminal source failure')
+    cp.collect('scholar:Failed',failed,[])
+    cp.collect('scholar:CompleteB',lambda:([paper(2)],{}),[])
+    cp.collect('scholar:CompleteD',lambda:([paper(2),paper(3)],{}),[])
+    before=cp.path.read_bytes()
+    def forbidden(*a,**kw):raise AssertionError('network invoked')
+    for module in (arxiv_collector,hn_collector,s2_collector,lab):monkeypatch.setattr(module,'collect',forbidden)
+    b=dot.collect_export(root,tmp_path/'snapshot.json',NOW,7,cp.directory,checkpoint_only=True)
+    assert {c['id']:c['input_sha256'] for c in b['candidates']}=={c['id']:c['input_sha256'] for c in map(dot.make_candidate,[paper(2),paper(3)])}
+    assert b['collection']['pending_s2_authors']==['Failed','Missing']
+    assert b['collection']['counts_before_dedupe']['scholar']==2
+    assert not b['collection']['complete'] and cp.path.read_bytes()==before
+    assert any(e['kind']=='terminal_failure' for e in b['collection']['warnings'])
+
+
+def test_contract_workflow_covers_implementation_and_tests_without_data_replays():
+    from fnmatch import fnmatchcase
+    import yaml
+    repo=Path(__file__).parents[1]
+    workflow=yaml.load((repo/'.github/workflows/dot-publish.yml').read_text(),Loader=yaml.BaseLoader)
+    paths=workflow['on']['push']['paths']
+    # Require recursive coverage for future modules and tests, not just today's files.
+    assert {'src/safety_digest/**','tests/**','scripts/dot_*.py'}<=set(paths)
+    required=[*repo.glob('src/safety_digest/**/*.py'),*repo.glob('tests/**/*.py'),*repo.glob('scripts/dot_*.py')]
+    required=[str(p.relative_to(repo)) for p in required]+[
+        'src/safety_digest/future/collector.py','tests/future/test_collector.py',
+        '.github/workflows/dot-publish.yml','.github/workflows/dot-validation.yml',
+        'dot-publish-requests/new-publication.json']
+    assert all(any(fnmatchcase(name,pattern) for pattern in paths) for name in required)
+    for name in ('dot-requests/recovery.json','dot-inputs/migration.json','dot-evidence-requests/enrich.json'):
+        assert not any(fnmatchcase(name,pattern) for pattern in paths)
+
+
+@pytest.mark.parametrize('mutation',[None,'routing','invalidation','collector'])
+def test_retention_migration_preserves_every_part_or_rejects_change(root,tmp_path,monkeypatch,mutation):
+    old=bundle(root)
+    old['collection']['feed_transport']=lab.feed_transport()
+    binding=dot.collection_binding(old['files'],old['state_rows'],NOW,7,lab.feed_transport())
+    old['collection']['checkpoint_binding']=binding
+    old=dot.seal({k:v for k,v in old.items() if k!='bundle_sha256'})
+    cp=Checkpoints(tmp_path/'cp',binding)
+    cp.collect('scholar:Completed',lambda:([paper()],{}),[])
+    cp.collect('lab:substack-zvi',lambda:([paper(2)],{}),[])
+    def failed():raise ValueError('failed')
+    cp.collect('scholar:Pending',failed,[])
+    before=cp.path.read_bytes();parts=copy.deepcopy(cp.data['parts'])
+    name='src/safety_digest/dot_recovery.py' if mutation!='collector' else 'src/safety_digest/lab_collector.py'
+    path=root/name;path.parent.mkdir(parents=True);path.write_text('# exact reviewed change\n')
+    policy={'schema_version':1,'kind':'checkpoint_retention_v1','from_bundle_sha256':old['bundle_sha256'],
+        'from_checkpoint_sha256':cp.data['sha256'],'invalidate_parts':[],
+        'changes':{name:{'before':None,'after':dot.bytehash(path.read_bytes())}}}
+    if mutation=='routing':monkeypatch.setattr(lab,'feed_transport',lambda:{'proxy_url':'changed','hosts':[]})
+    if mutation=='invalidation':policy['invalidate_parts']=['lab:substack-zvi']
+    if mutation:
+        with pytest.raises(dot.Invalid):recovery.migrate(root,old,cp.directory,policy)
+        assert cp.path.read_bytes()==before
+    else:
+        receipt=recovery.migrate(root,old,cp.directory,policy)
+        assert dot.read_json(cp.path)['parts']==parts
+        assert receipt['invalidated_parts']==[]
+        assert set(receipt['retained_parts'])==set(parts)

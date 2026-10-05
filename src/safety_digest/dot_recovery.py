@@ -18,6 +18,7 @@ MIGRATION_PATHS = {'docs/about.md','src/safety_digest/lab_collector.py','src/saf
                    'src/safety_digest/dot_checkpoint.py','src/safety_digest/dot_transport.py',
                    'src/safety_digest/dot_recovery.py'}
 INVALIDATED_FEEDS = {'lab:substack-zvi','lab:substack-import-ai'}
+RETENTION_PATHS = {'src/safety_digest/dot_handoff.py','src/safety_digest/dot_recovery.py'}
 
 
 def migrate(root, previous, checkpoint_dir, policy):
@@ -25,8 +26,11 @@ def migrate(root, previous, checkpoint_dir, policy):
     dot.validate_bundle(previous)
     dot.keys(policy, {'schema_version','kind','from_bundle_sha256','from_checkpoint_sha256',
                      'changes','invalidate_parts'}, 'migration policy')
-    if policy['schema_version'] != 1 or policy['kind'] != 'feed_relay_and_bounded_retry_v1':
+    if policy['schema_version'] != 1 or policy['kind'] not in {'feed_relay_and_bounded_retry_v1','checkpoint_retention_v1'}:
         raise dot.Invalid('unsupported checkpoint migration')
+    retention_only = policy['kind'] == 'checkpoint_retention_v1'
+    allowed_paths = RETENTION_PATHS if retention_only else MIGRATION_PATHS
+    invalidated = set() if retention_only else INVALIDATED_FEEDS
     if policy['from_bundle_sha256'] != previous['bundle_sha256']:
         raise dot.Invalid('migration source bundle mismatch')
     root,checkpoint_dir=Path(root),Path(checkpoint_dir)
@@ -45,18 +49,20 @@ def migrate(root, previous, checkpoint_dir, policy):
     if state != previous['state_rows']:
         raise dot.Invalid('migration cannot change seen state')
     changed={name for name in set(files)|set(previous['files']) if files.get(name)!=previous['files'].get(name)}
-    if not changed or not changed<=MIGRATION_PATHS or set(policy['changes'])!=changed:
+    if not changed or not changed<=allowed_paths or set(policy['changes'])!=changed:
         raise dot.Invalid('migration has unapproved code/config/rubric changes')
     for name in changed:
         expected={'before':dot.bytehash(base64.b64decode(previous['files'][name])) if name in previous['files'] else None,
                   'after':dot.bytehash(base64.b64decode(files[name])) if name in files else None}
         if policy['changes'][name]!=expected:
             raise dot.Invalid('migration code hash mismatch')
-    if set(policy['invalidate_parts']) != INVALIDATED_FEEDS or len(policy['invalidate_parts'])!=2:
-        raise dot.Invalid('migration must invalidate exactly the two changed feed routes')
+    if set(policy['invalidate_parts']) != invalidated or len(policy['invalidate_parts'])!=len(invalidated):
+        raise dot.Invalid('migration invalidation does not match its approved kind')
+    if retention_only and previous['collection'].get('feed_transport') != lab_collector.feed_transport():
+        raise dot.Invalid('retention migration cannot change feed routing')
     run_at=dot.utc(previous['run_at'])
     binding=dot.collection_binding(files,state,run_at,previous['days'],lab_collector.feed_transport())
-    retained={k:copy.deepcopy(v) for k,v in old['parts'].items() if k not in INVALIDATED_FEEDS}
+    retained={k:copy.deepcopy(v) for k,v in old['parts'].items() if k not in invalidated}
     # Write the new scratch checkpoint atomically, leaving the downloaded artifact intact.
     store=Checkpoints.__new__(Checkpoints)
     store.directory=checkpoint_dir;store.path=path;store.binding=binding
@@ -64,8 +70,8 @@ def migrate(root, previous, checkpoint_dir, policy):
     receipt={'schema_version':1,'kind':policy['kind'],'policy_sha256':dot.digest(policy),
              'from_bundle_sha256':previous['bundle_sha256'],'from_checkpoint_sha256':old['sha256'],
              'from_binding':old['binding'],'to_binding':binding,'changes':policy['changes'],
-             'justification':'Only allowlisted feed routing, bounded checkpoint/retry orchestration, and approved About copy change; source parsers, author IDs, keywords, rubric, feedback, window and seen state remain unchanged.',
-             'invalidated_parts':sorted(INVALIDATED_FEEDS),'retained_parts':{
+             'justification':('Only checkpoint cancellation and offline retention orchestration change; all source parts and routing are preserved.' if retention_only else 'Only allowlisted feed routing, bounded checkpoint/retry orchestration, and approved About copy change; source parsers, author IDs, keywords, rubric, feedback, window and seen state remain unchanged.'),
+             'invalidated_parts':sorted(invalidated),'retained_parts':{
                  k:{'sha256':dot.digest(v),'complete':v['complete']} for k,v in retained.items()}}
     dot.write_json(checkpoint_dir/'migration-receipt.json',receipt)
     return receipt
@@ -81,6 +87,8 @@ def run_child(command, deadline, cancelled, *, clock=time.monotonic):
                 except subprocess.TimeoutExpired:child.kill();child.wait()
                 return 'cancelled' if cancelled() else 'deadline'
             time.sleep(.1)
+        # A cancelled child may exit before the loop observes the parent signal.
+        if cancelled():return 'cancelled'
         if child.returncode:raise dot.Invalid(f'collection subprocess failed with exit code {child.returncode}')
         return 'completed'
     finally:

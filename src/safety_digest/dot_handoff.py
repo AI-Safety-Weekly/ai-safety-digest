@@ -353,7 +353,11 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
                                             http=service_aware_http), {}
             try:
                 items, _ = checkpoints.collect('scholar:' + name, author_fetch, handler.events)
-            except (DeferredSource, PendingCheckpoint):
+            except PendingCheckpoint:
+                # Offline snapshots must still visit later completed authors.
+                pending_authors.append(name)
+                continue
+            except DeferredSource:
                 pending_authors = [n for n in tracked[index:] if cache.get(n)]
                 break
             for item in items:

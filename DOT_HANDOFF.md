@@ -361,3 +361,9 @@ The About page is updated before this recovery's provenance is frozen. Do not
 edit it after final-input validation. Public verification must match the actual
 built edition content/receipt and successful Pages deployment; an unchanged W40
 heading is insufficient when replacing an existing W40 edition.
+
+A subsequent `checkpoint_retention_v1` migration permits exact hashed changes only
+to `dot_handoff.py` and `dot_recovery.py`. It requires unchanged effective feed
+routing and an empty `invalidate_parts` list, preserving every saved source part,
+including incomplete parts and their backoff. Use the verified terminal artifact
+as its source; the earlier feed-routing migration manifest cannot be reused.

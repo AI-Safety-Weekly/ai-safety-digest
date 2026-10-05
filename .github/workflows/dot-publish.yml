@@ -4,10 +4,9 @@ on:
     branches: [main, dot-frozen-handoff]
     paths:
       - 'dot-publish-requests/*.json'
-      - 'scripts/dot_publish.py'
-      - 'scripts/dot_external_evidence.py'
-      - 'scripts/dot_reconcile.py'
-      - 'tests/test_dot_publish.py'
+      - 'src/safety_digest/**'
+      - 'scripts/dot_*.py'
+      - 'tests/**'
       - '.github/workflows/dot-publish.yml'
       - '.github/workflows/dot-validation.yml'
 permissions:

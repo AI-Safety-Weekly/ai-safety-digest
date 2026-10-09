@@ -32,6 +32,38 @@ jobs:
           PYTHONPATH: src
           BEFORE_SHA: ${{ github.event.before }}
         run: python -m safety_digest.dot_transport --prepare --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output"
+      - name: Verify source run provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          INPUT_RUN: ${{ steps.request.outputs.artifact_run_id }}
+          INPUT_NAME: ${{ steps.request.outputs.artifact_name }}
+          CHECKPOINT_RUN: ${{ steps.request.outputs.checkpoint_artifact_run_id }}
+          CHECKPOINT_NAME: ${{ steps.request.outputs.checkpoint_artifact_name }}
+        run: |
+          python - <<'PYTHON'
+          import json, os, re, urllib.request
+          repo = os.environ['GH_REPOSITORY']
+          for prefix in ('INPUT', 'CHECKPOINT'):
+              run_id, name = os.environ[prefix + '_RUN'], os.environ[prefix + '_NAME']
+              if not run_id:
+                  if name:
+                      raise RuntimeError('artifact name without run')
+                  continue
+              if not re.fullmatch(r'[0-9]+', run_id) or not re.fullmatch(r'dot-handoff-[0-9a-f]{40}', name):
+                  raise RuntimeError('invalid source run reference')
+              request = urllib.request.Request(
+                  f'https://api.github.com/repos/{repo}/actions/runs/{run_id}',
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  run = json.load(response)
+              if (run['status'] != 'completed' or run['conclusion'] != 'success'
+                  or run['head_sha'] != name.removeprefix('dot-handoff-')
+                  or run['repository']['full_name'] != repo
+                  or run['path'] != '.github/workflows/dot-validation.yml'):
+                  raise RuntimeError('source artifact run provenance mismatch')
+          PYTHON
       - name: Download immutable frozen inputs
         if: steps.request.outputs.artifact_run_id != ''
         uses: actions/download-artifact@v4
@@ -40,11 +72,19 @@ jobs:
           name: ${{ steps.request.outputs.artifact_name }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/dot-frozen-input
+      - name: Download independently bound checkpoint inputs
+        if: steps.request.outputs.checkpoint_artifact_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.request.outputs.checkpoint_artifact_run_id }}
+          name: ${{ steps.request.outputs.checkpoint_artifact_name }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dot-checkpoint-input
       - name: Process immutable request
         env:
           PYTHONPATH: src
           BEFORE_SHA: ${{ github.event.before }}
-        run: python -m safety_digest.dot_transport --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output" --artifact-dir "$RUNNER_TEMP/dot-frozen-input"
+        run: python -m safety_digest.dot_transport --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output" --artifact-dir "$RUNNER_TEMP/dot-frozen-input" --checkpoint-artifact-dir "$RUNNER_TEMP/dot-checkpoint-input"
       - name: Add synthetic acceptance fixture to smoke artifacts
         env:
           PYTHONPATH: src

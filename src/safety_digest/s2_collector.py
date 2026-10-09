@@ -4,8 +4,9 @@ Why this exists: arXiv only covers arXiv. Many AI-safety relevant papers
 by tracked authors land in venue proceedings (NeurIPS, ICML), journals,
 or lab tech reports that don't get an arXiv mirror. S2 indexes all of
 those. For each name in `config/authors.yml` we resolve to an S2 author
-id once (cached forever in `config/s2_author_ids.yml`), then fetch each
-author's recent papers weekly.
+ID once (cached in `config/s2_author_ids.yml`), then fetch each author's
+recent papers weekly. A cache value may also be a list of explicitly
+reviewed IDs when a person has multiple S2 profiles.
 
 The author-id cache is the load-bearing piece. S2 author search returns
 ranked candidates and the top hit is usually right for unambiguous
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
@@ -30,6 +32,7 @@ from typing import Any, Callable
 import requests
 import yaml
 
+from .dedupe import _merge_annotations
 from .models import Paper
 
 log = logging.getLogger(__name__)
@@ -47,6 +50,8 @@ _RETRY_DELAYS = [5, 20, 60]
 # An HTTPClient is a callable that takes (method, url, **kwargs) → Response.
 # We thread it as a parameter so tests can inject a fake without monkey-patching.
 HTTPClient = Callable[..., requests.Response]
+AuthorIdValue = str | list[str]
+AuthorIdCache = dict[str, AuthorIdValue]
 
 
 def _default_http(method: str, url: str, **kwargs: Any) -> requests.Response:
@@ -142,10 +147,17 @@ def resolve_author(
     top = matches[0]
     if len(matches) > 1:
         log.info(
-            "S2: %s → %s (%dp); %d other name-matching record(s) merged into top pick",
+            "S2: %s → %s (%dp); %d other name-matching record(s) not selected",
             name, top.get("name"), top.get("paperCount") or 0, len(matches) - 1,
         )
-    return str(top["authorId"])
+    try:
+        author_id = top["authorId"]
+        if not isinstance(author_id, str):
+            raise ValueError("S2 response author ID must be a string")
+        return author_ids(author_id)[0]
+    except (KeyError, ValueError):
+        log.warning("S2 author-search returned an invalid author ID for %s", name)
+        return None
 
 
 # ── Paper fetch ────────────────────────────────────────────────────────────
@@ -219,7 +231,10 @@ def fetch_author_papers(
     api_key: str | None = None,
     until: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch this author's recent papers from S2. Returns raw paper dicts."""
+    """Fetch one profile's recent papers from S2. Returns raw paper dicts."""
+    if not isinstance(author_id, str):
+        raise ValueError("fetch_author_papers requires a single S2 author ID string")
+    author_ids(author_id)
     http = http or _default_http
     cutoff = (until or datetime.now(tz=timezone.utc)) - timedelta(days=days)
     out: list[dict[str, Any]] = []
@@ -233,7 +248,9 @@ def fetch_author_papers(
             headers=_headers(api_key),
         )
         if resp is None or resp.status_code != 200:
-            log.warning("S2 author/papers failed for %s (status=%s)", author_id, getattr(resp, "status_code", None))
+            status = getattr(resp, "status_code", None)
+            log.warning("S2 author/papers failed for %s (status=%s)", author_id, status,
+                        extra={"source_http_status": status})
             return out
         body = resp.json()
         page = body.get("data") or []
@@ -253,22 +270,87 @@ def fetch_author_papers(
 # ── Cache I/O ──────────────────────────────────────────────────────────────
 
 
-def load_author_id_cache(cache_path) -> dict[str, str]:
-    """Read config/s2_author_ids.yml. Returns {} if missing."""
+def author_ids(value: AuthorIdValue) -> list[str]:
+    """Validate a scalar/list cache entry without coercing arbitrary YAML values.
+
+    IDs are ASCII decimal strings, as returned by Semantic Scholar. Lists must
+    be nonempty; repeated IDs are fetched once in their configured order. A
+    malformed entry fails as a whole rather than silently omitting a profile.
+    """
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list) and value:
+        values = value
+    else:
+        raise ValueError("S2 author IDs must be a string or a nonempty list of strings")
+    if any(not isinstance(item, str) or re.fullmatch(r"[0-9]+", item) is None
+           for item in values):
+        raise ValueError("S2 author IDs must contain only ASCII decimal digits")
+    return list(dict.fromkeys(values))
+
+
+def author_checkpoint_key(name: str, author_id: str, value: AuthorIdValue) -> str:
+    """Keep scalar checkpoints compatible; each configured list ID is separate.
+
+    The cache shape is deliberate: even a one-element list uses an ID-specific
+    key. Converting a scalar to a list requires an explicit checkpoint migration.
+    """
+    if author_id not in author_ids(value):
+        raise ValueError("S2 checkpoint author ID is not configured for this author")
+    return f"scholar:{name}:{author_id}" if isinstance(value, list) else f"scholar:{name}"
+
+
+def _validated_cache(ids: Any) -> AuthorIdCache:
+    if not isinstance(ids, dict):
+        raise ValueError("S2 author cache ids must be a mapping")
+    result: AuthorIdCache = {}
+    for name, value in ids.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("S2 author cache names must be nonempty strings")
+        values = author_ids(value)
+        result[name] = values if isinstance(value, list) else values[0]
+    return result
+
+
+def load_author_id_cache(cache_path) -> AuthorIdCache:
+    """Read scalar/list S2 IDs, preserving their shape. Return {} if missing."""
     from pathlib import Path
     p = Path(cache_path)
     if not p.exists():
         return {}
-    doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    return {str(k): str(v) for k, v in (doc.get("ids") or {}).items()}
+    doc = yaml.safe_load(p.read_text(encoding="utf-8"))
+    if doc is None:
+        return {}
+    if not isinstance(doc, dict):
+        raise ValueError("S2 author cache must be a mapping")
+    return _validated_cache(doc.get("ids", {}))
 
 
-def save_author_id_cache(cache_path, ids: dict[str, str]) -> None:
+def save_author_id_cache(cache_path, ids: AuthorIdCache) -> None:
     from pathlib import Path
+    # Validate the entire cache before touching an existing file.
+    validated = _validated_cache(ids)
     p = Path(cache_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    doc = {"ids": dict(sorted(ids.items()))}
+    doc = {"ids": dict(sorted(validated.items()))}
     p.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def merge_papers(papers: list[Paper]) -> list[Paper]:
+    """Dedupe S2 records and preserve every tracked author's gate annotations.
+
+    The first observed paper remains the canonical record, matching the legacy
+    ordering and content policy. DOI/arXiv cross-record dedupe stays downstream.
+    """
+    by_id: dict[str, Paper] = {}
+    for paper in papers:
+        key = paper.raw.get("s2_paper_id") or paper.dedupe_key
+        previous = by_id.get(key)
+        if previous is None:
+            by_id[key] = paper
+        else:
+            _merge_annotations(previous, paper)
+    return list(by_id.values())
 
 
 # ── Top-level collect() ────────────────────────────────────────────────────
@@ -276,7 +358,7 @@ def save_author_id_cache(cache_path, ids: dict[str, str]) -> None:
 
 def collect(
     tracked_authors: list[str],
-    author_id_cache: dict[str, str],
+    author_id_cache: AuthorIdCache,
     days: int = 7,
     auto_admit_authors: list[str] | None = None,
     review_authors: list[str] | None = None,
@@ -288,7 +370,8 @@ def collect(
 ) -> list[Paper]:
     """Fetch papers for tracked authors published in `[until - days, until]`.
 
-    Authors missing from the cache are skipped silently — run the
+    Every configured profile is fetched; malformed cache entries raise before
+    any network call. Authors missing from the cache are skipped — run the
     `resolve_s2_authors` script to populate them. We don't lazily resolve
     here because resolution is slow and a missing ID means the user
     needs to look at the warning log from the resolver, not silently
@@ -298,39 +381,43 @@ def collect(
         return []
     if use_env_key:
         api_key = api_key or os.environ.get("S2_API_KEY")
+    # Validate all relevant IDs first so an invalid later profile cannot leave a
+    # partially collected result looking complete to a caller without checkpoints.
+    tracked = list(dict.fromkeys(tracked_authors))
+    ids_by_name = {name: author_ids(author_id_cache[name])
+                   for name in tracked if name in author_id_cache}
     auto_set = set(auto_admit_authors or [])
     review_set = set(review_authors or [])
     until_dt = until or datetime.now(tz=timezone.utc)
     cutoff = until_dt - timedelta(days=days)
 
-    seen_paper_ids: set[str] = set()
     papers: list[Paper] = []
-    skipped = matched = 0
+    skipped = 0
 
-    for name in tracked_authors:
-        author_id = author_id_cache.get(name)
-        if not author_id:
+    for name in tracked:
+        ids = ids_by_name.get(name)
+        if ids is None:
             skipped += 1
             continue
-        raw_papers = fetch_author_papers(
-            author_id, days=days, http=http, api_key=api_key, until=until_dt
-        )
-        for rp in raw_papers:
-            pid = rp.get("paperId")
-            if not pid or pid in seen_paper_ids:
-                continue
-            pub = _parse_pub_date(rp.get("publicationDate") or rp.get("year"))
-            if pub is None or pub < cutoff or pub > until_dt:
-                continue
-            paper = _build_paper(rp, triggering_author=name, auto_admit=auto_set, review=review_set)
-            if paper:
-                seen_paper_ids.add(pid)
-                papers.append(paper)
-                matched += 1
-        time.sleep(sleep_sec)
+        for author_id in ids:
+            raw_papers = fetch_author_papers(
+                author_id, days=days, http=http, api_key=api_key, until=until_dt
+            )
+            for rp in raw_papers:
+                if not rp.get("paperId"):
+                    continue
+                pub = _parse_pub_date(rp.get("publicationDate") or rp.get("year"))
+                if pub is None or pub < cutoff or pub > until_dt:
+                    continue
+                paper = _build_paper(rp, triggering_author=name,
+                                     auto_admit=auto_set, review=review_set)
+                if paper:
+                    papers.append(paper)
+            time.sleep(sleep_sec)
 
+    papers = merge_papers(papers)
     log.info(
         "S2: fetched %d papers for %d authors (%d skipped — no cached id)",
-        matched, len(tracked_authors) - skipped, skipped,
+        len(papers), len(tracked) - skipped, skipped,
     )
     return papers

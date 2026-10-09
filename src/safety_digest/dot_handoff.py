@@ -263,6 +263,14 @@ def validate_collection_health(bundle, *, publication=False):
     pending = health.get('pending_s2_authors', [])
     if not isinstance(pending, list) or pending:
         raise Invalid('collection has pending sources')
+    if health.get('requires_recollection', False) is not False:
+        raise Invalid('collection still requires author-identity recollection')
+    reconciliation = health.get('reconciliation', {})
+    if not isinstance(reconciliation, dict) or reconciliation.get('missing_ids', []):
+        raise Invalid('collection has missing frozen candidate dispositions')
+    profiles = health.get('pending_s2_profiles', [])
+    if not isinstance(profiles, list) or profiles:
+        raise Invalid('collection has pending author profiles')
     missing = health.get('s2_authors_without_cached_ids', [])
     if not isinstance(missing, list) or missing:
         raise Invalid('collection has unresolved Semantic Scholar author identities')
@@ -422,32 +430,37 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
             hn_collector.collect(days=days, until=run_at), {}), handler.events)
         counts['hn'] = len(items)
         papers += items
-        # Cache by author so a service-wide 429 resumes without recrawling all
-        # successful sources/authors. Preserve the legacy first-trigger dedupe.
-        scholar, seen_s2 = [], set()
+        # Each verified profile has its own checkpoint. A deferred profile must
+        # not erase completed sibling work or falsely complete the whole author.
+        scholar = []
         tracked = list(dict.fromkeys(auto + review))
-        for index, name in enumerate(tracked):
-            if not cache.get(name):
+        pending_profiles = []
+        for name in tracked:
+            value = cache.get(name)
+            if not value:
                 continue
-            def author_fetch():
-                return s2_collector.collect([name], cache, days=days,
-                                            auto_admit_authors=auto, review_authors=review,
-                                            until=run_at, use_env_key=False,
-                                            http=service_aware_http), {}
-            try:
-                items, _ = checkpoints.collect('scholar:' + name, author_fetch, handler.events)
-            except PendingCheckpoint:
-                # Offline snapshots must still visit later completed authors.
-                pending_authors.append(name)
-                continue
-            except DeferredSource:
-                pending_authors = [n for n in tracked[index:] if cache.get(n)]
-                break
-            for item in items:
-                key = item.raw.get('s2_paper_id') or item.dedupe_key
-                if key not in seen_s2:
-                    seen_s2.add(key)
-                    scholar.append(item)
+            for author_id in s2_collector.author_ids(value):
+                key = s2_collector.author_checkpoint_key(name, author_id, value)
+                def author_fetch(name=name, author_id=author_id):
+                    return s2_collector.collect([name], {name: author_id}, days=days,
+                                                auto_admit_authors=auto, review_authors=review,
+                                                until=run_at, use_env_key=False,
+                                                http=service_aware_http), {}
+                try:
+                    items, _ = checkpoints.collect(key, author_fetch, handler.events)
+                except (PendingCheckpoint, DeferredSource):
+                    pending_authors.append(name)
+                    pending_profiles.append({'name': name, 'author_id': author_id})
+                    # Honor service backoff while still visiting completed later
+                    # profiles. Missing ones become explicit pending records.
+                    checkpoints.read_only = True
+                    continue
+                if not checkpoints.data['parts'][key]['complete']:
+                    pending_authors.append(name)
+                    pending_profiles.append({'name': name, 'author_id': author_id})
+                scholar.extend(items)
+        pending_authors = list(dict.fromkeys(pending_authors))
+        scholar = s2_collector.merge_papers(scholar)
         counts['scholar'] = len(scholar)
         papers += scholar
     finally:
@@ -464,6 +477,7 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
         'arxiv_rejected': arxiv_audit.get('rejected', []),
         'arxiv_in_window': arxiv_audit.get('in_window'),
         'pending_s2_authors': pending_authors,
+        'pending_s2_profiles': pending_profiles,
         'checkpoint_binding': checkpoints.binding,
         'feed_transport': transport,
         'checkpoint_only': checkpoint_only,
@@ -719,6 +733,150 @@ def enrich(bundle, results, fetch=None, requested_ids=()):
     return b, pending
 
 
+
+def reconcile_collected(previous, collected):
+    """Carry frozen reads through same-basis recollection with full accounting.
+
+    Missing prior candidates stay visible and block final acceptance; disappearance
+    from a refreshed source is never silently treated as an editorial exclusion.
+    """
+    validate_bundle(previous)
+    validate_bundle(collected)
+    for field in ('files', 'state_rows', 'system_prompt', 'run_at', 'days'):
+        if previous[field] != collected[field]:
+            raise Invalid('recollection must preserve migrated basis and frozen window')
+    old = {c['id']: c for c in previous['candidates']}
+    old_records = {r['id']: r for r in previous['collection'].get('enrichment_records', [])}
+    result = copy.deepcopy(collected)
+    result.pop('bundle_sha256')
+    result['parent_bundle_sha256'] = previous['bundle_sha256']
+    dispositions, records = {}, []
+    for candidate in result['candidates']:
+        ident = candidate['id']
+        prior = old.get(ident)
+        if prior is None:
+            dispositions[ident] = 'new_input'
+            continue
+        # Raw tracked-author annotations can change when the approved list is
+        # corrected. The fetched paper itself must otherwise be byte-identical.
+        core = lambda c: {k: v for k, v in c['paper'].items() if k != 'raw'}
+        if core(prior) == core(candidate):
+            candidate['body'] = copy.deepcopy(prior['body'])
+            candidate['input_text'] = _user_message(paper_from(candidate['paper']),
+                                                    candidate['body']['text'] or None)
+            candidate['input_sha256'] = bytehash(candidate['input_text'].encode())
+            if candidate['body']['status'] != 'not_attempted':
+                record = copy.deepcopy(old_records[ident])
+                record['input_sha256'] = candidate['input_sha256']
+                records.append(record)
+        dispositions[ident] = ('unchanged_input' if prior['input_sha256'] == candidate['input_sha256']
+                               and prior['body'] == candidate['body'] else 'changed_input')
+    seen = {c['id'] for c in result['candidates']}
+    missing = sorted(set(old) - seen)
+    for ident in missing:
+        result['candidates'].append(copy.deepcopy(old[ident]))
+        if ident in old_records:
+            records.append(copy.deepcopy(old_records[ident]))
+        dispositions[ident] = 'missing_from_recollection'
+    result['collection']['enrichment_records'] = records
+    result['collection']['reconciliation'] = {
+        'previous_bundle_sha256': previous['bundle_sha256'],
+        'collected_bundle_sha256': collected['bundle_sha256'],
+        'dispositions': dispositions, 'missing_ids': missing,
+    }
+    if missing:
+        result['collection']['complete'] = False
+        result['collection']['warnings'].append({
+            'kind': 'pending_source_reconciliation',
+            'source': 'frozen_candidate_accounting',
+            'event_template': 'previous candidates missing from recollection require explicit disposition',
+        })
+    return validate_bundle(seal(result))
+
+
+def rebase_migrated_reviews(previous, results, migrated, collected, *, migration_request,
+                           migration_receipt, migration_artifact, edition_state,
+                           recollection_ancestors=()):
+    """Explicit, exact-input editorial carry across a verified author migration.
+
+    Callers must materialize the owned artifacts and verify terminal receipts.
+    This does not replace source completeness or final publication validation.
+    """
+    decisions = validate_results(previous, results)
+    validate_bundle(migrated)
+    validate_bundle(collected)
+    from . import dot_edition
+    dot_edition.verify_active_completion(edition_state, migration_request,
+                                         migration_receipt, migration_artifact)
+    if migration_artifact['bundle_sha256'] != migrated['bundle_sha256']:
+        raise Invalid('review carry artifact differs from verified migration output')
+    receipt = migrated['collection'].get('active_author_migration')
+    if receipt != migration_receipt.get('migration_receipt'):
+        raise Invalid('review carry embedded migration audit differs from verified receipt')
+    fields = ('run_at', 'days', 'system_prompt', 'state_rows', 'candidates',
+              'suppressed', 'forced_keys')
+    if (not isinstance(receipt, dict) or receipt.get('kind') != 'author_identity_v1'
+            or receipt.get('from_bundle_sha256') != previous['bundle_sha256']
+            or migrated['parent_bundle_sha256'] != previous['bundle_sha256']
+            or receipt.get('source_identity_sha256') != digest({k: previous[k] for k in fields})
+            or any(previous[k] != migrated[k] for k in fields)):
+        raise Invalid('review carry requires exact frozen author-migration identity')
+    if (receipt.get('from_basis_sha256') != digest({'files': previous['files'], 'state': previous['state_rows']})
+            or receipt.get('to_basis_sha256') != digest({'files': migrated['files'], 'state': migrated['state_rows']})):
+        raise Invalid('review carry migration basis mismatch')
+    ancestor = migrated
+    if not isinstance(recollection_ancestors, (list, tuple)):
+        raise Invalid('review carry requires an explicit recollection ancestor chain')
+    for descendant in [*recollection_ancestors, collected]:
+        validate_bundle(descendant)
+        for field in ('files', 'state_rows', 'system_prompt', 'run_at', 'days'):
+            if descendant[field] != migrated[field]:
+                raise Invalid('review carry target differs from migrated basis/window/rubric')
+        accounting = descendant['collection'].get('reconciliation')
+        if (descendant['parent_bundle_sha256'] != ancestor['bundle_sha256']
+                or not isinstance(accounting, dict)
+                or accounting.get('previous_bundle_sha256') != ancestor['bundle_sha256']):
+            raise Invalid('review carry requires the exact recollection ancestry')
+        candidate_ids = {c['id'] for c in descendant['candidates']}
+        if not {c['id'] for c in ancestor['candidates']} <= candidate_ids:
+            raise Invalid('review carry cannot silently drop a frozen candidate')
+        dispositions = accounting.get('dispositions')
+        missing = accounting.get('missing_ids')
+        allowed = {'new_input', 'unchanged_input', 'changed_input', 'missing_from_recollection'}
+        if (not isinstance(dispositions, dict) or set(dispositions) != candidate_ids
+                or any(not isinstance(v, str) or v not in allowed for v in dispositions.values())
+                or not isinstance(missing, list) or any(not isinstance(v, str) for v in missing)
+                or len(missing) != len(set(missing))
+                or set(missing) != {k for k, v in dispositions.items() if v == 'missing_from_recollection'}):
+            raise Invalid('review carry has inconsistent candidate dispositions')
+        ancestor = descendant
+    reconciliation = collected['collection'].get('reconciliation')
+    if not isinstance(reconciliation, dict) or not isinstance(reconciliation.get('dispositions'), dict):
+        raise Invalid('review carry requires explicit recollection accounting')
+    old = {c['id']: c for c in previous['candidates']}
+    candidates = {c['id']: c for c in collected['candidates']}
+    if set(reconciliation['dispositions']) != set(candidates):
+        raise Invalid('review carry requires every candidate disposition')
+    pending = template(collected)
+    unresolved = {d['id']: d for d in pending['decisions']}
+    # Preserve the audited editorial order, including verification-first high
+    # items. Append genuinely new candidates in a deterministic order.
+    order = [d['id'] for d in results['decisions'] if d['id'] in candidates]
+    order += sorted(set(candidates) - set(order))
+    pending['decisions'] = [unresolved[ident] for ident in order]
+    for index, ident in enumerate(order):
+        candidate = candidates[ident]
+        ident = candidate['id']
+        if (ident in decisions and decisions[ident]['status'] == 'complete'
+                and reconciliation['dispositions'].get(ident) == 'unchanged_input'
+                and candidate['input_sha256'] == old[ident]['input_sha256']
+                and candidate['body'] == old[ident]['body']):
+            pending['decisions'][index] = copy.deepcopy(decisions[ident])
+    # Even unchanged decisions do not imply unchanged theme eligibility after
+    # new sources arrive. Rebuild and validate exact group partitions separately.
+    validate_results(collected, pending)
+    return pending
+
 def plain(s):
     """Render source/model text literally inside the legacy Markdown renderer."""
     s = ' '.join(s.split()).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
@@ -767,8 +925,10 @@ def stage_import(root, bundle, results, destination):
             raw['key_points'] = [plain(point) for point in raw['key_points']]
             classified.append((candidate['id'], ClassifiedPaper(p, Classification(**raw))))
         order = {'high': 0, 'medium': 1, 'low': 2, 'off_topic': 3}
+        editorial_order = {d['id']: index for index, d in enumerate(results['decisions'])}
         classified.sort(key=lambda x: (order[x[1].classification.relevance],
-                                       -x[1].paper.published.timestamp()))
+                                       editorial_order[x[0]] if x[1].classification.relevance == 'high'
+                                       else -x[1].paper.published.timestamp()))
         def brief(name):
             s = results['summaries'][name]
             if s is None:

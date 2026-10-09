@@ -4,6 +4,7 @@ No publication mode exists. Requests/results are data, never executable code.
 """
 from pathlib import Path
 import argparse
+import base64
 import os
 import re
 import subprocess
@@ -40,6 +41,35 @@ def artifact_reference(spec):
     return spec
 
 
+def active_artifact(directory, spec):
+    """Verify downloaded immutable artifact contents against their request ref.
+
+    Hosted downloads are scoped to this repository and exact run ID. Frozen
+    receipts also bind the artifact name to its producing request commit.
+    """
+    artifact_reference(spec)
+    if directory is None:
+        raise dot.Invalid('active migration requires both downloaded artifacts')
+    directory = Path(directory)
+    if any((directory / name).is_symlink() for name in ('bundle.json', 'transport-receipt.json')):
+        raise dot.Invalid('active migration inputs must be ordinary artifact files')
+    bundle = dot.load_bundle(directory / 'bundle.json')
+    receipt = dot.read_json(directory / 'transport-receipt.json')
+    if not isinstance(receipt, dict):
+        raise dot.Invalid('active migration artifact receipt must be an object')
+    commit = receipt.get('request_commit')
+    if (bundle['bundle_sha256'] != spec['bundle_sha256']
+            or receipt.get('bundle_sha256') != spec['bundle_sha256']
+            or receipt.get('published') is not False
+            or not isinstance(commit, str) or not re.fullmatch('[0-9a-f]{40}', commit)
+            or spec['artifact_name'] != f'dot-handoff-{commit}'
+            or ('artifact_run_id' in receipt and receipt['artifact_run_id'] != spec['artifact_run_id'])
+            or ('repository' in receipt and os.environ.get('GITHUB_REPOSITORY')
+                and receipt['repository'] != os.environ['GITHUB_REPOSITORY'])):
+        raise dot.Invalid('active migration artifact provenance mismatch')
+    return bundle
+
+
 def load_results(root, spec):
     if 'manifest' not in spec:
         return dot.read_json(input_file(root, spec))
@@ -63,7 +93,7 @@ def load_results(root, spec):
             'decisions':decisions, 'summaries':manifest['summaries']}
 
 
-def run(root, request_path, out, artifact_dir=None):
+def run(root, request_path, out, artifact_dir=None, checkpoint_artifact_dir=None):
     root, out = Path(root).resolve(), Path(out).resolve()
     if root == out or root in out.parents or out.exists():
         raise dot.Invalid('output must be a new directory outside checkout')
@@ -72,9 +102,12 @@ def run(root, request_path, out, artifact_dir=None):
     mode = req.get('mode')
     extra = {'export': {'until', 'days'}, 'feed_probe': {'until','days','sources'}, 'smoke': set(),
              'enrich': {'bundle', 'results'}, 'validate': {'bundle', 'results'},
-             'migrate': {'bundle', 'migration'}}
+             'migrate': {'bundle', 'migration'},
+             'migrate_active': {'bundle', 'checkpoint_source', 'checkpoint_sha256',
+                                'checkpoint_file_sha256', 'migration',
+                                'from_basis_sha256', 'to_basis_sha256'}}
     if mode not in extra:
-        raise dot.Invalid('only smoke/feed_probe/export/enrich/validate allowed; publication is disabled')
+        raise dot.Invalid('unsupported read-only transport mode; publication is disabled')
     fields = common | extra[mode]
     if mode == 'export':
         fields |= {k for k in ('resume','resume_migration','collection_budget_seconds') if k in req}
@@ -94,12 +127,28 @@ def run(root, request_path, out, artifact_dir=None):
         raise dot.Invalid('tracked checkout must be clean')
     from . import dot_edition
     edition = None
-    if mode not in {'smoke','feed_probe'} and (os.environ.get('GITHUB_ACTIONS') == 'true' or 'edition' in req):
+    if mode not in {'smoke','feed_probe'} and (mode == 'migrate_active'
+            or os.environ.get('GITHUB_ACTIONS') == 'true' or 'edition' in req):
         edition = dot_edition.require_request(root, req, request_path, live=os.environ.get('GITHUB_ACTIONS') == 'true')
+    if mode == 'migrate_active' and edition is None:
+        raise dot.Invalid('active migration requires an owned edition fence')
+    if mode == 'migrate_active':
+        edition_bytes = (root / dot_edition.PATH).read_bytes()
+        for directory in (artifact_dir, checkpoint_artifact_dir):
+            if directory is not None:
+                source = Path(directory).resolve()
+                if source == out or source in out.parents or out in source.parents:
+                    raise dot.Invalid('active migration output must be separate from downloaded inputs')
     out.mkdir(parents=True)
     metadata = {'schema_version': 1, 'run_id': req['run_id'], 'mode': mode,
                 'request_sha256': dot.digest(req), 'request_commit': git(root, 'rev-parse', 'HEAD'),
                 'base_commit': base, 'published': False}
+    if os.environ.get('GITHUB_ACTIONS') == 'true':
+        run_id = os.environ.get('GITHUB_RUN_ID', '')
+        if re.fullmatch(r'[1-9][0-9]*', run_id):
+            metadata['artifact_run_id'] = int(run_id)
+        if os.environ.get('GITHUB_REPOSITORY'):
+            metadata['repository'] = os.environ['GITHUB_REPOSITORY']
     if mode == 'smoke':
         metadata['message'] = 'Connector artifact transport only; no collection or inference.'
     elif mode == 'feed_probe':
@@ -123,6 +172,59 @@ def run(root, request_path, out, artifact_dir=None):
             'feed_transport':lab_collector.feed_transport(),'warnings':handler.events,
             'candidates':[dot.make_candidate(p) for p in papers]})
         metadata.update(feed_probe_complete=complete,candidate_count=len(papers))
+    elif mode == 'migrate_active':
+        from . import dot_recovery
+        from .dot_checkpoint import Checkpoints
+        previous = active_artifact(artifact_dir, req['bundle'])
+        checkpoint_source = active_artifact(checkpoint_artifact_dir, req['checkpoint_source'])
+        for bundle in (previous, checkpoint_source):
+            dot_edition.require_bundle(edition, bundle)
+            if dot.digest({'files': bundle['files'], 'state': bundle['state_rows']}) != req['from_basis_sha256']:
+                raise dot.Invalid('active migration input artifact basis mismatch')
+        if previous['parent_bundle_sha256'] != checkpoint_source['bundle_sha256']:
+            raise dot.Invalid('active migration checkpoint is not the current bundle parent')
+        checkpoint = Path(checkpoint_artifact_dir) / 'checkpoints/collection-checkpoint.json'
+        if checkpoint.is_symlink() or not checkpoint.is_file():
+            raise dot.Invalid('active migration checkpoint must be an ordinary artifact file')
+        if dot.bytehash(checkpoint.read_bytes()) != req['checkpoint_file_sha256']:
+            raise dot.Invalid('active migration checkpoint file hash mismatch')
+        saved = Checkpoints(checkpoint.parent, checkpoint_source['collection'].get('checkpoint_binding'),
+                            read_only=True)
+        if saved.data['sha256'] != req['checkpoint_sha256']:
+            raise dot.Invalid('active migration checkpoint payload hash mismatch')
+        policy = dot_edition.active_migration_policy(root, edition, req)
+        checkpoints = out / 'checkpoints'
+        checkpoints.mkdir()
+        shutil.copyfile(checkpoint, checkpoints / 'collection-checkpoint.json')
+        bundle, migration, carry_forward = dot_recovery.migrate_active(
+            root, previous, checkpoint_source, checkpoints, policy,
+            request_sha256=dot.digest(req))
+        dot_edition.require_bundle(edition, bundle)
+        if (dot.digest({'files': bundle['files'], 'state': bundle['state_rows']}) != req['to_basis_sha256']
+                or bundle['parent_bundle_sha256'] != previous['bundle_sha256']):
+            raise dot.Invalid('active migration output basis/ancestry mismatch')
+        dot.write_json(out / 'bundle.json', bundle)
+        dot.write_json(out / 'results-template.json', dot.template(bundle))
+        dot.write_json(out / 'migration-receipt.json', migration)
+        dot.write_json(out / 'result-carry-forward.json', carry_forward)
+        metadata.update(candidate_count=len(bundle['candidates']), bundle_sha256=bundle['bundle_sha256'],
+                        collection_complete=bundle['collection']['complete'],
+                        source_bundle=req['bundle'], checkpoint_source=req['checkpoint_source'],
+                        policy_file_sha256=req['migration']['sha256'],
+                        policy_file_base64=base64.b64encode(input_file(root, req['migration']).read_bytes()).decode(),
+                        migration_receipt=migration, migration_receipt_sha256=dot.digest(migration),
+                        edition=req['edition'],
+                        **{k: edition[k] for k in ('anchor', 'days', 'deadline_at', 'lease_until')})
+        output_ref = {'artifact_run_id': metadata.get('artifact_run_id', 1),
+                      'artifact_name': f"dot-handoff-{metadata['request_commit']}",
+                      'bundle_sha256': bundle['bundle_sha256']}
+        dot_edition.verify_active_completion(edition, req, metadata, output_ref)
+        # Re-fetch ownership after the work and before emitting success evidence.
+        # Expired/moved leases or edited pending bytes never receive a receipt.
+        final_edition = dot_edition.require_request(root, req, request_path,
+                                    live=os.environ.get('GITHUB_ACTIONS') == 'true')
+        if final_edition != edition or (root / dot_edition.PATH).read_bytes() != edition_bytes:
+            raise dot.Invalid('active migration ownership changed during processing')
     elif mode == 'migrate':
         from . import dot_recovery
         spec = artifact_reference(req['bundle'])
@@ -170,6 +272,10 @@ def run(root, request_path, out, artifact_dir=None):
         else:
             bundle = dot.collect_export(root, out / 'bundle.json', dot.utc(req['until']), req['days'],
                                         checkpoint_dir, progress=lambda event: print(dot.canonical(event).decode(), flush=True))
+        if ('resume' in req and any(name in previous['collection']
+                for name in ('active_author_migration', 'reconciliation'))):
+            bundle = dot.reconcile_collected(previous, bundle)
+            dot.write_json(out / 'bundle.json', bundle)
         dot.write_json(out / 'results-template.json', dot.template(bundle))
         metadata.update(candidate_count=len(bundle['candidates']), bundle_sha256=bundle['bundle_sha256'],
                         collection_complete=bundle['collection']['complete'])
@@ -212,6 +318,7 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--before', required=True)
     p.add_argument('--artifact-dir', type=Path)
+    p.add_argument('--checkpoint-artifact-dir', type=Path)
     p.add_argument('--prepare', action='store_true')
     a = p.parse_args()
     # The before SHA comes from an environment variable, never shell-expanded JSON.
@@ -230,7 +337,8 @@ def main():
         req = dot.read_json(request_path)
         if req.get('base_commit') != a.before:
             raise dot.Invalid('request base must equal the exact pre-push HEAD')
-        if req.get('mode') not in {'smoke','feed_probe'} and (os.environ.get('GITHUB_ACTIONS') == 'true' or 'edition' in req):
+        if req.get('mode') not in {'smoke','feed_probe'} and (req.get('mode') == 'migrate_active'
+                or os.environ.get('GITHUB_ACTIONS') == 'true' or 'edition' in req):
             from . import dot_edition
             dot_edition.require_request(a.root, req, request_path, live=os.environ.get('GITHUB_ACTIONS') == 'true')
         if a.prepare:
@@ -241,8 +349,13 @@ def main():
                 with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                     f.write(f"artifact_run_id={spec['artifact_run_id']}\n")
                     f.write(f"artifact_name={spec['artifact_name']}\n")
+            if req.get('mode') == 'migrate_active':
+                spec = artifact_reference(req['checkpoint_source'])
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                    f.write(f"checkpoint_artifact_run_id={spec['artifact_run_id']}\n")
+                    f.write(f"checkpoint_artifact_name={spec['artifact_name']}\n")
             return
-        print(run(a.root, request_path, a.out, a.artifact_dir))
+        print(run(a.root, request_path, a.out, a.artifact_dir, a.checkpoint_artifact_dir))
     except (dot.Invalid, OSError, subprocess.CalledProcessError) as e:
         p.exit(2, f'Blocked: {e}\n')
 

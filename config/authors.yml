@@ -35,7 +35,7 @@ auto_admit:
   - name: Dan Hendrycks
   - name: Adam Gleave
   - name: Stephen Casper
-  - name: 'David "davidad" Duvenaud'
+  - name: David Duvenaud
   - name: Sam Bowman
   - name: Stuart Armstrong
   - name: Owain Evans
@@ -115,7 +115,7 @@ review_carefully:
   - name: Scott Viteri
   - name: Jonathan Cefalu
   - name: Dylan Hadfield-Menell
-  - name: Philip Isola
+  - name: Phillip Isola
   - name: Joshua Tenenbaum
   - name: Max Kleiman-Weiner
   - name: Sydney Levine
@@ -229,7 +229,7 @@ review_carefully:
   - name: Steve Kommrusch
   - name: Shiri Dori-Hacohen
   - name: Aidan Kierans
-  - name: Shai Shalev-Schwartz
+  - name: Shai Shalev-Shwartz
   - name: Max Chiswick
   - name: Alexandre Maurer
   - name: Bas Steunebrink
@@ -239,7 +239,7 @@ review_carefully:
   - name: Alexander Turner
   - name: Neale Ratzlaff
   - name: Quintin Pope
-  - name: Roman Yampolsky
+  - name: Roman V. Yampolskiy
   - name: Carl Henrik Rolf Åslund
   - name: Herbert Wiklicky
   - name: Francis Rhys Ward
@@ -252,10 +252,10 @@ review_carefully:
   - name: Zhijing Jin
   - name: Julian Stastny
   - name: Benedikt Höltgen
-  - name: Florian Droner
+  - name: Florian E. Dorner
   - name: Florian Tramer
   - name: Andreas Krause
-  - name: Cynthia Xin Chen
+  - name: Xin Chen
   - name: David Lindner
   - name: Montaser Mohammedalamen
   - name: Scott Niekum
@@ -278,13 +278,13 @@ review_carefully:
   - name: Gavin Leech
   - name: Richard Dazeley
   - name: Haddie Harland
-  - name: Gavan Muler
+  # Gavan Muler set aside pending an identifiable researcher (owner approved).
   - name: Peter Vamplew
   - name: Jessica Rumbelow
   - name: Sammy Martin
   - name: Richard Willis
   - name: Alexander Oldenziel Gietelink
-  - name: Tiago Vhana
+  - name: Thiago Viana
   - name: Steve Petersen
   - name: Olle Häggstrom
   - name: Frans A. Oliehoek

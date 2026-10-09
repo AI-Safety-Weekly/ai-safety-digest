@@ -280,3 +280,62 @@ corpus are a coverage blocker even after all 54 pending cached authors finish.
 Resolve identities with supported public evidence; do not guess IDs or treat
 an empty author-search result as completed coverage. Adding verified IDs changes
 configuration and needs a separately reviewed provenance migration or export.
+
+## Approved active author-identity migration
+
+An already-owned idle edition can use `mode: migrate_active` after an independent
+review of the exact code/configuration patch. Do not abandon/reclaim an edition,
+change its anchor, or hand-edit its basis to get past a provenance mismatch.
+The corrected source identities and their limitations are in
+`SOURCE_IDENTITY_REVIEW.md`.
+
+The request consumes the exact current `bundle` plus a separate `checkpoint_source`
+artifact reference for its direct pre-enrichment parent. It includes
+`checkpoint_sha256` (embedded payload), `checkpoint_file_sha256` (exact file bytes),
+`from_basis_sha256`, `to_basis_sha256`, and a hashed `migration` JSON reference.
+The strict `author_identity_v1` policy records both artifact hashes, both checkpoint
+hashes, exact before/after code/configuration file hashes, both full author/cache
+configuration documents and the exact author-dependent invalidation keys.
+
+Submit state and request atomically with the ordinary owner/revision/expected-HEAD
+CAS. The pending state retains its old basis and durable bundle. Only this narrow
+mode permits a reviewed target checkout while that old basis remains owned.
+The workflow verifies both successful source runs and downloads their immutable
+artifacts independently. Transport validates their receipts, ancestry, window,
+state, rubric, paper identities and checkpoint hashes before any scratch rebinding.
+
+The migration carries all frozen candidate inputs, bodies and failed attempts
+unchanged, preserves unaffected lab/HN checkpoint parts, and invalidates all arXiv,
+feedback-missing and Scholar parts whose admission/annotations depend on the author
+configuration. The rebound bundle is explicitly incomplete. A verified success
+receipt advances basis and bundle together; failure/cancellation preserves both.
+The receipt embeds the exact hashed policy bytes for independent acknowledgment
+validation. Verify the actual terminal GitHub run, receipt and resulting files
+before calling `finish`; the pure state function does not query GitHub for you.
+
+Resume collection with the same anchor and days from the new artifact. Each
+configured S2 profile has its own checkpoint; an unresolved sibling profile blocks
+completion. Rate-limited collection retains completed profiles and obeys retry
+backoff. Recollection preserves prior frozen bodies only for identical core paper
+content, recomputes model inputs after author-annotation changes, and records every
+old/new candidate disposition. Missing old candidates stay visible and block final
+acceptance until explicitly resolved; source disappearance is not an exclusion.
+Carry completed decisions only when exact input hashes and frozen evidence remain
+valid. New/changed inputs require actual review, and themes must be rebuilt for any
+changed membership. No unresolved default classifications are permitted.
+
+High-tier display follows the explicit reviewed decision-array order, so put
+verification-bullseye items first. Other tiers retain chronological ordering.
+Capability flags describe source content truthfully; story grouping is deferred,
+so related posts may appear separately with their accurate source labels.
+
+Use `dot_handoff.rebase_migrated_reviews` for the explicit review carry, with the
+original bundle/results, verified migrated bundle, and reconciled collection.
+Supply the actual `migration_request`, terminal transport `migration_receipt`,
+`migration_artifact` reference and current `edition_state`. For multiple export
+attempts, also supply every intermediate immutable `recollection_ancestors`
+bundle in order. The helper verifies policy bytes and the full ancestry, refuses
+dropped candidates or contradictory dispositions, preserves the original decision
+order, leaves changed/new/missing inputs unresolved and resets theme partitions.
+The older generic `same_basis`/`rebase_reviews` guard remains unchanged and must
+not be bypassed for a configuration migration.

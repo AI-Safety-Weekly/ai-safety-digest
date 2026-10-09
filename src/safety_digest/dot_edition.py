@@ -7,7 +7,9 @@ they are not secrets or authentication credentials.
 """
 from datetime import datetime, timezone
 from pathlib import Path
+import base64
 import copy
+import json
 import os
 import re
 import subprocess
@@ -89,6 +91,73 @@ def owned(state, owner_id, now=None, *, allow_expired=False):
         raise dot.Invalid('edition lease/deadline expired; publication is blocked')
 
 
+def active_migration_request(state, request):
+    """Validate the narrow transition without changing the active basis.
+
+    The target checkout is verified separately. These references are immutable
+    request data, and both input artifacts must be checked before any rebinding.
+    """
+    from .dot_transport import artifact_reference
+    fields = {'schema_version', 'run_id', 'mode', 'base_commit', 'bundle',
+              'checkpoint_source', 'checkpoint_sha256', 'checkpoint_file_sha256',
+              'migration', 'from_basis_sha256', 'to_basis_sha256'}
+    dot.keys(request, fields | ({'edition'} if 'edition' in request else set()),
+             'active migration request')
+    if (type(request['schema_version']) is not int or request['schema_version'] != 1
+            or request['mode'] != 'migrate_active'
+            or not isinstance(request['run_id'], str)
+            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', request['run_id'])
+            or not isinstance(request['base_commit'], str)
+            or not re.fullmatch('[0-9a-f]{40}', request['base_commit'])):
+        raise dot.Invalid('invalid active migration request identity')
+    if state['bundle'] is None or request.get('bundle') != state['bundle']:
+        raise dot.Invalid('active migration must consume the exact current edition bundle')
+    artifact_reference(request['bundle'])
+    artifact_reference(request.get('checkpoint_source'))
+    for name in ('from_basis_sha256', 'to_basis_sha256', 'checkpoint_sha256',
+                 'checkpoint_file_sha256'):
+        value = request.get(name)
+        if not isinstance(value, str) or not re.fullmatch('[0-9a-f]{64}', value):
+            raise dot.Invalid('active migration requires exact basis/checkpoint hashes')
+    if request['from_basis_sha256'] != state['basis_sha256']:
+        raise dot.Invalid('active migration source basis differs from owned edition')
+    if request['to_basis_sha256'] == request['from_basis_sha256']:
+        raise dot.Invalid('active migration must change the provenance basis')
+    policy = request.get('migration')
+    dot.keys(policy, {'path', 'sha256'}, 'active migration policy reference')
+    if (not isinstance(policy['path'], str)
+            or not re.fullmatch(r'dot-inputs/[a-zA-Z0-9._/-]+\.json', policy['path'])
+            or '..' in Path(policy['path']).parts
+            or not isinstance(policy['sha256'], str)
+            or not re.fullmatch('[0-9a-f]{64}', policy['sha256'])):
+        raise dot.Invalid('active migration requires a hashed policy input')
+    return request
+
+
+def active_migration_policy(root, state, request):
+    """Check target provenance and the hashed policy even during preparation."""
+    from .dot_transport import input_file
+    from .dot_recovery import validate_active_policy
+    active_migration_request(state, request)
+    policy_path = input_file(Path(root), request['migration'])
+    if policy_path.stat().st_size > 1_048_576:
+        raise dot.Invalid('active migration policy exceeds one MiB')
+    policy = validate_active_policy(dot.read_json(policy_path))
+    expected = {
+        'from_basis_sha256': request['from_basis_sha256'],
+        'to_basis_sha256': request['to_basis_sha256'],
+        'from_bundle_sha256': request['bundle']['bundle_sha256'],
+        'from_checkpoint_bundle_sha256': request['checkpoint_source']['bundle_sha256'],
+        'from_checkpoint_sha256': request['checkpoint_sha256'],
+        'from_checkpoint_file_sha256': request['checkpoint_file_sha256'],
+    }
+    if any(policy.get(k) != v for k, v in expected.items()):
+        raise dot.Invalid('active migration policy differs from the fenced request')
+    if basis(root) != request['to_basis_sha256']:
+        raise dot.Invalid('active migration target provenance changed')
+    return policy
+
+
 def submit(state, owner_id, path, request, *, now=None):
     """Return (state, request) to commit together; the reference update is the CAS."""
     owned(state,owner_id,now)
@@ -106,6 +175,8 @@ def submit(state, owner_id, path, request, *, now=None):
     elif mode=='migrate':
         if state['bundle'] is not None:
             raise dot.Invalid('migration is only allowed as the first edition operation')
+    elif mode=='migrate_active':
+        active_migration_request(state, request)
     elif request.get('bundle') != state['bundle'] or state['bundle'] is None:
         raise dot.Invalid('request must consume the current edition bundle')
     updated['revision']+=1
@@ -125,26 +196,109 @@ def finish(state, owner_id, request, *, conclusion, receipt=None, artifact=None,
     No implicit timeout unlock: reconcile the actual job, even after lease expiry.
     """
     owned(state,owner_id,now,allow_expired=True)
+    mode=request.get('mode','evidence')
+    # A repeated, exact migration acknowledgment is a no-op. It must still have
+    # the verified receipt, artifact and immediately preceding ownership fence.
+    if (mode == 'migrate_active' and state['pending'] is None and conclusion == 'success'
+            and state['bundle'] == artifact and state['basis_sha256'] == request.get('to_basis_sha256')
+            and request.get('edition') == {'edition_id': state['edition_id'],
+                'owner_id': state['owner_id'], 'revision': state['revision'] - 1}):
+        verify_active_completion(state, request, receipt, artifact)
+        return copy.deepcopy(state)
     if state['pending'] is None or state['pending']['sha256'] != dot.digest(request):
         raise dot.Invalid('completion does not match the pending request')
     if conclusion not in {'success','failure','cancelled','timed_out'}:
         raise dot.Invalid('request is not terminal')
     updated=copy.deepcopy(state);updated['revision']+=1;updated['pending']=None
-    mode=request.get('mode','evidence')
+    if mode == 'migrate_active':
+        active_migration_request(state, request)
+        if request.get('edition') != {k: state[k] for k in ('edition_id', 'owner_id', 'revision')}:
+            raise dot.Invalid('stale active migration completion fence')
     if conclusion=='success':
-        if mode in {'export','enrich','migrate','evidence'}:
+        if mode in {'export','enrich','migrate','migrate_active','evidence'}:
             if not isinstance(receipt,dict) or receipt.get('request_sha256')!=dot.digest(request):
                 raise dot.Invalid('missing exact successful request receipt')
             from .dot_transport import artifact_reference
             artifact_reference(artifact)
             if receipt.get('bundle_sha256')!=artifact['bundle_sha256'] or receipt.get('published') is not False:
                 raise dot.Invalid('completion artifact does not match receipt')
+            if mode == 'migrate_active':
+                verify_active_completion(state, request, receipt, artifact)
+                updated['basis_sha256'] = request['to_basis_sha256']
             updated['bundle']=copy.deepcopy(artifact);updated['results']=None
         elif mode=='publish':
             if not deployed:
                 raise dot.Invalid('publication remains pending until deployment is verified')
             updated['status']='complete'
     return validate(updated)
+
+
+def verify_active_completion(state, request, receipt, artifact):
+    """Independently bind acknowledgment to the exact successful migration audit.
+
+    The caller obtains the terminal run and immutable artifact from GitHub, as
+    for other finish operations. The receipt cannot authorize another migration.
+    """
+    from .dot_transport import artifact_reference
+    artifact_reference(artifact)
+    commit = receipt.get('request_commit') if isinstance(receipt, dict) else None
+    if (not isinstance(receipt, dict) or receipt.get('mode') != 'migrate_active'
+            or receipt.get('request_sha256') != dot.digest(request)
+            or receipt.get('bundle_sha256') != artifact['bundle_sha256']
+            or receipt.get('published') is not False
+            or receipt.get('policy_file_sha256') != request['migration']['sha256']
+            or receipt.get('source_bundle') != request['bundle']
+            or receipt.get('checkpoint_source') != request['checkpoint_source']
+            or receipt.get('edition') != request['edition']
+            or receipt.get('run_id') != request.get('run_id')
+            or receipt.get('base_commit') != request.get('base_commit')
+            or not isinstance(commit, str) or not re.fullmatch('[0-9a-f]{40}', commit)
+            or artifact['artifact_name'] != f'dot-handoff-{commit}'
+            or ('artifact_run_id' in receipt and receipt['artifact_run_id'] != artifact['artifact_run_id'])):
+        raise dot.Invalid('active migration completion receipt mismatch')
+    migration = receipt.get('migration_receipt')
+    if (not isinstance(migration, dict)
+            or type(migration.get('schema_version')) is not int
+            or receipt.get('migration_receipt_sha256') != dot.digest(migration)):
+        raise dot.Invalid('active migration audit receipt hash mismatch')
+    encoded_policy = receipt.get('policy_file_base64')
+    if not isinstance(encoded_policy, str) or len(encoded_policy) > 1_400_000:
+        raise dot.Invalid('active migration completion requires bounded exact policy bytes')
+    try:
+        policy_bytes = base64.b64decode(encoded_policy, validate=True)
+        if len(policy_bytes) > 1_048_576:
+            raise dot.Invalid('active migration policy exceeds one MiB')
+        policy = json.loads(policy_bytes.decode('utf-8'), object_pairs_hook=dot._pairs,
+                            parse_constant=lambda value: (_ for _ in ()).throw(dot.Invalid(value)))
+    except (ValueError, TypeError, UnicodeError) as error:
+        raise dot.Invalid('invalid exact migration policy bytes') from error
+    from .dot_recovery import validate_active_policy
+    validate_active_policy(policy)
+    if (dot.bytehash(policy_bytes) != request['migration']['sha256']
+            or migration.get('policy_sha256') != dot.digest(policy)
+            or migration.get('changes') != policy['changes']
+            or migration.get('author_edits') != policy['author_edits']
+            or migration.get('invalidated_parts') != sorted(policy['invalidate_parts'])):
+        raise dot.Invalid('active migration completion policy/audit mismatch')
+    expected = {
+        'schema_version': 1, 'kind': 'author_identity_v1',
+        'request_sha256': dot.digest(request),
+        'from_basis_sha256': request['from_basis_sha256'],
+        'to_basis_sha256': request['to_basis_sha256'],
+        'from_bundle_sha256': request['bundle']['bundle_sha256'],
+        'from_checkpoint_bundle_sha256': request['checkpoint_source']['bundle_sha256'],
+        'from_checkpoint_sha256': request['checkpoint_sha256'],
+        'from_checkpoint_file_sha256': request['checkpoint_file_sha256'],
+    }
+    if any(migration.get(k) != v for k, v in expected.items()):
+        raise dot.Invalid('active migration audit provenance mismatch')
+    if any(policy.get(k) != v for k, v in expected.items() if k != 'request_sha256'):
+        raise dot.Invalid('active migration completion policy provenance mismatch')
+    for name in ('anchor', 'days', 'deadline_at', 'lease_until'):
+        if receipt.get(name) != state[name]:
+            raise dot.Invalid('active migration completion changed edition window/lease')
+    if artifact['bundle_sha256'] == request['bundle']['bundle_sha256']:
+        raise dot.Invalid('active migration did not produce a new bundle')
 
 
 def abandon(state, owner_id, *, now=None):
@@ -165,7 +319,11 @@ def require_request(root, request, path, *, live=False, now=None, check_basis=Tr
     name=str(Path(path).resolve().relative_to(root))
     if state['pending'] != {'path':name,'sha256':dot.digest(request)}:
         raise dot.Invalid('request does not own the pending edition operation')
-    if check_basis and basis(root)!=state['basis_sha256']:
+    if request.get('mode') == 'migrate_active':
+        # A migration is the only mode allowed to run the reviewed new checkout
+        # while the owned state remains bound to the old durable bundle.
+        active_migration_policy(root, state, request)
+    elif check_basis and basis(root)!=state['basis_sha256']:
         raise dot.Invalid('edition provenance changed')
     if request.get('mode')=='export' and request.get('resume')!=state['bundle']:
         raise dot.Invalid('export must resume the current edition bundle')

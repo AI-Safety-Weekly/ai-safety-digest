@@ -24,11 +24,11 @@ def emit(root, out):
     results = dot.template(bundle)
     results['decisions'][0] = {
         'id':paper.dedupe_key, 'input_sha256':bundle['candidates'][0]['input_sha256'],
-        'status':'complete',
+        'status':'complete', 'continuity':[],
         'classification':{'relevance':'low', 'safety_areas':['evals'],
                           'summary':'Synthetic transport test only; this is not a research finding.',
                           'rationale':'Checks data transport and rendering without inference.',
-                          'capability':False, 'breakthrough':False, 'content_type':'other'},
+                          'capability':False, 'breakthrough':False, 'content_type':'other', 'key_points':[]},
         'evidence':[{'source':'abstract', 'quote':abstract}]}
     results['summaries']['off_lane'] = {'themes':[{'label':'Synthetic transport test',
         'summary':'Verifies the unpublished staging path; not research.', 'member_ids':[paper.dedupe_key]}]}

@@ -26,11 +26,11 @@ from .models import Paper, Classification, ClassifiedPaper, FieldSummary
 from .prompts import SYSTEM_PROMPT, _user_message
 from . import feedback_loader, feedback_prompt, report, site_builder, state_store
 
-VERSION = 1
+VERSION = 2
 AREAS = {'alignment', 'interpretability', 'evals', 'governance', 'robustness',
          'misuse', 'capability_evals', 'multi_agent', 'other'}
 CLASS_FIELDS = {'relevance', 'safety_areas', 'summary', 'rationale', 'breakthrough',
-                'capability', 'content_type'}
+                'capability', 'content_type', 'key_points'}
 
 
 class Invalid(ValueError):
@@ -420,6 +420,11 @@ def validate_classification(c):
         raise Invalid('duplicate safety area')
     text(c['summary'], 'summary', 1000)
     text(c['rationale'], 'rationale', 3000)
+    points = c['key_points']
+    if not isinstance(points, list) or len(points) > 5:
+        raise Invalid('key points must be an explicit list of at most five points')
+    for point in points:
+        text(point, 'key point', 1000)
 
 
 def listed(c):
@@ -450,7 +455,7 @@ def validate_results(bundle, results, *, final=False):
             keys(d, {'id', 'input_sha256', 'status', 'reason'}, 'unresolved decision')
             text(d['reason'], 'unresolved reason', 3000)
             continue
-        keys(d, {'id', 'input_sha256', 'status', 'classification', 'evidence'}, 'completed decision')
+        keys(d, {'id', 'input_sha256', 'status', 'classification', 'evidence', 'continuity'}, 'completed decision')
         if d['status'] != 'complete':
             raise Invalid('unknown decision status')
         c = d['classification']
@@ -459,6 +464,9 @@ def validate_results(bundle, results, *, final=False):
         if not isinstance(evidence, list) or not 1 <= len(evidence) <= 10:
             raise Invalid('completed decisions require 1-10 exact evidence excerpts')
         candidate = candidates[ident]
+        validate_continuity(bundle, d, candidate)
+        if c['key_points'] and candidate['body']['status'] != 'available':
+            raise Invalid('key points require frozen full text')
         substantive = False
         read_body = False
         for e in evidence:
@@ -496,6 +504,59 @@ def validate_results(bundle, results, *, final=False):
                          not d['classification']['breakthrough'])}
             validate_summary(results['summaries'][group], eligible)
     return decisions
+
+
+def featured_history(bundle):
+    """Derive the production 250-title history from frozen state, never a live DB."""
+    week = state_store.week_tag(utc(bundle['run_at']))
+    rows = [r for r in bundle['state_rows']
+            if r[5] in {'high', 'medium'} and r[1] < week and r[3]]
+    rows.sort(key=lambda r: r[3])
+    rows.sort(key=lambda r: r[1], reverse=True)
+    return {r[0]: r for r in rows[:250]}
+
+
+def validate_continuity(bundle, decision, candidate):
+    """Each link needs a real prior featured ID and verbatim archived evidence.
+
+    Empty links explicitly record no specific relationship. Shared topic alone
+    is insufficient: editorial reviewers must establish a direct follow-up,
+    response, or extension using current and archived evidence.
+    """
+    links = decision['continuity']
+    if not isinstance(links, list) or len(links) > 2:
+        raise Invalid('continuity requires an explicit list of at most two links')
+    if links and not listed(decision['classification']):
+        raise Invalid('continuity is only for listed candidates')
+    history = featured_history(bundle)
+    seen = set()
+    for link in links:
+        keys(link, {'prior_id', 'relation', 'prior_quote', 'current_quote'}, 'continuity link')
+        ident = link['prior_id']
+        if not isinstance(ident, str) or ident not in history or ident in seen or ident == candidate['id']:
+            raise Invalid('continuity must reference a unique prior featured ID')
+        seen.add(ident)
+        relation = text(link['relation'], 'continuity relation', 120)
+        if len(relation.split()) > 8:
+            raise Invalid('continuity relation must have at most eight words')
+        row = history[ident]
+        if not re.fullmatch(r'\d{4}-W\d{2}', row[1]):
+            raise Invalid('invalid prior week')
+        encoded = bundle['files'].get(f'docs/digest-{row[1]}.md')
+        quote = text(link['prior_quote'], 'prior evidence', 1000)
+        archive = base64.b64decode(encoded).decode() if encoded else ''
+        # Bind evidence to the referenced entry, not an unrelated article in that week.
+        sections = re.split(r'(?m)(?=^#{1,3} )', archive)
+        title_markers = (f'[{row[3]}](', f'[{plain(row[3])}](')
+        entries = [section for section in sections
+                   if section.startswith('### ') and
+                   any(marker in section.split('\n', 1)[0] for marker in title_markers)]
+        if len(quote) < 20 or not any(quote in entry for entry in entries):
+            raise Invalid('continuity requires verbatim frozen prior-entry evidence')
+        current_quote = text(link['current_quote'], 'current continuity evidence', 1000)
+        if len(current_quote) < 20 or not any(current_quote in source for source in
+                (candidate['paper']['abstract'], candidate['body']['text'])):
+            raise Invalid('continuity requires verbatim current source evidence')
 
 
 def validate_for_publication(bundle, results):
@@ -620,6 +681,7 @@ def stage_import(root, bundle, results, destination):
             p.title, p.authors, p.url = plain(p.title), [plain(a) for a in p.authors], safe_url(p.url)
             raw = copy.deepcopy(decisions[candidate['id']]['classification'])
             raw['summary'], raw['rationale'] = plain(raw['summary']), plain(raw['rationale'])
+            raw['key_points'] = [plain(point) for point in raw['key_points']]
             classified.append((candidate['id'], ClassifiedPaper(p, Classification(**raw))))
         order = {'high': 0, 'medium': 1, 'low': 2, 'off_topic': 3}
         classified.sort(key=lambda x: (order[x[1].classification.relevance],
@@ -635,9 +697,17 @@ def stage_import(root, bundle, results, destination):
                                 len(ids), [[ids.index(i) for i in t['member_ids']] for t in s['themes']])
         run_at = utc(bundle['run_at'])
         week = state_store.week_tag(run_at)
+        history = featured_history(bundle)
+        continuity = {}
+        for ident, cp in classified:
+            continuity[cp.paper.url] = [
+                {'prior_title': plain(history[link['prior_id']][3]),
+                 'prior_week': history[link['prior_id']][1], 'relation': plain(link['relation'])}
+                for link in decisions[ident]['continuity']]
         report.write_markdown([cp for _, cp in classified],
                               staging / 'docs' / f'digest-{week}.md', run_at,
-                              medium_overview=brief('medium'), field_summary=brief('off_lane'))
+                              medium_overview=brief('medium'), field_summary=brief('off_lane'),
+                              continuity=continuity)
         site_builder.build_index(staging / 'docs', run_at=run_at, curator='dot')
         # Only after both renderers succeed, create an independent transactional state copy.
         with sqlite3.connect(staging / 'state.db') as conn:

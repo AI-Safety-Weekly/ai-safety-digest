@@ -240,6 +240,29 @@ _GEMINI_RESPONSE_SCHEMA = {
     "required": ["relevance", "safety_areas", "breakthrough", "capability", "content_type", "summary", "rationale"],
 }
 
+# Deep-read variant: same fields plus key_points. Only the deep-read pass uses
+# it — bullet-level substance requires the full text, and asking pass 1 for it
+# would spend output tokens on ~900 papers that are mostly never listed.
+_GEMINI_RESPONSE_SCHEMA_DEEP = {
+    **_GEMINI_RESPONSE_SCHEMA,
+    "properties": {
+        **_GEMINI_RESPONSE_SCHEMA["properties"],
+        "key_points": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": _GEMINI_RESPONSE_SCHEMA["required"] + ["key_points"],
+}
+
+# Appended to the system prompt for the deep-read pass only (it has its own
+# model-bound prompt cache, so diverging from pass 1's prompt costs nothing).
+DEEP_READ_ADDENDUM = """\
+
+KEY POINTS (key_points) — because you have the FULL TEXT, also return 3–5
+crisp bullets a reader can absorb instead of opening the item: the concrete
+claims, findings, numbers, and mechanisms of THIS work. Each bullet is one
+self-contained sentence stating a result or argument (never "the paper
+discusses X"). Order them most-important-first. If the text is too thin to
+support real bullets, return fewer — never pad."""
+
 
 # Retry backoff (seconds) for transient Gemini errors (429/5xx/network).
 # 11 attempts, ~30 min cumulative — wide enough that exhausting it means a
@@ -478,7 +501,7 @@ def _gemini_classify_one(
     """
     gen_config: dict = {
         "responseMimeType": "application/json",
-        "responseSchema": _GEMINI_RESPONSE_SCHEMA,
+        "responseSchema": _GEMINI_RESPONSE_SCHEMA_DEEP if full_text else _GEMINI_RESPONSE_SCHEMA,
         "temperature": 0.1,
     }
     thinking = _thinking_config(stage)
@@ -513,6 +536,10 @@ def _classification_from_parsed(paper: Paper, parsed: dict) -> ClassifiedPaper:
             breakthrough=bool(parsed.get("breakthrough", False)),
             capability=bool(parsed.get("capability", False)),
             content_type=parsed.get("content_type") or default_content_type(paper.source),
+            key_points=[
+                s.strip() for s in parsed.get("key_points", [])
+                if isinstance(s, str) and s.strip()
+            ][:5],
         ),
     )
 
@@ -1006,6 +1033,114 @@ def summarize_papers(
     return FieldSummary(themes=themes, total=len(papers), groups=groups)
 
 
+# ── Cross-week continuity ("builds on …" links to prior featured work) ──────
+
+_CONTINUITY_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "links": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "item": {"type": "integer"},
+                    "prior_title": {"type": "string"},
+                    "relation": {"type": "string"},
+                },
+                "required": ["item", "prior_title", "relation"],
+            },
+        },
+    },
+    "required": ["links"],
+}
+
+_CONTINUITY_SYSTEM = """\
+You connect this week's featured AI-safety papers to work featured in earlier
+weeks of the same digest, so the reader sees an unfolding story instead of
+disconnected snapshots.
+
+You get (1) this week's items, each prefixed [n], and (2) prior featured
+titles, each tagged with its week. Return links ONLY where there is a clear,
+specific relationship a reader would care about: a direct follow-up, the same
+research line or benchmark, a response/rebuttal, or the same system/eval
+being extended. Shared topic area alone is NOT a link — most items have no
+link, and an empty list is the normal answer. At most 2 links per item.
+
+`prior_title` must be copied EXACTLY from the prior-titles list. `relation`
+is a tight phrase of at most 8 words, e.g. "extends the scheming-detection
+eval line" or "responds to this compute-governance argument"."""
+
+
+def link_continuity(
+    listed: list[ClassifiedPaper],
+    history: list[tuple[str, str]],
+    api_key: str | None = None,
+) -> dict[int, list[dict]]:
+    """Link this week's listed items to prior weeks' featured papers.
+
+    ``history`` is [(title, week_tag), ...] of high/medium papers from strictly
+    earlier weeks (state_store.featured_history). Returns {listed_index:
+    [{"prior_title", "prior_week", "relation"}, ...]} for the report to render
+    as "Builds on …" lines.
+
+    One call on the deep model. Hallucination guard: a returned prior_title
+    that doesn't exactly match a history title (case-insensitive) is dropped —
+    a fabricated thread is worse than no thread. Degrades to {} on any
+    failure; continuity must never abort or delay the digest.
+    """
+    if not listed or not history:
+        return {}
+    api_key = api_key or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        log.warning("link_continuity: GEMINI_API_KEY not set — skipping")
+        return {}
+
+    by_title = {t.strip().lower(): (t, w) for t, w in history}
+    new_lines = [
+        f"[{i}] {cp.paper.title} — {(cp.classification.summary or '')[:150]}"
+        for i, cp in enumerate(listed)
+    ]
+    old_lines = [f"- ({w}) {t}" for t, w in history]
+    user_text = (
+        "THIS WEEK'S ITEMS:\n" + "\n".join(new_lines)
+        + "\n\nPRIOR FEATURED TITLES:\n" + "\n".join(old_lines)
+    )
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+        "systemInstruction": {"parts": [{"text": _CONTINUITY_SYSTEM}]},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": _CONTINUITY_RESPONSE_SCHEMA,
+            "temperature": 0.1,
+        },
+    }
+    try:
+        parsed = _gemini_post(
+            GEMINI_URL.format(model=GEMINI_MODEL_DEEP), api_key, body,
+            label=f"continuity over {len(listed)} items", model=GEMINI_MODEL_DEEP,
+        )
+    except Exception as e:  # noqa: BLE001 — continuity must never abort the run
+        log.warning("link_continuity: failed (%s) — skipping", e)
+        return {}
+
+    out: dict[int, list[dict]] = {}
+    for link in parsed.get("links", []):
+        idx = link.get("item")
+        hit = by_title.get(str(link.get("prior_title", "")).strip().lower())
+        if not isinstance(idx, int) or not (0 <= idx < len(listed)) or hit is None:
+            continue
+        title, week = hit
+        rows = out.setdefault(idx, [])
+        if len(rows) < 2 and not any(r["prior_title"] == title for r in rows):
+            rows.append({
+                "prior_title": title, "prior_week": week,
+                "relation": str(link.get("relation", "")).strip()[:80],
+            })
+    if out:
+        log.info("Continuity: linked %d item(s) to prior weeks", len(out))
+    return out
+
+
 # Tiers that get listed on the site → must be verified on full content.
 _LISTED_TIERS = {"high", "medium"}
 
@@ -1058,9 +1193,11 @@ def deep_read_and_reclassify(
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
     model = GEMINI_MODEL_DEEP
-    system_text = SYSTEM_PROMPT
+    # Deep reads also produce the "Key points" bullets (the pass with full
+    # text is the only one that can). Own model-bound cache → no cache cost.
+    system_text = SYSTEM_PROMPT + DEEP_READ_ADDENDUM
     if extra_system_text:
-        system_text = SYSTEM_PROMPT + "\n\n" + extra_system_text
+        system_text = system_text + "\n\n" + extra_system_text
 
     # Every shortlisted item (Zone 1/2), regardless of source, must be verified
     # on full content before it goes on the site — including arXiv papers (via

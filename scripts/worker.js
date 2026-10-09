@@ -1,10 +1,17 @@
 /*
- * Cloudflare Worker — feedback receiver for AI Safety Digest.
+ * Cloudflare Worker — feedback receiver + CI feed relay for AI Safety Digest.
  *
- * Accepts JSON POST from the static site, validates the shared password,
- * and appends the feedback entry to a weekly markdown file in the GitHub
- * repo via the Contents API. Monday's cron reads those files and feeds
- * them to the classifier.
+ * Feedback (POST /): accepts JSON POST from the static site, validates the
+ * shared password, and appends the feedback entry to a weekly markdown file
+ * in the GitHub repo via the Contents API. The weekly cron reads those files
+ * and feeds them to the classifier.
+ *
+ * Feed relay (GET /fetch?url=…): fetches an ALLOWLISTED public feed/article
+ * URL from Cloudflare's network and returns the body. Exists because
+ * Substack 403s GitHub Actions runner IPs, which silently starved the
+ * digest of thezvi + importai since June 2026. The allowlist below must
+ * stay in sync with lab_collector.PROXY_HOSTS — this is a relay for two
+ * known public feeds, NOT an open proxy.
  *
  * Required Worker environment variables (set as Secrets in the dashboard):
  *   PW_HASH    — SHA-256 hex of the shared feedback password
@@ -130,10 +137,41 @@ function buildEntry(payload, nowIso) {
   return lines.join("\n");
 }
 
+// Hosts the GET /fetch relay may touch. Keep in sync with
+// lab_collector.PROXY_HOSTS in the main repo.
+const RELAY_HOSTS = new Set(["thezvi.substack.com", "importai.substack.com"]);
+
+async function handleRelay(request) {
+  const target = new URL(request.url).searchParams.get("url") || "";
+  let parsed;
+  try {
+    parsed = new URL(target);
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid url param" }), { status: 400 });
+  }
+  if (parsed.protocol !== "https:" || !RELAY_HOSTS.has(parsed.hostname)) {
+    return new Response(JSON.stringify({ error: "Host not allowed" }), { status: 403 });
+  }
+  const upstream = await fetch(parsed.toString(), {
+    headers: { "User-Agent": "ai-safety-digest/1.0 (weekly research digest; low-volume)" },
+    cf: { cacheTtl: 600, cacheEverything: true },
+  });
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: {
+      "Content-Type": upstream.headers.get("Content-Type") || "application/octet-stream",
+      "Cache-Control": "public, max-age=600",
+    },
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(env) });
+    }
+    if (request.method === "GET" && new URL(request.url).pathname === "/fetch") {
+      return handleRelay(request);
     }
     if (request.method !== "POST") {
       return jsonResponse(env, 405, { error: "Method not allowed" });

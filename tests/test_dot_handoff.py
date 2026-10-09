@@ -61,7 +61,10 @@ def completed(b, relevance='low'):
             'relevance': relevance, 'safety_areas': ['evals'],
             'summary': 'Tests AI oversight under controlled conditions.',
             'rationale': 'The study measures oversight failures with limited generalization.',
-            'capability': False, 'breakthrough': False, 'content_type': 'paper'},
+            'capability': False, 'breakthrough': False, 'content_type': 'paper', 'key_points': (['Studies monitor evasion.',
+                'Tests independent verification.', 'Reports experimental limitations.']
+                if next(c for c in b['candidates'] if c['id'] == d['id'])['body']['status'] == 'available'
+                else [])}, continuity=[],
             evidence=[{'source': 'abstract', 'quote': ABSTRACT}])
     section = 'medium' if relevance == 'medium' else 'off_lane'
     if relevance in ('medium', 'low'):
@@ -392,7 +395,7 @@ def test_artifact_reference_and_sharded_full_results(root, tmp_path, monkeypatch
         dot.write_json(path, [d])
         refs.append({'path':str(path.relative_to(root)), 'sha256':dot.bytehash(path.read_bytes())})
     manifest = root / 'dot-inputs/manifest.json'
-    dot.write_json(manifest, {'schema_version':1, 'bundle_sha256':b['bundle_sha256'],
+    dot.write_json(manifest, {'schema_version':dot.VERSION, 'bundle_sha256':b['bundle_sha256'],
                              'decision_shards':refs, 'summaries':r['summaries']})
     spec = {'manifest':{'path':'dot-inputs/manifest.json', 'sha256':dot.bytehash(manifest.read_bytes())}}
     assert transport.load_results(root, spec) == r

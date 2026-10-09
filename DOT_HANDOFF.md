@@ -126,12 +126,11 @@ retained and are not an exhaustive crawl guarantee. The 12,000-character body
 limit is inherited. Retries of failed body retrieval need a new enrichment policy
 before claiming unattended recovery of that failure class.
 
-Before any cutover, reconcile unmerged PR #15 (`digest-enhancements`, b2cecf7c):
-This branch includes the verified Apollo source fix only; Substack relay fixes,
-key-point folds and cross-week continuity remain to be reconciled. Its continuity path calls Gemini and must instead use frozen prior
-history and dot reasoning. Its newer PLAN records a Sept 30 Worker deployment;
-verify the live endpoint before proposing another. This pilot authorizes neither
-merging that PR nor redeploying its Worker.
+PR #15 merged to main on October 9 as `92fcabbb52b9b4aa37a4244e0ec98f8dfef0ccf5`.
+The reconciliation includes source rescue, key-point folds and continuity.
+The legacy Gemini path remains intact until cutover; the dot import path uses
+frozen editorial continuity decisions and never calls that Gemini function.
+No Worker deployment is part of this reconciliation.
 
 Future publication must serialize against the weekly publisher, recheck current
 production state immediately before an atomic docs/state/receipt commit, strict-
@@ -196,10 +195,8 @@ thin evidence without first promoting an unresolved/low candidate. Requested
 items reset for review; unchanged completed decisions remain usable. Cumulative
 records preserve measured body hashes, status and any supplied truncation fields.
 
-The replacement branch applies only PR #15's verified Apollo source fix: the old
-sitemap index returned 404, while the flat sitemap returned 200 on October 2.
-Research-path regex selection excludes team/press pages. Other PR features remain
-pending reconciliation; no PR merge or Worker deployment is implied. Lab feeds
+PR #15's source changes are reconciled. The feed relay retains the migration's
+fixed endpoint/host allowlist. Lab feeds
 now checkpoint individually, so one failed feed does not recrawl successful feeds.
 Repeated 429 responses increase client backoff up to one hour while respecting
 any later Retry-After time. Deferred authors remain explicitly pending.
@@ -367,3 +364,37 @@ to `dot_handoff.py` and `dot_recovery.py`. It requires unchanged effective feed
 routing and an empty `invalidate_parts` list, preserving every saved source part,
 including incomplete parts and their backoff. Use the verified terminal artifact
 as its source; the earlier feed-routing migration manifest cannot be reused.
+
+
+## October 9 reconciliation: schema 2, production still unchanged
+
+Bundle/results schema is now 2; request envelopes remain schema 1. Result
+manifests use the results schema version. Old schema-1 bundles cannot be
+silently upgraded or published: code, archive and state have changed. Export a
+fresh bundle on reconciled code and the current production history.
+
+Every completed decision now includes `classification.key_points` (an explicit
+array) and `continuity` (an explicit array, empty when no specific link is
+supported). Write 3–5 concrete key points from available full text when evidence
+supports them; fewer, including none, is preferable to padding thin material.
+Never write key points from an abstract-only read. Cite the available full text
+in the decision's evidence and review every claim for support.
+
+Continuity links have exactly `prior_id`, `relation`, `prior_quote` and
+`current_quote`. Use the stable prior ID from `featured_history(bundle)`, which
+reproduces the 250 newest high/medium titles from frozen pre-run state. Each link
+must be a specific follow-up, response, or extension, not shared subject matter.
+At most two distinct prior IDs per listed item; relation is at most eight words.
+The verbatim prior quote must be in that title's entry in the frozen prior-week
+Markdown, and the current quote in this candidate's abstract or full text.
+Quotes are evidence bindings, not proof that the asserted relationship is sound:
+dot must perform the semantic review. Rendered links use validated prior titles
+and weeks; no model call occurs during import.
+
+Artifact 11380821606 / run 37389951918 was downloaded and inspected October 9.
+Its anchor is `2026-10-02T21:07:25+00:00`, bundle hash
+`34ec6576c5b9950c241216d02202348f0358d36f4f7ba6bbe02dbec6bfcba8d2`.
+All 1,059 decisions remain unresolved. Main's W40 archive/index/state have since
+changed. This artifact proves completed collection only, not a real edition.
+The real review, current strict build, cloud recurring handoff, publication and
+Pages verification remain release gates. No cutover flags were set.

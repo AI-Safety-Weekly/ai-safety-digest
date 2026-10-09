@@ -1,0 +1,10 @@
+# Wrangler config for the feedback + feed-relay Worker (scripts/worker.js).
+# Deploy with: npx wrangler deploy   (one-time `npx wrangler login` first).
+#
+# keep_vars: the Worker's env (PW_HASH / GH_TOKEN secrets, any dashboard
+# vars) lives in Cloudflare, not in this file — keep_vars stops a deploy
+# from wiping dashboard-set plain-text vars. Secrets persist regardless.
+name = "ai-safety-digest-feedback"
+main = "scripts/worker.js"
+compatibility_date = "2026-09-01"
+keep_vars = true

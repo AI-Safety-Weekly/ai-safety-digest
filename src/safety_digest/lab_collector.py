@@ -89,7 +89,6 @@ SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 # all pages with today's lastmod after a redesign).
 SITEMAP_PAGE_CAP = 25
 
-
 # Existing public application integration from PR15; no Worker deployment here.
 PROXY_HOSTS = {"thezvi.substack.com", "importai.substack.com"}
 PUBLIC_FEED_PROXY = "https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev"
@@ -314,9 +313,15 @@ def _papers_from_sitemap_xml(
     """Parse a single sitemap XML doc, filter <url> entries, fetch each page.
 
     Shared core between `_from_sitemap` (one sitemap) and `_from_sitemap_index`
-    (many sub-sitemaps). `url_prefix` is optional: when set, only URLs starting
-    with it pass; when unset, all URLs pass (relying on the caller having
-    selected an already-topic-segregated sub-sitemap).
+    (many sub-sitemaps). Two optional URL filters:
+      - `url_prefix`  — only URLs starting with it pass (and not the bare
+        prefix itself);
+      - `url_pattern` — a regex (re.search); use when one flat sitemap mixes
+        several content paths (e.g. Apollo's post-2026-redesign sitemap.xml,
+        where /blog/, /science/ and /governance/ posts sit beside /team/ and
+        /press/ pages that no single prefix can select).
+    When neither is set, all URLs pass (the caller picked an already-topic-
+    segregated sub-sitemap).
     """
     root = ET.fromstring(content)
     prefix = src.get("url_prefix") or ""

@@ -22,7 +22,9 @@ BODY = 'Full research article. ' + ABSTRACT + ' Important limitations apply to t
 
 
 @pytest.fixture
-def root(tmp_path):
+def root(tmp_path, monkeypatch):
+    # Unit fixtures are local repositories, not the surrounding hosted workflow.
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
     root = tmp_path / 'repo'
     root.mkdir()
     subprocess.run(['git', 'init', '-q', str(root)], check=True)
@@ -50,7 +52,7 @@ def paper(n=1):
 
 def bundle(root, n=2):
     return dot.make_bundle(root, [paper(i) for i in range(1, n + 1)], NOW, 7,
-                           {'complete': True, 'warnings': [], 'pending_s2_authors': [],
+                           {'complete': True, 'warnings': [], 'pending_s2_authors': [], 's2_authors_without_cached_ids': [],
                             'window_start': (NOW - timedelta(days=7)).isoformat(),
                             'window_end': NOW.isoformat()})
 

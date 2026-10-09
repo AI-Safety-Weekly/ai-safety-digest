@@ -263,6 +263,11 @@ def validate_collection_health(bundle, *, publication=False):
     pending = health.get('pending_s2_authors', [])
     if not isinstance(pending, list) or pending:
         raise Invalid('collection has pending sources')
+    missing = health.get('s2_authors_without_cached_ids', [])
+    if not isinstance(missing, list) or missing:
+        raise Invalid('collection has unresolved Semantic Scholar author identities')
+    if publication and 's2_authors_without_cached_ids' not in health:
+        raise Invalid('collection must explicitly account for uncached author identities')
     anchor = utc(bundle['run_at'])
     expected = {'window_end': anchor, 'window_start': anchor - timedelta(days=bundle['days'])}
     for field, value in expected.items():

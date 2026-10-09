@@ -9,6 +9,7 @@ permissions:
 concurrency:
   group: dot-evidence-${{ github.ref }}
   cancel-in-progress: false
+  queue: max
 jobs:
   evidence:
     runs-on: ubuntu-latest

@@ -32,6 +32,7 @@ def test_enrichment_receipt_must_match_frozen_body(root, tmp_path, field, value)
 @pytest.mark.parametrize('field,value', [
     ('warnings', [{'kind': 'terminal_failure', 'source': 'arxiv'}]),
     ('pending_s2_authors', ['Missing Author']),
+    ('s2_authors_without_cached_ids', ['Unknown Author']),
     ('window_end', '2025-01-01T00:00:00+00:00'),
 ])
 def test_contradictory_complete_collection_cannot_publish(root, field, value):

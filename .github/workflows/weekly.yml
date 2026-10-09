@@ -38,6 +38,7 @@ permissions:
 concurrency:
   group: weekly-digest
   cancel-in-progress: false
+  queue: max
 
 jobs:
   digest:

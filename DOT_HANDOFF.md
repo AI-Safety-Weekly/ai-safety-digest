@@ -405,3 +405,33 @@ on reconciled code via request `7acfa0560e70aad7bb6c5ff624131fb1c573689d`,
 [run 37989241607](https://github.com/AI-Safety-Weekly/ai-safety-digest/actions/runs/37989241607).
 Its anchor is `2026-10-09T20:46:27+00:00`; source completion and editorial
 acceptance must be checked in its eventual artifact, not inferred from launch.
+
+## Fixed ownership gates and preserved partial collection
+
+The corrected gates require exact pre-push request bases, consistent collection
+health/window metadata, and matching enrichment attempt records. Hosted real
+requests also require the atomic `.dot/active-edition.json` protocol in the cloud
+runbook. The owner fence is checked against the live branch, at the publication
+push, during replay, and before deployment. Sunday 18:00 UTC is the hard deadline.
+
+Run 37989241607 ended at its 1,200-second budget with 654 candidates, 246 saved
+parts (all complete), and 54 unprocessed cached S2 authors. Its old bundle is
+`66d75e8e49b65dbfe771c0ab052bd4807c5eaeee7afea67bfb64183bdef87bd4`.
+Checkpoint file-byte hash:
+`8d6883681ab6cda3a0c3626ee115e07c966337c8ba729c7ef611d89205385e9e`.
+Embedded checkpoint payload hash (the migration policy field):
+`cba6dd2b4d785b1258ace1bbbb7df0add3503f1907d0cefd4373dda42a1b1f38`.
+
+A local, network-free test of `validation_gates_v1` on this actual artifact
+preserved every checkpoint part and every candidate/input, suppression, state,
+rubric, forced ID and window. Their combined identity hash is
+`f17952cebfabe466a633d3725cefaf7689fd91fb75e785709cd22312816c4ab4`.
+The hosted migration must still produce and verify its own new artifact before
+resume. No collection is restarted merely by releasing this code.
+
+The 11 uncached tracked identities remain a separate coverage blocker. October 9
+public unauthenticated S2 searches returned no candidates for Carl Henrik Rolf
+Åslund, David "davidad" Duvenaud, Florian Droner, Gavan Muler, Haddie Harland,
+Philip Isola, Seb Farquhar, Shai Shalev-Schwartz and Tiago Vhana. Cynthia Xin Chen
+returned three ambiguous candidates; Roman Yampolsky returned HTTP 429 and that
+search pass stopped. No guessed identity was written into configuration.

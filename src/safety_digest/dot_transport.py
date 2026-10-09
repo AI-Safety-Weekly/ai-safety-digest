@@ -68,10 +68,11 @@ def run(root, request_path, out, artifact_dir=None):
     if root == out or root in out.parents or out.exists():
         raise dot.Invalid('output must be a new directory outside checkout')
     req = dot.read_json(request_path)
-    common = {'schema_version', 'run_id', 'mode', 'base_commit'}
+    common = {'schema_version', 'run_id', 'mode', 'base_commit'} | ({'edition'} if 'edition' in req else set())
     mode = req.get('mode')
     extra = {'export': {'until', 'days'}, 'feed_probe': {'until','days','sources'}, 'smoke': set(),
-             'enrich': {'bundle', 'results'}, 'validate': {'bundle', 'results'}}
+             'enrich': {'bundle', 'results'}, 'validate': {'bundle', 'results'},
+             'migrate': {'bundle', 'migration'}}
     if mode not in extra:
         raise dot.Invalid('only smoke/feed_probe/export/enrich/validate allowed; publication is disabled')
     fields = common | extra[mode]
@@ -87,10 +88,14 @@ def run(root, request_path, out, artifact_dir=None):
         raise dot.Invalid('full base commit required')
     subprocess.run(['git', '-C', str(root), 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
     changed = git(root, 'diff', '--name-only', base, 'HEAD').splitlines()
-    if any(not p.startswith(('dot-requests/', 'dot-inputs/')) for p in changed):
+    if any(p != '.dot/active-edition.json' and not p.startswith(('dot-requests/', 'dot-inputs/')) for p in changed):
         raise dot.Invalid('code/config/state changed since request base')
     if git(root, 'status', '--porcelain', '--untracked-files=no'):
         raise dot.Invalid('tracked checkout must be clean')
+    from . import dot_edition
+    edition = None
+    if mode not in {'smoke','feed_probe'} and (os.environ.get('GITHUB_ACTIONS') == 'true' or 'edition' in req):
+        edition = dot_edition.require_request(root, req, request_path, live=os.environ.get('GITHUB_ACTIONS') == 'true')
     out.mkdir(parents=True)
     metadata = {'schema_version': 1, 'run_id': req['run_id'], 'mode': mode,
                 'request_sha256': dot.digest(req), 'request_commit': git(root, 'rev-parse', 'HEAD'),
@@ -118,6 +123,25 @@ def run(root, request_path, out, artifact_dir=None):
             'feed_transport':lab_collector.feed_transport(),'warnings':handler.events,
             'candidates':[dot.make_candidate(p) for p in papers]})
         metadata.update(feed_probe_complete=complete,candidate_count=len(papers))
+    elif mode == 'migrate':
+        from . import dot_recovery
+        spec = artifact_reference(req['bundle'])
+        previous = dot.load_bundle(Path(artifact_dir) / 'bundle.json')
+        if edition:
+            dot_edition.require_bundle(edition, previous)
+        if previous['bundle_sha256'] != spec['bundle_sha256']:
+            raise dot.Invalid('migration artifact hash mismatch')
+        checkpoints = out / 'checkpoints'
+        checkpoints.mkdir()
+        shutil.copyfile(Path(artifact_dir) / 'checkpoints/collection-checkpoint.json',
+                        checkpoints / 'collection-checkpoint.json')
+        policy = dot.read_json(input_file(root, req['migration']))
+        receipt = dot_recovery.migrate(root, previous, checkpoints, policy)
+        bundle = dot_recovery.rebind_bundle(root, previous, receipt)
+        dot.write_json(out / 'bundle.json', bundle)
+        dot.write_json(out / 'results-template.json', dot.template(bundle))
+        metadata.update(candidate_count=len(bundle['candidates']), bundle_sha256=bundle['bundle_sha256'],
+                        collection_complete=bundle['collection']['complete'])
     elif mode == 'export':
         if type(req['days']) is not int or not 1 <= req['days'] <= 31:
             raise dot.Invalid('days must be 1-31')
@@ -159,6 +183,8 @@ def run(root, request_path, out, artifact_dir=None):
                 raise dot.Invalid('artifact bundle hash mismatch')
         else:
             bundle = dot.load_bundle(input_file(root, req['bundle']))
+        if edition:
+            dot_edition.require_bundle(edition, bundle)
         results = load_results(root, req['results'])
         if mode == 'enrich':
             ids = req.get('deep_read_ids', [])
@@ -204,6 +230,9 @@ def main():
         req = dot.read_json(request_path)
         if req.get('base_commit') != a.before:
             raise dot.Invalid('request base must equal the exact pre-push HEAD')
+        if req.get('mode') not in {'smoke','feed_probe'} and (os.environ.get('GITHUB_ACTIONS') == 'true' or 'edition' in req):
+            from . import dot_edition
+            dot_edition.require_request(a.root, req, request_path, live=os.environ.get('GITHUB_ACTIONS') == 'true')
         if a.prepare:
             spec = req.get('resume', req.get('bundle', {}))
             if isinstance(spec, dict) and 'artifact_run_id' in spec:

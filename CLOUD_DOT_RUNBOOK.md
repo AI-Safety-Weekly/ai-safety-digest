@@ -29,9 +29,12 @@ inference API to fill a missing capability. Escalate the exact missing step.
    Until cutover, use `dot-frozen-handoff`; after the code-only release and
    acceptance, use `main`. These are the workflow's two accepted branches.
    Read frozen code/config/feedback/archive/state; never rely on an old HEAD.
-2. Create one new `dot-requests/<unique-run-id>.json` on the existing branch.
+2. Claim the active edition using the CAS protocol below, then atomically commit
+   its pending state and one new `dot-requests/<unique-run-id>.json`.
    Request envelopes are schema 1. `base_commit` is the full HEAD immediately
-   before the request. Push the request separately from code/config changes.
+   before the request. Push the request separately from code/config changes. Real requests now require
+   the `edition` fence constructed by `dot_edition.submit`; a standalone
+   `create_file` call is no longer sufficient for export/enrich/validate.
 
 ```json
 {
@@ -184,3 +187,96 @@ Only after the complete cloud recurring loop and real deployment pass may
 `DOT_REPLACE_GEMINI=true` disable both legacy publisher and watchdog. A scheduled
 task existing, code-only CI, collection success, or synthetic staging is not a
 cutover gate. Keep PR #16 draft until required checks and review are satisfied.
+
+
+## Required ownership protocol
+
+Real hosted collection, migration, enrichment, evidence, validation, publication
+and deployment now require `.dot/active-edition.json`. The state is outside the
+frozen content fingerprint, but each operation checks its exact pending request,
+owner, revision, deadline and current GitHub copy. Missing, stale, expired or
+changed ownership fails closed. Owner IDs are public coordination identifiers,
+not new credentials; existing repository write authorization is the trust boundary.
+
+Use the pure functions in `src/safety_digest/dot_edition.py`, fetched at the
+fixed release commit, to construct state. A worker must have a unique owner ID.
+
+1. Read the branch HEAD **and tree at that SHA**, plus the lease at that SHA.
+   Compute `basis_sha256 = digest({'files': frozen_release_files,
+   'state': frozen_state_rows})`; after migration it is also derivable directly
+   from the new bundle. The release handoff supplies the expected value.
+2. `claim(previous, edition_id=..., owner_id=..., anchor=..., deadline_at=...,
+   lease_until=..., basis_sha256=...)` acquires or resumes the edition. Use the
+   anchored week's Sunday **18:00 UTC** deadline. For this acceptance run the
+   anchor remains October 9 20:46:27 UTC and deadline is October 11 18:00 UTC.
+   Prefer a lease through that deadline, so a long running job does not outlive
+   a short lease. A different owner cannot take an unexpired lease. Expiry does
+   not discard an active edition or a pending request.
+3. Commit the claim through GitHub `create_blob`, `create_tree` (base tree from
+   the observed HEAD), `create_commit` (parent exactly that HEAD), then
+   `update_ref(force=false, expected_sha=observed_HEAD)`. Never force-push.
+   Two competing claims have sibling commits; only the first can fast-forward.
+   On rejection, re-read state and re-evaluate ownership; never blindly retry.
+4. Build the request with `base_commit` equal to the latest observed HEAD.
+   `state, request = submit(state, owner_id, request_path, request)` adds the
+   revision fence and pending request hash. Commit **both files together** by
+   the same blob/tree/commit/non-force-ref sequence. Existing input shards can
+   be uploaded first; the request and pending state must be one atomic commit.
+5. Persist the returned commit SHA in the worker's durable progress. Find its
+   push run with the exact-head query above. Submit no second operation while
+   `pending` exists. Jobs re-read the live branch's lease. Publication rechecks
+   ownership before its push, on replay, and immediately before Pages deploy.
+6. Fetch and verify the actual terminal GitHub run and artifact/receipt before
+   calling `finish`. For data jobs, provide the matching receipt and artifact
+   reference; their bundle hashes and request hash must match. A successful
+   migration/export/enrichment/evidence acknowledgment stores the new bundle
+   and clears stale result references. Failed/cancelled/timed-out jobs retain
+   the last durable artifact. A publish acknowledgment requires verified Pages
+   deployment (`deployed=True`), not merely a commit receipt. `finish` is a pure
+   state transition, **not a substitute for querying GitHub**.
+7. Commit the acknowledgment with the same CAS protocol. After an uncertain
+   update, re-read the state before doing anything else. Do not repeat a
+   request whose pending state was already acknowledged. An interrupted worker
+   can be recovered by inspecting its saved pending request and actual job;
+   acknowledge that terminal outcome using the recorded owner, then claim the
+   expired idle lease with a new owner. Never unlock a still-running request.
+8. Keep the anchor, window, current bundle, results and provenance when resuming.
+   `abandon` is explicit, retains the record, and refuses pending requests.
+   Failed/complete editions cannot silently restart under the same ID or move
+   the anchor backwards. A new week is a new edition.
+
+The four participating workflow queues use `queue: max` plus
+`cancel-in-progress: false`; this prevents normal pending-job replacement but
+does not replace ownership across the model's review turns. The worker must
+follow the durable state protocol across scheduled invocations.
+
+## Explicit validation-gates migration
+
+`mode: migrate` is read-only, requires an owned edition with no existing bundle,
+and references the preserved collection artifact as `bundle` and an exact
+`migration` path/hash reference under `dot-inputs/`. It makes no source requests.
+The policy kind is `validation_gates_v1`, with the old canonical bundle hash,
+checkpoint **embedded payload hash**, exact before/after file byte hashes and
+an empty invalidation list. The embedded checkpoint hash is distinct from the
+SHA-256 of the checkpoint file bytes; use the former in `from_checkpoint_sha256`.
+
+Only dot_handoff.py, dot_transport.py, dot_recovery.py and the new dot_edition.py
+may differ. The migration also compares the collection/rubric AST outside the
+allowlisted validation functions and the unchanged collection/retry functions.
+Every config, source parser, prompt, archive and seen-state input stays exact.
+The receipt records every retained checkpoint-part hash and a hash over the
+unchanged candidate corpus, suppression list, state, rubric, forced IDs and
+window. The returned bundle has a new provenance binding and canonical hash;
+its candidate IDs, input hashes and health limitations are preserved.
+
+After verifying/acknowledging the migrated artifact, submit an `export` request
+with the original anchor/days and `resume` equal to the **new** current artifact.
+Successful saved parts are reused; only unfinished parts are fetched. Do not
+use the old artifact's hash with the new code or rewrite a binding by hand.
+
+The final source gate separately rejects nonempty
+`s2_authors_without_cached_ids`. The 11 missing identities in the current
+corpus are a coverage blocker even after all 54 pending cached authors finish.
+Resolve identities with supported public evidence; do not guess IDs or treat
+an empty author-search result as completed coverage. Adding verified IDs changes
+configuration and needs a separately reviewed provenance migration or export.

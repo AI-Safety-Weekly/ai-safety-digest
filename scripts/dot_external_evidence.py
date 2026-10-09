@@ -56,7 +56,7 @@ def main():
         if subprocess.run(['git','cat-file','-e',f'{args.before}:{paths[0]}'],capture_output=True).returncode==0:
             raise dot.Invalid('evidence requests are immutable')
         request=dot.read_json(root/paths[0])
-        dot.keys(request,{'schema_version','base_commit','bundle','results','previews'},'evidence request')
+        dot.keys(request,{'schema_version','base_commit','bundle','results','previews'} | ({'edition'} if 'edition' in request else set()),'evidence request')
         if type(request['schema_version']) is not int or request['schema_version']!=1:
             raise dot.Invalid('invalid evidence schema')
         base=request['base_commit']
@@ -64,9 +64,13 @@ def main():
             raise dot.Invalid('evidence base must equal the exact pre-push HEAD')
         if not isinstance(base,str) or not re.fullmatch('[0-9a-f]{40}',base):raise dot.Invalid('full base commit required')
         transport.git(root,'merge-base','--is-ancestor',base,'HEAD')
-        if any(not p.startswith(('dot-evidence-requests/','dot-inputs/')) for p in transport.git(root,'diff','--name-only',base,'HEAD').splitlines()):
+        if any(p != '.dot/active-edition.json' and not p.startswith(('dot-evidence-requests/','dot-inputs/')) for p in transport.git(root,'diff','--name-only',base,'HEAD').splitlines()):
             raise dot.Invalid('code/config/state changed since evidence base')
         if transport.git(root,'status','--porcelain','--untracked-files=no'):raise dot.Invalid('dirty evidence checkout')
+        edition=None
+        if os.environ.get('GITHUB_ACTIONS') == 'true' or 'edition' in request:
+            from safety_digest import dot_edition
+            edition=dot_edition.require_request(root,request,root/paths[0],live=os.environ.get('GITHUB_ACTIONS') == 'true')
         artifact=transport.artifact_reference(request['bundle'])
         if args.metadata:
             values={k:artifact[k] for k in ('artifact_run_id','artifact_name')}
@@ -77,6 +81,8 @@ def main():
         if args.out is None or args.out.resolve()==root or root in args.out.resolve().parents or args.out.exists():
             raise dot.Invalid('new output outside checkout required')
         original=dot.load_bundle(args.artifact_dir/'bundle.json')
+        if edition:
+            dot_edition.require_bundle(edition,original)
         if original['bundle_sha256']!=artifact['bundle_sha256']:raise dot.Invalid('artifact bundle mismatch')
         results=transport.load_results(root,request['results']);dot.validate_results(original,results)
         previews=dot.read_json(transport.input_file(root,request['previews']))

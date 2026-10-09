@@ -1,5 +1,6 @@
 """Bounded model-free collection with explicit checkpoint migration and retention."""
 import argparse
+import ast
 import base64
 import copy
 import json
@@ -18,6 +19,8 @@ MIGRATION_PATHS = {'docs/about.md','src/safety_digest/lab_collector.py','src/saf
                    'src/safety_digest/dot_checkpoint.py','src/safety_digest/dot_transport.py',
                    'src/safety_digest/dot_recovery.py'}
 INVALIDATED_FEEDS = {'lab:substack-zvi','lab:substack-import-ai'}
+GATE_PATHS = {'src/safety_digest/dot_handoff.py','src/safety_digest/dot_transport.py',
+              'src/safety_digest/dot_edition.py','src/safety_digest/dot_recovery.py'}
 RETENTION_PATHS = {'src/safety_digest/dot_handoff.py','src/safety_digest/dot_recovery.py'}
 
 
@@ -26,10 +29,11 @@ def migrate(root, previous, checkpoint_dir, policy):
     dot.validate_bundle(previous)
     dot.keys(policy, {'schema_version','kind','from_bundle_sha256','from_checkpoint_sha256',
                      'changes','invalidate_parts'}, 'migration policy')
-    if policy['schema_version'] != 1 or policy['kind'] not in {'feed_relay_and_bounded_retry_v1','checkpoint_retention_v1'}:
+    if policy['schema_version'] != 1 or policy['kind'] not in {'feed_relay_and_bounded_retry_v1','checkpoint_retention_v1','validation_gates_v1'}:
         raise dot.Invalid('unsupported checkpoint migration')
-    retention_only = policy['kind'] == 'checkpoint_retention_v1'
-    allowed_paths = RETENTION_PATHS if retention_only else MIGRATION_PATHS
+    gates_only = policy['kind'] == 'validation_gates_v1'
+    retention_only = policy['kind'] == 'checkpoint_retention_v1' or gates_only
+    allowed_paths = GATE_PATHS if gates_only else RETENTION_PATHS if retention_only else MIGRATION_PATHS
     invalidated = set() if retention_only else INVALIDATED_FEEDS
     if policy['from_bundle_sha256'] != previous['bundle_sha256']:
         raise dot.Invalid('migration source bundle mismatch')
@@ -51,6 +55,8 @@ def migrate(root, previous, checkpoint_dir, policy):
     changed={name for name in set(files)|set(previous['files']) if files.get(name)!=previous['files'].get(name)}
     if not changed or not changed<=allowed_paths or set(policy['changes'])!=changed:
         raise dot.Invalid('migration has unapproved code/config/rubric changes')
+    if gates_only:
+        verify_collection_identity(previous['files'], files)
     for name in changed:
         expected={'before':dot.bytehash(base64.b64decode(previous['files'][name])) if name in previous['files'] else None,
                   'after':dot.bytehash(base64.b64decode(files[name])) if name in files else None}
@@ -70,11 +76,51 @@ def migrate(root, previous, checkpoint_dir, policy):
     receipt={'schema_version':1,'kind':policy['kind'],'policy_sha256':dot.digest(policy),
              'from_bundle_sha256':previous['bundle_sha256'],'from_checkpoint_sha256':old['sha256'],
              'from_binding':old['binding'],'to_binding':binding,'changes':policy['changes'],
-             'justification':('Only checkpoint cancellation and offline retention orchestration change; all source parts and routing are preserved.' if retention_only else 'Only allowlisted feed routing, bounded checkpoint/retry orchestration, and approved About copy change; source parsers, author IDs, keywords, rubric, feedback, window and seen state remain unchanged.'),
+             'justification':('Only reviewed validation and ownership gates change; all collection functions, rubric, configuration, archive, state and source inputs remain identical.' if gates_only else 'Only checkpoint cancellation and offline retention orchestration change; all source parts and routing are preserved.' if retention_only else 'Only allowlisted feed routing, bounded checkpoint/retry orchestration, and approved About copy change; source parsers, author IDs, keywords, rubric, feedback, window and seen state remain unchanged.'),
+             'source_identity_sha256':dot.digest({k:previous[k] for k in ('run_at','days','system_prompt','state_rows','candidates','suppressed','forced_keys')}),
              'invalidated_parts':sorted(invalidated),'retained_parts':{
                  k:{'sha256':dot.digest(v),'complete':v['complete']} for k,v in retained.items()}}
     dot.write_json(checkpoint_dir/'migration-receipt.json',receipt)
     return receipt
+
+
+def verify_collection_identity(before, after):
+    """Byte-identical source inputs; only the reviewed validator AST may differ."""
+    validator_functions = {'validate_bundle','validate_results','validate_for_publication',
+                           'validate_enrichment_records','validate_collection_health'}
+    def normalized(encoded):
+        tree=ast.parse(base64.b64decode(encoded).decode())
+        tree.body=[n for n in tree.body if not
+                   (isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name in validator_functions)]
+        return ast.dump(tree,include_attributes=False)
+    name='src/safety_digest/dot_handoff.py'
+    if name not in before or name not in after or normalized(before[name]) != normalized(after[name]):
+        raise dot.Invalid('migration changed collection/rubric code beyond validation gates')
+    # All other existing source/config/archive files except the explicit orchestration
+    # allowlist were already checked byte-for-byte by migrate().
+    name='src/safety_digest/dot_recovery.py'
+    def functions(encoded):
+        return {n.name:ast.dump(n,include_attributes=False) for n in
+                ast.parse(base64.b64decode(encoded).decode()).body if isinstance(n,ast.FunctionDef)}
+    a,b=functions(before[name]),functions(after[name])
+    for name in ('run_child','retry_delay','collect','main'):
+        if a.get(name)!=b.get(name):
+            raise dot.Invalid('migration changed source retry/collection behavior')
+
+
+def rebind_bundle(root, previous, receipt):
+    if receipt['kind'] != 'validation_gates_v1' or receipt['from_bundle_sha256'] != previous['bundle_sha256']:
+        raise dot.Invalid('explicit validation-gates migration receipt required')
+    identity={k:previous[k] for k in ('run_at','days','system_prompt','state_rows','candidates','suppressed','forced_keys')}
+    if dot.digest(identity)!=receipt['source_identity_sha256']:
+        raise dot.Invalid('migration source identity mismatch')
+    result=copy.deepcopy(previous);result.pop('bundle_sha256')
+    result['parent_bundle_sha256']=previous['bundle_sha256']
+    result['files']=dot.provenance(root)
+    result['git_commit']=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+    result['collection']['checkpoint_binding']=receipt['to_binding']
+    result['collection']['provenance_migration']=copy.deepcopy(receipt)
+    return dot.validate_bundle(dot.seal(result))
 
 
 def run_child(command, deadline, cancelled, *, clock=time.monotonic):

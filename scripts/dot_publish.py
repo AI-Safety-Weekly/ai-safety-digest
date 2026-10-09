@@ -21,7 +21,7 @@ def git(root, *args, data=None, env=None, check=True):
 
 def request(root, path):
     value=dot.read_json(path)
-    dot.keys(value, {'schema_version','run_id','mode','base_commit','bundle','results'}, 'publication request')
+    dot.keys(value, {'schema_version','run_id','mode','base_commit','bundle','results'} | ({'edition'} if 'edition' in value else set()), 'publication request')
     if value['schema_version'] != 1 or value['mode'] not in {'validate','publish'}:
         raise dot.Invalid('publication request schema/mode invalid')
     if not isinstance(value['run_id'],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}',value['run_id']):
@@ -31,7 +31,7 @@ def request(root, path):
     transport.artifact_reference(value['bundle'])
     git(root,'merge-base','--is-ancestor',value['base_commit'],'HEAD')
     changed=git(root,'diff','--name-only',value['base_commit'],'HEAD').decode().splitlines()
-    if any(not p.startswith(('dot-publish-requests/','dot-requests/','dot-inputs/')) for p in changed):
+    if any(p != '.dot/active-edition.json' and not p.startswith(('dot-publish-requests/','dot-requests/','dot-inputs/')) for p in changed):
         raise dot.Invalid('code/config/state changed since publication request base')
     if git(root,'status','--porcelain','--untracked-files=no').strip():
         raise dot.Invalid('tracked publication checkout is dirty')
@@ -85,7 +85,7 @@ def replay_existing(root, sha, receipt, request_hash, out, build):
     return {'status':'already_committed','commit':sha,'deploy':True,'published':False}
 
 
-def publish(root, bundle, results, run_id, out, *, enabled=False, build=site_build, before_push=None):
+def publish(root, bundle, results, run_id, out, *, enabled=False, build=site_build, before_push=None, lease_guard=None):
     root,out=Path(root).resolve(),Path(out).resolve()
     if not enabled:
         raise dot.Invalid('production publication gate is disabled')
@@ -93,6 +93,8 @@ def publish(root, bundle, results, run_id, out, *, enabled=False, build=site_bui
         raise dot.Invalid('publication scratch output must be new and outside checkout')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}',run_id):
         raise dot.Invalid('invalid publication ID')
+    if lease_guard:
+        lease_guard()
     dot.validate_for_publication(bundle,results)
     request_hash=dot.digest({'bundle':bundle['bundle_sha256'],'results':results})
     path=f'.dot-receipts/{run_id}.json'
@@ -100,7 +102,10 @@ def publish(root, bundle, results, run_id, out, *, enabled=False, build=site_bui
     previous=read_remote_receipt(root,current,path)
     out.mkdir(parents=True)
     if previous:
-        return replay_existing(root,current,previous,request_hash,out,build)
+        result=replay_existing(root,current,previous,request_hash,out,build)
+        if lease_guard:
+            lease_guard()
+        return result
     expected=git(root,'rev-parse','HEAD').decode().strip()
     if current!=expected:
         raise dot.Invalid('remote main moved; revalidate from its current snapshot')
@@ -135,6 +140,8 @@ def publish(root, bundle, results, run_id, out, *, enabled=False, build=site_bui
     commit=git(root,'commit-tree',tree,'-p',expected,data=f'Dot digest: {run_id}\n'.encode(),env=env).decode().strip()
     if before_push:
         before_push()
+    if lease_guard:
+        lease_guard()
     # Ordinary fast-forward push: a concurrent writer causes rejection, never a force update.
     git(root,'push','origin',f'{commit}:refs/heads/main')
     return {'status':'committed_pending_deploy','commit':commit,'deploy':True,'published':False}
@@ -174,11 +181,17 @@ def main():
             r=request(a.root,a.root/paths[0])
             if r['base_commit'] != a.before:
                 raise dot.Invalid('publication base must equal the exact pre-push HEAD')
+            from safety_digest import dot_edition
+            dot_edition.require_request(a.root,r,a.root/paths[0],live=os.environ.get('GITHUB_ACTIONS') == 'true')
             outputs({'request_path':paths[0],'mode':r['mode'],
                      'artifact_run_id':r['bundle']['artifact_run_id'],'artifact_name':r['bundle']['artifact_name']})
             return
         r=request(a.root,a.request)
+        from safety_digest import dot_edition
+        guard=lambda:dot_edition.require_request(a.root,r,a.request,live=os.environ.get('GITHUB_ACTIONS') == 'true')
+        guard()
         b=dot.load_bundle(a.artifact_dir/'bundle.json')
+        dot_edition.require_bundle(guard(),b)
         if b['bundle_sha256']!=r['bundle']['bundle_sha256']:
             raise dot.Invalid('publication artifact bundle hash mismatch')
         results=transport.load_results(a.root.resolve(),r['results'])
@@ -190,7 +203,7 @@ def main():
         else:
             enabled=(os.environ.get('DOT_PUBLISH_ENABLED')=='true' and os.environ.get('GITHUB_REF')=='refs/heads/main'
                      and os.environ.get('GITHUB_REPOSITORY')=='AI-Safety-Weekly/ai-safety-digest' and r['mode']=='publish')
-            result=publish(a.root,b,results,r['run_id'],a.out,enabled=enabled)
+            result=publish(a.root,b,results,r['run_id'],a.out,enabled=enabled,lease_guard=guard)
             dot.write_json(a.out/'publication-result.json',result)
             outputs(result)
     except (dot.Invalid,OSError,KeyError,TypeError,subprocess.CalledProcessError) as error:

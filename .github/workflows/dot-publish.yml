@@ -16,6 +16,7 @@ permissions:
 concurrency:
   group: weekly-digest
   cancel-in-progress: false
+  queue: max
 jobs:
   contracts:
     runs-on: ubuntu-latest
@@ -129,7 +130,7 @@ jobs:
           path: ${{ runner.temp }}/dot-publication/publication-result.json
           if-no-files-found: warn
   deploy:
-    needs: publish
+    needs: [publish, prepare]
     if: needs.publish.outputs.deploy == 'true'
     permissions:
       contents: read
@@ -140,6 +141,26 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml python-dateutil
+      - name: Require current edition ownership and publication deadline
+        env:
+          PYTHONPATH: src
+          REQUEST_PATH: ${{ needs.prepare.outputs.request_path }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from safety_digest import dot_handoff as dot, dot_edition
+          path = Path(os.environ['REQUEST_PATH'])
+          dot_edition.require_request(Path('.'), dot.read_json(path), path, live=True, check_basis=False)
+          PY
       - name: Require the validated commit to remain current
         env:
           EXPECTED_COMMIT: ${{ needs.publish.outputs.commit }}

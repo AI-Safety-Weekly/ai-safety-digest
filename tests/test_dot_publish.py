@@ -181,3 +181,18 @@ def test_reconcile_preserves_original_attempt_binding_after_preview(root):
     merged=reconciliation.reconcile(original,preview,original)
     assert merged['collection']['enrichment_records']==fetched['collection']['enrichment_records']
     assert merged['candidates'][0]['input_sha256']!=fetched['candidates'][0]['input_sha256']
+
+
+def test_lease_is_rechecked_before_commit_and_after_replay_build(root,remote,tmp_path):
+    b=bundle(root);r=completed(b);before=head(remote);calls=[]
+    def expire():
+        calls.append(1)
+        if len(calls)>1:raise dot.Invalid('lease expired')
+    with pytest.raises(dot.Invalid,match='lease expired'):
+        p.publish(root,b,r,'lease',tmp_path/'fail',enabled=True,build=build,lease_guard=expire)
+    assert head(remote)==before
+    p.publish(root,b,r,'lease',tmp_path/'first',enabled=True,build=build)
+    published=head(remote);calls.clear()
+    with pytest.raises(dot.Invalid,match='lease expired'):
+        p.publish(root,b,r,'lease',tmp_path/'retry',enabled=True,build=build,lease_guard=expire)
+    assert head(remote)==published

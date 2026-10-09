@@ -398,3 +398,10 @@ All 1,059 decisions remain unresolved. Main's W40 archive/index/state have since
 changed. This artifact proves completed collection only, not a real edition.
 The real review, current strict build, cloud recurring handoff, publication and
 Pages verification remain release gates. No cutover flags were set.
+
+The connector-level execution contract and capability boundaries are in
+[CLOUD_DOT_RUNBOOK.md](CLOUD_DOT_RUNBOOK.md). Fresh hosted collection was started
+on reconciled code via request `7acfa0560e70aad7bb6c5ff624131fb1c573689d`,
+[run 37989241607](https://github.com/AI-Safety-Weekly/ai-safety-digest/actions/runs/37989241607).
+Its anchor is `2026-10-09T20:46:27+00:00`; source completion and editorial
+acceptance must be checked in its eventual artifact, not inferred from launch.

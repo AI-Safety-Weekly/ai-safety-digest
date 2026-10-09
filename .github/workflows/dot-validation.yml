@@ -1,0 +1,59 @@
+name: Dot frozen handoff (validation only)
+on:
+  push:
+    branches: [main, dot-frozen-handoff]
+    paths: ['dot-requests/*.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: dot-validation-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      FEED_PROXY_URL: https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install collection and rendering dependencies (no model SDK)
+        run: pip install arxiv requests beautifulsoup4 feedparser pyyaml python-dateutil mkdocs-material
+      - name: Resolve frozen artifact reference
+        id: request
+        env:
+          PYTHONPATH: src
+          BEFORE_SHA: ${{ github.event.before }}
+        run: python -m safety_digest.dot_transport --prepare --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output"
+      - name: Download immutable frozen inputs
+        if: steps.request.outputs.artifact_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.request.outputs.artifact_run_id }}
+          name: ${{ steps.request.outputs.artifact_name }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dot-frozen-input
+      - name: Process immutable request
+        env:
+          PYTHONPATH: src
+          BEFORE_SHA: ${{ github.event.before }}
+        run: python -m safety_digest.dot_transport --before "$BEFORE_SHA" --out "$RUNNER_TEMP/dot-output" --artifact-dir "$RUNNER_TEMP/dot-frozen-input"
+      - name: Add synthetic acceptance fixture to smoke artifacts
+        env:
+          PYTHONPATH: src
+        run: python scripts/dot_fixture.py --out "$RUNNER_TEMP/dot-output"
+      - name: Upload validated transport output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dot-handoff-${{ github.sha }}
+          path: ${{ runner.temp }}/dot-output
+          retention-days: 30
+          if-no-files-found: error

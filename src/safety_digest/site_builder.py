@@ -33,7 +33,7 @@ def _counts_line(md_text: str) -> str:
     return ""
 
 
-def build_index(out_dir: Path) -> Path:
+def build_index(out_dir: Path, *, run_at: datetime | None = None, curator: str | None = None) -> Path:
     """Write docs/index.md listing all weekly digests, newest first."""
     out_dir.mkdir(parents=True, exist_ok=True)
     entries = _digest_files(out_dir)
@@ -86,10 +86,15 @@ def build_index(out_dir: Path) -> Path:
         ':material-email-plus-outline: Send it in</a> '
         "(password-gated).",
         "",
-        f"_Last updated: {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d')}_",
+        f"_Last updated: {(run_at or datetime.now(tz=timezone.utc)).strftime('%Y-%m-%d')}_",
         "",
     ]
 
+    if curator is not None:
+        lines[2] = ("A weekly reading list from the existing arXiv, tracked-author, lab, "
+                    "policy and forum sources, curated by " + curator + ". "
+                    "High means Aaron's coordination and verification lane; "
+                    "Medium means the catastrophic-risk technical backbone.")
     index_path = out_dir / "index.md"
     index_path.write_text("\n".join(lines), encoding="utf-8")
     return index_path

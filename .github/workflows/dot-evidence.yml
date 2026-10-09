@@ -1,0 +1,48 @@
+name: Dot partial public evidence
+on:
+  push:
+    branches: [main, dot-frozen-handoff]
+    paths: ['dot-evidence-requests/*.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: dot-evidence-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml
+      - name: Resolve exact frozen evidence inputs
+        id: request
+        env:
+          PYTHONPATH: src
+          BEFORE_SHA: ${{ github.event.before }}
+        run: python scripts/dot_external_evidence.py --metadata --before "$BEFORE_SHA"
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.request.outputs.artifact_run_id }}
+          name: ${{ steps.request.outputs.artifact_name }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dot-frozen-input
+      - name: Freeze explicitly partial previews and reset changed decisions
+        env:
+          PYTHONPATH: src
+          BEFORE_SHA: ${{ github.event.before }}
+        run: python scripts/dot_external_evidence.py --before "$BEFORE_SHA" --artifact-dir "$RUNNER_TEMP/dot-frozen-input" --out "$RUNNER_TEMP/dot-evidence"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dot-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/dot-evidence
+          if-no-files-found: error
+          retention-days: 30

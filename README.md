@@ -9,7 +9,7 @@ and publishes a browsable dashboard on GitHub Pages.
 
 ## What it does
 
-Every Monday morning (10:17 UTC ≈ 6am ET) a GitHub Actions job runs and:
+Every Sunday morning (10:17 UTC; 6:17am EDT / 5:17am EST) a GitHub Actions job runs and:
 
 1. **Pulls new arXiv preprints** from the last 7 days in the relevant CS
    categories (`cs.AI`, `cs.LG`, `cs.CY`, `cs.CR`, `stat.ML`).
@@ -39,7 +39,7 @@ Every Monday morning (10:17 UTC ≈ 6am ET) a GitHub Actions job runs and:
 7. **Feedback path** — each paper's "Why?" expander includes a "Disagree
    with this tier?" button that opens a password-gated modal. Submissions
    POST to a Cloudflare Worker which appends to `feedback/YYYY-WW.md` in
-   the repo. Monday's cron then:
+   the repo. Sunday's cron then:
    - promotes entries ticked "Make this a permanent rule" into a
      permanent rulebook section appended to the classifier system prompt,
    - appends the last 4 weeks of non-permanent tier disagreements as a
@@ -91,7 +91,7 @@ Every Monday morning (10:17 UTC ≈ 6am ET) a GitHub Actions job runs and:
   Flip `enable_bluesky` in `cli.py` to re-enable when community migrates.
 
 ### Phase 3 — Automation + dashboard ✅ done
-- `.github/workflows/weekly.yml` — cron `17 10 * * 1` (Mon ~10:17 UTC) with a
+- `.github/workflows/weekly.yml` — cron `17 10 * * 0` (Sun 10:17 UTC) with a
   60-min timeout and `concurrency` guard. `build_only` input for cheap manual
   redeploys. The odd off-the-hour minute is deliberate: GitHub's scheduled runs
   are best-effort and the top of the hour is the most-dropped slot.
@@ -100,7 +100,7 @@ Every Monday morning (10:17 UTC ≈ 6am ET) a GitHub Actions job runs and:
   ~35 min. The run is now S2-bound — Semantic Scholar enrichment stays serial
   by design (~1 req/sec polite throttle + 429 backoff).
 - **Scheduling watchdog** (`.github/workflows/watchdog.yml`) — fires 3× every
-  Monday (11:43 / 13:43 / 15:43 UTC); if no digest pipeline has run or published
+  Sunday (11:43 / 13:43 / 15:43 UTC); if no digest pipeline has run or published
   that day, it dispatches `weekly.yml` to self-heal a dropped scheduled run. No
   PAT needed — `workflow_dispatch` always creates a run even from the built-in
   `GITHUB_TOKEN`.

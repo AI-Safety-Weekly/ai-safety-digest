@@ -111,6 +111,11 @@ class Classification:
     # Defaults to "other" so older/partial classifications stay valid; the
     # pipeline backfills a source-based guess via default_content_type().
     content_type: ContentType = "other"
+    # 3–5 crisp bullets of the work's main points, produced ONLY by the
+    # deep-read pass (it has the full text). Rendered as a collapsed
+    # "Key points" fold under listed items so Aaron can get the substance
+    # without clicking through. Empty for pass-1-only classifications.
+    key_points: list[str] = field(default_factory=list)
     # True when this is NOT a real judgement but the safe default produced by
     # classifier._fallback_classification() after the full Gemini retry
     # schedule was exhausted (a transient API outage). The pipeline keys off

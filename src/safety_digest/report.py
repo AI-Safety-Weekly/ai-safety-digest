@@ -30,7 +30,12 @@ def _primary_area(cp: ClassifiedPaper) -> str:
     return areas[0] if areas else "other"
 
 
-def _format_paper(cp: ClassifiedPaper) -> str:
+def _week_href(week: str) -> str:
+    """Relative link to a prior week's digest page, e.g. digest-2026-W24.md."""
+    return f"digest-{week}.md"
+
+
+def _format_paper(cp: ClassifiedPaper, continuity_rows: list[dict] | None = None) -> str:
     p = cp.paper
     c = cp.classification
     tier = c.relevance
@@ -83,10 +88,34 @@ def _format_paper(cp: ClassifiedPaper) -> str:
         f"</a>"
         f"</div>"
     )
+    # Cross-week continuity: "this builds on work you already saw". Rendered
+    # right under the summary so the thread is visible without any click.
+    continuity_md = ""
+    for row in continuity_rows or []:
+        week = row["prior_week"]
+        continuity_md += (
+            f'<div class="continuity">↩ {escape(row["relation"])} — '
+            f'[{escape(row["prior_title"])}]({_week_href(week)}) ({week})</div>\n'
+        )
+    if continuity_md:
+        continuity_md += "\n"
+
+    # Key points (deep-read only): the substance of the work as bullets, so
+    # skipping the click-through still leaves Aaron with the main results.
+    key_points_md = ""
+    if c.key_points:
+        bullets = "\n".join(f"- {kp}" for kp in c.key_points)
+        key_points_md = (
+            f'<details markdown="1"><summary>Key points</summary>\n\n'
+            f"{bullets}\n\n</details>\n"
+        )
+
     return (
         f"### {pill} {type_badge}{lab_badge}[{p.title}]({p.url})\n"
         f"{meta_line}\n\n"
         f"{c.summary}\n\n"
+        f"{continuity_md}"
+        f"{key_points_md}"
         f"<details><summary>Why?</summary>\n\n{c.rationale}\n\n{feedback}\n\n</details>\n"
     )
 
@@ -113,7 +142,10 @@ def _render_brief(summary: FieldSummary, intro: str) -> list[str]:
     return lines
 
 
-def _render_grouped(papers: list[ClassifiedPaper], summary: FieldSummary, intro: str) -> list[str]:
+def _render_grouped(
+    papers: list[ClassifiedPaper], summary: FieldSummary, intro: str,
+    continuity: dict[str, list[dict]] | None = None,
+) -> list[str]:
     """Render full paper entries grouped under the summary's themes.
 
     Each theme's blurb heads its own cluster of entries, so the listing is
@@ -134,13 +166,18 @@ def _render_grouped(papers: list[ClassifiedPaper], summary: FieldSummary, intro:
         # per-paper titles, and the theme line reads as the group's caption.
         lines += [f"**{area or 'Other'}** ({len(idxs)}) — {sentence}", ""]
         for i in idxs:
-            lines += [_format_paper(papers[i]), ""]
+            lines += [_format_paper(papers[i], _rows(continuity, papers[i])), ""]
     leftover = [i for i in range(len(papers)) if i not in claimed]
     if leftover:
         lines += [f"**Other** ({len(leftover)})", ""]
         for i in leftover:
-            lines += [_format_paper(papers[i]), ""]
+            lines += [_format_paper(papers[i], _rows(continuity, papers[i])), ""]
     return lines
+
+
+def _rows(continuity: dict[str, list[dict]] | None, cp: ClassifiedPaper) -> list[dict] | None:
+    """This paper's continuity links (keyed by URL), or None."""
+    return continuity.get(cp.paper.url) if continuity else None
 
 
 def write_markdown(
@@ -151,6 +188,7 @@ def write_markdown(
     medium_overview: FieldSummary | None = None,
     field_summary: FieldSummary | None = None,
     max_items: int | None = 60,
+    continuity: dict[str, list[dict]] | None = None,
 ) -> Path:
     """Write a multi-zone markdown digest. Returns the path written.
 
@@ -170,6 +208,10 @@ def write_markdown(
     `off_topic` papers are dropped from the digest entirely (a footnote reports
     the count) UNLESS flagged as a high-profile capability, in which case they
     surface in the Capabilities watch section regardless of relevance.
+
+    `continuity` (optional) maps a paper's URL to its cross-week links
+    (classifier.link_continuity), rendered as "↩ …" lines under the summary
+    of every full entry.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -250,7 +292,7 @@ def write_markdown(
     if high:
         lines += ["## Zone 1 · Your lane — read these { #high-relevance }", ""]
         for cp in high:
-            lines += [_format_paper(cp), ""]
+            lines += [_format_paper(cp, _rows(continuity, cp)), ""]
 
     # ── Zone 1 — backbone (medium), grouped under its themed TL;DR ──────────
     if medium:
@@ -258,13 +300,15 @@ def write_markdown(
         if medium_overview is not None and medium_overview.groups:
             # Listing organized by the same themes as the overview: each theme's
             # blurb captions its own cluster of full entries.
-            lines += _render_grouped(medium, medium_overview, "The week's backbone, by theme:")
+            lines += _render_grouped(
+                medium, medium_overview, "The week's backbone, by theme:", continuity
+            )
         else:
             # No membership (summary failed / older path) → TL;DR list + flat listing.
             if medium_overview is not None:
                 lines += _render_brief(medium_overview, "The week's backbone, by theme:")
             for cp in medium:
-                lines += [_format_paper(cp), ""]
+                lines += [_format_paper(cp, _rows(continuity, cp)), ""]
 
     # ── Capabilities watch — high-profile frontier releases ────────────────
     # Placed right after Zone 1: capability news (new frontier models, major
@@ -279,13 +323,13 @@ def write_markdown(
             "",
         ]
         for cp in capabilities:
-            lines += [_format_paper(cp), ""]
+            lines += [_format_paper(cp, _rows(continuity, cp)), ""]
 
     # ── Zone 2 — breakthroughs from outside the lane ───────────────────────
     if zone2:
         lines += ["## Zone 2 · Breakthroughs from outside your lane { #zone-2 }", ""]
         for cp in zone2:
-            lines += [_format_paper(cp), ""]
+            lines += [_format_paper(cp, _rows(continuity, cp)), ""]
 
     # ── Zone 3 — rest of the field: brief + collapsed long tail ────────────
     if off_lane:

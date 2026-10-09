@@ -51,7 +51,11 @@ incomplete inputs within that window; after it, retain the failure and notify
 rather than advancing seen state or silently substituting a smaller edition.
 The scheduling policy belongs in the scheduler, not an invented model runtime.
 
-3. Find the workflow run for the exact returned request commit. The expected
+3. Find the workflow run for the exact returned request commit with GitHub
+   `fetch` on `https://api.github.com/repos/AI-Safety-Weekly/ai-safety-digest/actions/runs?head_sha=REQUEST_SHA&event=push&per_page=10`.
+   Do not use `fetch_commit_workflow_runs` for this: parent verified that its
+   PR-event filter misses push runs. Check the returned `head_sha` explicitly.
+   The expected
    artifact is `dot-handoff-<full-request-commit>`. Check job conclusion and
    download artifacts even when a bounded collection is incomplete.
 4. Fetch artifact metadata and download with `download_workflow_artifact`.

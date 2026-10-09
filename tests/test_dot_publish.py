@@ -66,8 +66,10 @@ def test_push_race(root,remote,tmp_path):
     assert head(remote)==new[0] and p.read_remote_receipt(root,head(remote),'.dot-receipts/one.json') is None
 
 def test_partial_preview(root):
-    b=bundle(root);c=b['candidates'][0];c['body'].update(status='unavailable',url=c['paper']['url'],fetched_at='2026-10-02T23:26:09Z')
-    b=dot.seal({k:v for k,v in b.items() if k!='bundle_sha256'})
+    original=bundle(root)
+    b,_=dot.enrich(original,dot.template(original),fetch=lambda _:'',
+                   requested_ids=[original['candidates'][0]['id']])
+    c=b['candidates'][0]
     r={'id':c['id'],'expected_input_sha256':c['input_sha256'],'url':c['paper']['url'],'retrieved_at':'2026-10-02T23:26:09Z','text':'A limited public preview.','retrieval_method':'public_web_page','scope':'public_preview'}
     e=evidence.add_public_preview(b,r);n=e['candidates'][0]
     assert n['body']==c['body'] and n['paper']['raw']['original_frozen_abstract']==c['paper']['abstract']

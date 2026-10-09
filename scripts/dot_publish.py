@@ -172,6 +172,8 @@ def main():
             if old.returncode==0:
                 raise dot.Invalid('publication requests are immutable')
             r=request(a.root,a.root/paths[0])
+            if r['base_commit'] != a.before:
+                raise dot.Invalid('publication base must equal the exact pre-push HEAD')
             outputs({'request_path':paths[0],'mode':r['mode'],
                      'artifact_run_id':r['bundle']['artifact_run_id'],'artifact_name':r['bundle']['artifact_name']})
             return

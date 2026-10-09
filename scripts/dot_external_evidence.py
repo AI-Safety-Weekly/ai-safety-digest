@@ -60,6 +60,8 @@ def main():
         if type(request['schema_version']) is not int or request['schema_version']!=1:
             raise dot.Invalid('invalid evidence schema')
         base=request['base_commit']
+        if base != args.before:
+            raise dot.Invalid('evidence base must equal the exact pre-push HEAD')
         if not isinstance(base,str) or not re.fullmatch('[0-9a-f]{40}',base):raise dot.Invalid('full base commit required')
         transport.git(root,'merge-base','--is-ancestor',base,'HEAD')
         if any(not p.startswith(('dot-evidence-requests/','dot-inputs/')) for p in transport.git(root,'diff','--name-only',base,'HEAD').splitlines()):

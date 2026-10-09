@@ -179,6 +179,7 @@ def validate_bundle(b):
         expected = _user_message(p, c['body']['text'] or None)
         if c['input_text'] != expected or c['input_sha256'] != bytehash(expected.encode()):
             raise Invalid('model-visible input mismatch')
+    validate_enrichment_records(b)
     if not isinstance(b['files'], dict):
         raise Invalid('provenance files required')
     for name, data in b['files'].items():
@@ -193,6 +194,83 @@ def validate_bundle(b):
         except (ValueError, TypeError) as e:
             raise Invalid('invalid provenance bytes') from e
     return b
+
+
+def validate_enrichment_records(bundle):
+    """Check attempt metadata against frozen bodies, including pre-preview inputs."""
+    records = bundle['collection'].get('enrichment_records', [])
+    if not isinstance(records, list):
+        raise Invalid('enrichment records must be an array')
+    by_id = {}
+    for record in records:
+        if not isinstance(record, dict) or not isinstance(record.get('id'), str):
+            raise Invalid('invalid enrichment record')
+        if record['id'] in by_id:
+            raise Invalid('duplicate enrichment attempt record')
+        by_id[record['id']] = record
+    attempted = set()
+    for candidate in bundle['candidates']:
+        body = candidate['body']
+        if type(body['limit_chars']) is not int or body['limit_chars'] != 12000:
+            raise Invalid('enrichment body limit must remain 12000 characters')
+        if len(body['text']) > body['limit_chars']:
+            raise Invalid('enrichment body exceeds its frozen limit')
+        if body['status'] == 'not_attempted':
+            if body['url'] != '' or body['fetched_at'] is not None:
+                raise Invalid('unattempted body contains attempt metadata')
+            continue
+        attempted.add(candidate['id'])
+        record = by_id.get(candidate['id'])
+        if record is None:
+            raise Invalid('attempted body requires an enrichment record')
+        try:
+            utc(body['fetched_at'])
+            safe_url(body['url'])
+        except Invalid as error:
+            raise Invalid('invalid enrichment attempt timestamp or URL') from error
+        paper = paper_from(candidate['paper'])
+        urls = {paper.url}
+        if paper.source == 'arxiv' and paper.arxiv_id:
+            urls = {f'https://arxiv.org/html/{paper.arxiv_id}{suffix}'
+                    for suffix in ('', 'v1', 'v2')}
+        if body['url'] not in urls:
+            raise Invalid('enrichment attempt URL differs from its frozen source')
+        expected = {'body_sha256': bytehash(body['text'].encode()),
+                    'status': body['status'], 'url': body['url'], 'fetched_at': body['fetched_at']}
+        if any(record.get(key) != value for key, value in expected.items()):
+            raise Invalid('enrichment record does not match its frozen body')
+        hashes = {candidate['input_sha256']}
+        if paper.raw.get('external_public_previews'):
+            original = paper.raw.get('original_frozen_abstract')
+            if not isinstance(original, str):
+                raise Invalid('preview is missing original enrichment input')
+            paper.abstract = original
+            hashes.add(bytehash(_user_message(paper, body['text'] or None).encode()))
+        if record.get('input_sha256') not in hashes:
+            raise Invalid('enrichment attempt input binding mismatch')
+    if set(by_id) != attempted:
+        raise Invalid('enrichment records must cover exactly the attempted candidates')
+
+
+def validate_collection_health(bundle, *, publication=False):
+    health = bundle['collection']
+    if health.get('complete') is not True:
+        raise Invalid('collection is degraded; publishing is blocked')
+    warnings = health.get('warnings')
+    if not isinstance(warnings, list) or any(
+            not isinstance(event, dict) or event.get('kind') != 'retry' for event in warnings):
+        raise Invalid('collection has unresolved source warnings')
+    pending = health.get('pending_s2_authors', [])
+    if not isinstance(pending, list) or pending:
+        raise Invalid('collection has pending sources')
+    anchor = utc(bundle['run_at'])
+    expected = {'window_end': anchor, 'window_start': anchor - timedelta(days=bundle['days'])}
+    for field, value in expected.items():
+        if publication or field in health:
+            if field not in health or utc(health[field]) != value:
+                raise Invalid('collection window differs from its frozen anchor')
+    if publication and 'pending_s2_authors' not in health:
+        raise Invalid('collection must explicitly account for pending sources')
 
 
 def make_candidate(paper):
@@ -492,8 +570,7 @@ def validate_results(bundle, results, *, final=False):
         raise Invalid('every candidate must have a decision or explicit unresolved status')
     keys(results['summaries'], {'medium', 'off_lane'}, 'summaries')
     if final:
-        if bundle['collection'].get('complete') is not True:
-            raise Invalid('collection is degraded; publishing is blocked')
+        validate_collection_health(bundle)
         if any(d['status'] != 'complete' for d in decisions.values()):
             raise Invalid('unresolved decisions block import; retry the same frozen inputs')
         for group in ('medium', 'off_lane'):
@@ -562,6 +639,7 @@ def validate_continuity(bundle, decision, candidate):
 def validate_for_publication(bundle, results):
     """Required final publisher gate; synthetic staging can never authorize publishing."""
     validate_results(bundle, results, final=True)
+    validate_collection_health(bundle, publication=True)
     if bundle['collection'].get('synthetic_fixture', False) is not False:
         raise Invalid('synthetic fixtures are forbidden from production publication')
 

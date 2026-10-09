@@ -201,8 +201,10 @@ def main():
         p.error('requests are immutable; use a new run ID/path')
     try:
         request_path = a.root / requests[0]
+        req = dot.read_json(request_path)
+        if req.get('base_commit') != a.before:
+            raise dot.Invalid('request base must equal the exact pre-push HEAD')
         if a.prepare:
-            req = dot.read_json(request_path)
             spec = req.get('resume', req.get('bundle', {}))
             if isinstance(spec, dict) and 'artifact_run_id' in spec:
                 spec = artifact_reference(spec)

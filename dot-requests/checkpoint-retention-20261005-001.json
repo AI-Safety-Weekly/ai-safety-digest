@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "run_id": "checkpoint-retention-20261005-001",
+  "mode": "export",
+  "base_commit": "99f3e7a84a25ce70f71d35a67de7d25e22f2d3c6",
+  "until": "2026-10-02T21:07:25Z",
+  "days": 7,
+  "collection_budget_seconds": 3300,
+  "resume": {
+    "artifact_run_id": 37097764243,
+    "artifact_name": "dot-handoff-adce802197c0386c5d748506067c259fb25a9b8d",
+    "bundle_sha256": "2eb0c5c696dfe25c9102971b1fa3710efba94e7fba2818f5d225bfa3fbcb2f50"
+  },
+  "resume_migration": {
+    "path": "dot-inputs/checkpoint-retention-migration-001.json",
+    "sha256": "d8cf9749201bd3e8f20b0bc98d93dfed4cf1764fb88fbf3a2cb3c04f856fc2c0"
+  }
+}

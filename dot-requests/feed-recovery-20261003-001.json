@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "run_id": "feed-recovery-20261003-001",
+  "mode": "export",
+  "base_commit": "0575b3e43603e3a2b5f87ecc5aedf7fbe66d6ddf",
+  "until": "2026-10-02T21:07:25Z",
+  "days": 7,
+  "collection_budget_seconds": 3300,
+  "resume": {
+    "artifact_run_id": 37085199374,
+    "artifact_name": "dot-handoff-520fc899ea4aa7f67072fe60202b7682148d09a9",
+    "bundle_sha256": "de6dbd78be8e7991c51483b40533fe3474da011627a8a206fc08b978ef0c95ac"
+  },
+  "resume_migration": {
+    "path": "dot-inputs/feed-recovery-migration-001.json",
+    "sha256": "ab76a37d7d57d59211bebaf36176c08ffa658c56e267b2c6bfe6c9a05ae91e29"
+  }
+}

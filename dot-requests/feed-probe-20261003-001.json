@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "run_id": "feed-probe-20261003-001",
+  "mode": "feed_probe",
+  "base_commit": "b7e6a66604676007278c000afa63b1e78bd67d64",
+  "until": "2026-10-02T21:07:25Z",
+  "days": 7,
+  "sources": [
+    "substack-zvi",
+    "substack-import-ai"
+  ]
+}

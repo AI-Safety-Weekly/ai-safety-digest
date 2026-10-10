@@ -140,6 +140,9 @@ def _author_documents(value):
 
 def validate_active_policy(policy):
     """Check the immutable manifest shape; migrate_active verifies actual bytes."""
+    if isinstance(policy, dict) and policy.get('kind') == 'frozen_source_exclusions_v1':
+        from . import dot_dispositions
+        return dot_dispositions.validate_policy(policy)
     dot.keys(policy, ACTIVE_POLICY_FIELDS, 'active author migration policy')
     if type(policy['schema_version']) is not int or policy['schema_version'] != 1 or policy['kind'] != 'author_identity_v1':
         raise dot.Invalid('unsupported active author migration policy')
@@ -188,6 +191,10 @@ def migrate_active(root, previous, checkpoint_source, checkpoint_dir, policy, *,
     editorial completion or source eligibility before collection is resumed.
     """
     validate_active_policy(policy)
+    if policy['kind'] == 'frozen_source_exclusions_v1':
+        from . import dot_dispositions
+        return dot_dispositions.migrate(root, previous, checkpoint_source, checkpoint_dir,
+                                        policy, request_sha256=request_sha256)
     _sha256(request_sha256, 'migration request')
     dot.validate_bundle(previous)
     dot.validate_bundle(checkpoint_source)

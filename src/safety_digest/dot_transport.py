@@ -181,7 +181,11 @@ def run(root, request_path, out, artifact_dir=None, checkpoint_artifact_dir=None
             dot_edition.require_bundle(edition, bundle)
             if dot.digest({'files': bundle['files'], 'state': bundle['state_rows']}) != req['from_basis_sha256']:
                 raise dot.Invalid('active migration input artifact basis mismatch')
-        if previous['parent_bundle_sha256'] != checkpoint_source['bundle_sha256']:
+        policy = dot_edition.active_migration_policy(root, edition, req)
+        if policy['kind'] == 'frozen_source_exclusions_v1':
+            if req['bundle'] != req['checkpoint_source'] or previous != checkpoint_source:
+                raise dot.Invalid('exclusion migration requires the identical current artifact/checkpoint')
+        elif previous['parent_bundle_sha256'] != checkpoint_source['bundle_sha256']:
             raise dot.Invalid('active migration checkpoint is not the current bundle parent')
         checkpoint = Path(checkpoint_artifact_dir) / 'checkpoints/collection-checkpoint.json'
         if checkpoint.is_symlink() or not checkpoint.is_file():
@@ -200,6 +204,10 @@ def run(root, request_path, out, artifact_dir=None, checkpoint_artifact_dir=None
             root, previous, checkpoint_source, checkpoints, policy,
             request_sha256=dot.digest(req))
         dot_edition.require_bundle(edition, bundle)
+        if policy['kind'] == 'frozen_source_exclusions_v1':
+            from . import dot_dispositions
+            dot_dispositions.verify_materialized(previous, bundle, checkpoint,
+                checkpoints / 'collection-checkpoint.json', policy=policy, receipt=migration)
         if (dot.digest({'files': bundle['files'], 'state': bundle['state_rows']}) != req['to_basis_sha256']
                 or bundle['parent_bundle_sha256'] != previous['bundle_sha256']):
             raise dot.Invalid('active migration output basis/ancestry mismatch')

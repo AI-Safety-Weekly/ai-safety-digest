@@ -153,6 +153,8 @@ def active_migration_policy(root, state, request):
     }
     if any(policy.get(k) != v for k, v in expected.items()):
         raise dot.Invalid('active migration policy differs from the fenced request')
+    if policy['kind'] == 'frozen_source_exclusions_v1' and request['bundle'] != request['checkpoint_source']:
+        raise dot.Invalid('exclusion migration requires the exact current artifact as checkpoint source')
     if basis(root) != request['to_basis_sha256']:
         raise dot.Invalid('active migration target provenance changed')
     return policy
@@ -276,12 +278,21 @@ def verify_active_completion(state, request, receipt, artifact):
     validate_active_policy(policy)
     if (dot.bytehash(policy_bytes) != request['migration']['sha256']
             or migration.get('policy_sha256') != dot.digest(policy)
-            or migration.get('changes') != policy['changes']
-            or migration.get('author_edits') != policy['author_edits']
-            or migration.get('invalidated_parts') != sorted(policy['invalidate_parts'])):
+            or migration.get('changes') != policy['changes']):
         raise dot.Invalid('active migration completion policy/audit mismatch')
+    if policy['kind'] == 'author_identity_v1':
+        if (migration.get('author_edits') != policy['author_edits']
+                or migration.get('invalidated_parts') != sorted(policy['invalidate_parts'])):
+            raise dot.Invalid('active migration completion policy/audit mismatch')
+    elif policy['kind'] == 'frozen_source_exclusions_v1':
+        from . import dot_dispositions
+        dot_dispositions.verify_receipt(policy, migration)
+        if request['bundle'] != request['checkpoint_source']:
+            raise dot.Invalid('source exclusion completion did not use identical current artifacts')
+    else:
+        raise dot.Invalid('unsupported active migration completion kind')
     expected = {
-        'schema_version': 1, 'kind': 'author_identity_v1',
+        'schema_version': 1, 'kind': policy['kind'],
         'request_sha256': dot.digest(request),
         'from_basis_sha256': request['from_basis_sha256'],
         'to_basis_sha256': request['to_basis_sha256'],

@@ -89,20 +89,20 @@ SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 # all pages with today's lastmod after a redesign).
 SITEMAP_PAGE_CAP = 25
 
-# Hosts that block GitHub Actions runner IPs (Substack 403s every CI fetch —
-# feeds AND article bodies — while the same URLs work from residential IPs).
-# When FEED_PROXY_URL is set (weekly.yml), fetches to these hosts are routed
-# through the feedback Worker's GET /fetch relay (scripts/worker.js), which
-# fetches from Cloudflare's network. The Worker allowlists these same hosts —
-# keep the two lists in sync. Unset env ⇒ direct fetch (local dev just works).
+# Existing public application integration from PR15; no Worker deployment here.
 PROXY_HOSTS = {"thezvi.substack.com", "importai.substack.com"}
+PUBLIC_FEED_PROXY = "https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev"
 
-
-def _proxied(url: str) -> str:
-    """Rewrite ``url`` through the CI feed relay when one is configured and
-    the host is on the blocked-from-CI list; otherwise return it unchanged."""
+def feed_transport():
     base = os.environ.get("FEED_PROXY_URL", "").strip().rstrip("/")
-    if base and urlparse(url).hostname in PROXY_HOSTS:
+    if base and base != PUBLIC_FEED_PROXY:
+        raise ValueError("unrecognized feed application endpoint")
+    return {"proxy_url": base, "hosts": sorted(PROXY_HOSTS) if base else []}
+
+def _proxied(url):
+    base = feed_transport()["proxy_url"]
+    parsed = urlparse(url)
+    if base and parsed.scheme == "https" and parsed.hostname in PROXY_HOSTS and not parsed.username and not parsed.password:
         return f"{base}/fetch?url={quote(url, safe='')}"
     return url
 
@@ -135,7 +135,8 @@ def collect(
         try:
             items = _collect_one(src, cutoff, until_dt)
         except Exception as e:
-            log.error("lab source %s failed: %s", src.get("name"), e)
+            log.error("lab source %s failed: %s", src.get("name"), type(e).__name__,
+                      extra={"source_http_status":getattr(getattr(e,"response",None),"status_code",None)})
             continue
         log.info("lab source %s: kept %d items", src.get("name"), len(items))
         out.extend(items)
@@ -324,7 +325,7 @@ def _papers_from_sitemap_xml(
     """
     root = ET.fromstring(content)
     prefix = src.get("url_prefix") or ""
-    pattern = re.compile(src["url_pattern"]) if src.get("url_pattern") else None
+    url_pattern = re.compile(src["url_pattern"]) if src.get("url_pattern") else None
 
     candidates: list[tuple[str, datetime]] = []
     for url_el in root.findall(".//sm:url", SITEMAP_NS):
@@ -333,7 +334,7 @@ def _papers_from_sitemap_xml(
             continue
         if prefix and (not loc.startswith(prefix) or loc == prefix):
             continue
-        if pattern and not pattern.search(loc):
+        if url_pattern and not url_pattern.search(loc):
             continue
         lastmod = (url_el.findtext("sm:lastmod", "", SITEMAP_NS) or "").strip()
         if not lastmod:

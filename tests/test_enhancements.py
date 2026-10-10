@@ -51,16 +51,16 @@ def _gemini_json(obj: dict) -> dict:
 # ── Feed relay routing ──────────────────────────────────────────────────────
 
 def test_proxied_rewrites_allowlisted_host_when_env_set(monkeypatch):
-    monkeypatch.setenv("FEED_PROXY_URL", "https://relay.example.workers.dev/")
+    monkeypatch.setenv("FEED_PROXY_URL", "https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev/")
     out = lab_collector._proxied("https://thezvi.substack.com/feed")
     assert out == (
-        "https://relay.example.workers.dev/fetch"
+        "https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev/fetch"
         "?url=https%3A%2F%2Fthezvi.substack.com%2Ffeed"
     )
 
 
 def test_proxied_leaves_other_hosts_and_unset_env_alone(monkeypatch):
-    monkeypatch.setenv("FEED_PROXY_URL", "https://relay.example.workers.dev")
+    monkeypatch.setenv("FEED_PROXY_URL", "https://ai-safety-digest-feedback.oodles-of-noodles.workers.dev")
     assert lab_collector._proxied("https://arxiv.org/html/1") == "https://arxiv.org/html/1"
     monkeypatch.delenv("FEED_PROXY_URL", raising=False)
     assert (

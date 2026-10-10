@@ -23,6 +23,7 @@ dev = ["pytest>=8.0", "ruff>=0.6.0"]
 
 [project.scripts]
 safety-digest = "safety_digest.cli:main"
+safety-digest-dot = "safety_digest.dot_handoff:main"
 
 [build-system]
 requires = ["setuptools>=68"]

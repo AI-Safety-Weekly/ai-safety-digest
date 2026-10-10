@@ -1,0 +1,172 @@
+name: Dot publication gates
+on:
+  push:
+    branches: [main, dot-frozen-handoff]
+    paths:
+      - 'dot-publish-requests/*.json'
+      - 'src/safety_digest/**'
+      - 'scripts/dot_*.py'
+      - 'tests/**'
+      - '.github/workflows/dot-publish.yml'
+      - '.github/workflows/dot-validation.yml'
+permissions:
+  contents: read
+  actions: read
+# The legacy workflow uses this group too: docs/state writers cannot overlap.
+concurrency:
+  group: weekly-digest
+  cancel-in-progress: false
+  queue: max
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies (no inference credentials)
+        run: pip install pytest arxiv requests beautifulsoup4 feedparser pyyaml python-dateutil mkdocs-material anthropic
+      - name: Run regression and local bare-remote publication tests
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.request.outputs.mode }}
+      request_path: ${{ steps.request.outputs.request_path }}
+      artifact_run_id: ${{ steps.request.outputs.artifact_run_id }}
+      artifact_name: ${{ steps.request.outputs.artifact_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml
+      - name: Resolve immutable publication request
+        id: request
+        env:
+          PYTHONPATH: src
+          BEFORE_SHA: ${{ github.event.before }}
+        run: python scripts/dot_publish.py --phase metadata --before "$BEFORE_SHA"
+  validate:
+    needs: [prepare, contracts]
+    if: needs.prepare.outputs.mode != 'none'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml python-dateutil mkdocs-material
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ needs.prepare.outputs.artifact_run_id }}
+          name: ${{ needs.prepare.outputs.artifact_name }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dot-frozen-input
+      - name: Validate real complete-source edition and strict build
+        env:
+          PYTHONPATH: src
+          REQUEST_PATH: ${{ needs.prepare.outputs.request_path }}
+        run: python scripts/dot_publish.py --phase validate --request "$REQUEST_PATH" --artifact-dir "$RUNNER_TEMP/dot-frozen-input" --out "$RUNNER_TEMP/dot-validation"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dot-publication-validation-${{ github.sha }}
+          path: ${{ runner.temp }}/dot-validation
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    needs: [prepare, validate]
+    if: vars.DOT_PUBLISH_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.prepare.outputs.mode == 'publish'
+    permissions:
+      contents: write
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      deploy: ${{ steps.commit.outputs.deploy }}
+      commit: ${{ steps.commit.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml python-dateutil mkdocs-material
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ needs.prepare.outputs.artifact_run_id }}
+          name: ${{ needs.prepare.outputs.artifact_name }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dot-frozen-input
+      - name: Revalidate, strict-build, and atomically commit docs and state
+        id: commit
+        env:
+          PYTHONPATH: src
+          DOT_PUBLISH_ENABLED: ${{ vars.DOT_PUBLISH_ENABLED }}
+          REQUEST_PATH: ${{ needs.prepare.outputs.request_path }}
+        run: python scripts/dot_publish.py --phase publish --request "$REQUEST_PATH" --artifact-dir "$RUNNER_TEMP/dot-frozen-input" --out "$RUNNER_TEMP/dot-publication"
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.commit.outputs.deploy == 'true'
+        with:
+          path: ${{ runner.temp }}/dot-publication/site
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dot-publication-receipt-${{ github.sha }}
+          path: ${{ runner.temp }}/dot-publication/publication-result.json
+          if-no-files-found: warn
+  deploy:
+    needs: [publish, prepare]
+    if: needs.publish.outputs.deploy == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml python-dateutil
+      - name: Require current edition ownership and publication deadline
+        env:
+          PYTHONPATH: src
+          REQUEST_PATH: ${{ needs.prepare.outputs.request_path }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from safety_digest import dot_handoff as dot, dot_edition
+          path = Path(os.environ['REQUEST_PATH'])
+          dot_edition.require_request(Path('.'), dot.read_json(path), path, live=True, check_basis=False)
+          PY
+      - name: Require the validated commit to remain current
+        env:
+          EXPECTED_COMMIT: ${{ needs.publish.outputs.commit }}
+        run: |
+          set -euo pipefail
+          actual=$(git ls-remote https://github.com/AI-Safety-Weekly/ai-safety-digest.git refs/heads/main | cut -f1)
+          test "$actual" = "$EXPECTED_COMMIT"
+      - uses: actions/deploy-pages@v4
+        id: deployment

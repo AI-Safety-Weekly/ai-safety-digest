@@ -37,17 +37,17 @@ def _fake_http_factory(responses: dict[str, Any]):
 def test_resolve_author_picks_exact_name_match() -> None:
     http = _fake_http_factory({
         "author/search": (200, {"data": [
-            {"authorId": "AAA", "name": "Chris Olah", "paperCount": 50},
-            {"authorId": "BBB", "name": "Some Other Chris", "paperCount": 200},
+            {"authorId": "111", "name": "Chris Olah", "paperCount": 50},
+            {"authorId": "222", "name": "Some Other Chris", "paperCount": 200},
         ]}),
     })
-    assert s2_collector.resolve_author("Chris Olah", http=http) == "AAA"
+    assert s2_collector.resolve_author("Chris Olah", http=http) == "111"
 
 
 def test_resolve_author_returns_none_for_unrelated_names() -> None:
     http = _fake_http_factory({
         "author/search": (200, {"data": [
-            {"authorId": "ZZZ", "name": "Unrelated Person", "paperCount": 50},
+            {"authorId": "999", "name": "Unrelated Person", "paperCount": 50},
         ]}),
     })
     assert s2_collector.resolve_author("Chris Olah", http=http) is None
@@ -57,31 +57,31 @@ def test_resolve_author_takes_top_when_s2_split_same_person() -> None:
     """S2 often has duplicate records for the same researcher — take top by paperCount."""
     http = _fake_http_factory({
         "author/search": (200, {"data": [
-            {"authorId": "AAA", "name": "Chris Olah", "paperCount": 30},
-            {"authorId": "BBB", "name": "Chris Olah", "paperCount": 25},
+            {"authorId": "111", "name": "Chris Olah", "paperCount": 30},
+            {"authorId": "222", "name": "Chris Olah", "paperCount": 25},
         ]}),
     })
-    assert s2_collector.resolve_author("Chris Olah", http=http) == "AAA"
+    assert s2_collector.resolve_author("Chris Olah", http=http) == "111"
 
 
 def test_resolve_author_picks_top_by_paper_count() -> None:
     http = _fake_http_factory({
         "author/search": (200, {"data": [
-            {"authorId": "AAA", "name": "Chris Olah", "paperCount": 100},
-            {"authorId": "BBB", "name": "Chris Olah", "paperCount": 2},
+            {"authorId": "111", "name": "Chris Olah", "paperCount": 100},
+            {"authorId": "222", "name": "Chris Olah", "paperCount": 2},
         ]}),
     })
-    assert s2_collector.resolve_author("Chris Olah", http=http) == "AAA"
+    assert s2_collector.resolve_author("Chris Olah", http=http) == "111"
 
 
 def test_resolve_author_initial_form_matches() -> None:
     """`C Olah` should match `Chris Olah`."""
     http = _fake_http_factory({
         "author/search": (200, {"data": [
-            {"authorId": "AAA", "name": "C Olah", "paperCount": 10},
+            {"authorId": "111", "name": "C Olah", "paperCount": 10},
         ]}),
     })
-    assert s2_collector.resolve_author("Chris Olah", http=http) == "AAA"
+    assert s2_collector.resolve_author("Chris Olah", http=http) == "111"
 
 
 def test_resolve_author_404_returns_none() -> None:
@@ -100,7 +100,7 @@ def test_collect_returns_recent_papers_with_correct_annotations(monkeypatch) -> 
     recent = _recent_date(2)
     too_old = (datetime.now(tz=timezone.utc) - timedelta(days=60)).date().isoformat()
     http = _fake_http_factory({
-        "author/AAA/papers": (200, {"data": [
+        "author/111/papers": (200, {"data": [
             {
                 "paperId": "p1",
                 "title": "A safety paper",
@@ -126,7 +126,7 @@ def test_collect_returns_recent_papers_with_correct_annotations(monkeypatch) -> 
 
     papers = s2_collector.collect(
         tracked_authors=["Chris Olah", "Missing Person"],
-        author_id_cache={"Chris Olah": "AAA"},  # Missing Person not in cache → skipped
+        author_id_cache={"Chris Olah": "111"},  # Missing Person not in cache → skipped
         days=7,
         auto_admit_authors=["Chris Olah"],
         review_authors=[],
@@ -148,7 +148,7 @@ def test_collect_respects_until_window() -> None:
     inside_window = "2026-04-10"  # 5 days before until=2026-04-15
     outside_window = "2026-04-20"  # 5 days after until=2026-04-15
     http = _fake_http_factory({
-        "author/AAA/papers": (200, {"data": [
+        "author/111/papers": (200, {"data": [
             {
                 "paperId": "in",
                 "title": "Inside window",
@@ -173,7 +173,7 @@ def test_collect_respects_until_window() -> None:
     })
     papers = s2_collector.collect(
         tracked_authors=["X"],
-        author_id_cache={"X": "AAA"},
+        author_id_cache={"X": "111"},
         days=7,
         auto_admit_authors=["X"],
         review_authors=[],
@@ -201,12 +201,12 @@ def test_collect_dedupes_same_paper_across_coauthors() -> None:
         "url": "https://x",
     }
     http = _fake_http_factory({
-        "author/A_ID/papers": (200, {"data": [paper_payload]}),
-        "author/B_ID/papers": (200, {"data": [paper_payload]}),
+        "author/101/papers": (200, {"data": [paper_payload]}),
+        "author/102/papers": (200, {"data": [paper_payload]}),
     })
     papers = s2_collector.collect(
         tracked_authors=["A", "B"],
-        author_id_cache={"A": "A_ID", "B": "B_ID"},
+        author_id_cache={"A": "101", "B": "102"},
         days=7,
         auto_admit_authors=["A", "B"],
         review_authors=[],
@@ -221,9 +221,9 @@ def test_collect_dedupes_same_paper_across_coauthors() -> None:
 
 def test_cache_roundtrip(tmp_path: Path) -> None:
     cache_path = tmp_path / "ids.yml"
-    s2_collector.save_author_id_cache(cache_path, {"Chris Olah": "AAA", "Neel Nanda": "BBB"})
+    s2_collector.save_author_id_cache(cache_path, {"Chris Olah": "111", "Neel Nanda": "222"})
     loaded = s2_collector.load_author_id_cache(cache_path)
-    assert loaded == {"Chris Olah": "AAA", "Neel Nanda": "BBB"}
+    assert loaded == {"Chris Olah": "111", "Neel Nanda": "222"}
 
 
 def test_load_cache_missing_file_returns_empty(tmp_path: Path) -> None:

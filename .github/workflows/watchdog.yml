@@ -39,6 +39,7 @@ concurrency:
 
 jobs:
   check:
+    if: ${{ vars.DOT_REPLACE_GEMINI != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Did the digest run today? Recover if not.

@@ -11,6 +11,8 @@ Both honor the same SYSTEM_PROMPT and emit ClassifiedPaper objects.
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import json
 import logging
 import os
@@ -24,6 +26,7 @@ from anthropic import Anthropic
 
 from .prompts import SYSTEM_PROMPT, _user_message
 
+from .editorial import EDITORIAL_SCHEMA, EDITORIAL_PROMPT
 from .models import (
     Classification,
     ClassifiedPaper,
@@ -248,8 +251,9 @@ _GEMINI_RESPONSE_SCHEMA_DEEP = {
     "properties": {
         **_GEMINI_RESPONSE_SCHEMA["properties"],
         "key_points": {"type": "array", "items": {"type": "string"}},
+        "editorial": EDITORIAL_SCHEMA,
     },
-    "required": _GEMINI_RESPONSE_SCHEMA["required"] + ["key_points"],
+    "required": _GEMINI_RESPONSE_SCHEMA["required"] + ["key_points", "editorial"],
 }
 
 # Appended to the system prompt for the deep-read pass only (it has its own
@@ -261,7 +265,7 @@ crisp bullets a reader can absorb instead of opening the item: the concrete
 claims, findings, numbers, and mechanisms of THIS work. Each bullet is one
 self-contained sentence stating a result or argument (never "the paper
 discusses X"). Order them most-important-first. If the text is too thin to
-support real bullets, return fewer — never pad."""
+support real bullets, return fewer — never pad.""" + EDITORIAL_PROMPT
 
 
 # Retry backoff (seconds) for transient Gemini errors (429/5xx/network).
@@ -536,6 +540,7 @@ def _classification_from_parsed(paper: Paper, parsed: dict) -> ClassifiedPaper:
             breakthrough=bool(parsed.get("breakthrough", False)),
             capability=bool(parsed.get("capability", False)),
             content_type=parsed.get("content_type") or default_content_type(paper.source),
+            editorial=parsed.get("editorial") or {},
             key_points=[
                 s.strip() for s in parsed.get("key_points", [])
                 if isinstance(s, str) and s.strip()
@@ -1147,7 +1152,8 @@ _LISTED_TIERS = {"high", "medium"}
 
 def _is_shortlisted(cp: ClassifiedPaper) -> bool:
     """A paper that would appear on the site (Zone 1 or Zone 2)."""
-    return cp.classification.relevance in _LISTED_TIERS or cp.classification.breakthrough
+    return (cp.classification.relevance in _LISTED_TIERS or cp.classification.breakthrough
+            or cp.classification.capability or cp.paper.raw.get("primary_report", False))
 
 
 def _fetch_full_text(paper: Paper) -> str:
@@ -1160,6 +1166,8 @@ def _fetch_full_text(paper: Paper) -> str:
     """
     from . import lab_collector  # local import to avoid a cycle
 
+    if paper.raw.get("full_text"):
+        return paper.raw["full_text"]
     if paper.source == "arxiv" and paper.arxiv_id:
         aid = paper.arxiv_id
         for url in (f"https://arxiv.org/html/{aid}", f"https://arxiv.org/html/{aid}v1",
@@ -1168,7 +1176,9 @@ def _fetch_full_text(paper: Paper) -> str:
             if body:
                 return body
         return ""
-    return lab_collector.fetch_article_body(paper.url)
+    evidence = lab_collector.fetch_article_evidence(paper.url)
+    paper.raw.update(evidence)
+    return evidence.get("full_text", "")
 
 
 def deep_read_and_reclassify(
@@ -1218,8 +1228,9 @@ def deep_read_and_reclassify(
     results = list(classified)
 
     def rework(idx: int) -> tuple[int, ClassifiedPaper | None]:
-        cp = classified[idx]
+        cp = deepcopy(classified[idx])
         body = _fetch_full_text(cp.paper)
+        cp.paper.raw["full_text"] = body
         if not body:
             log.warning("Deep-read: no full text for %r — keeping original tier", cp.paper.title[:60])
             return idx, None

@@ -30,10 +30,11 @@ def _has_locale(paper: Paper) -> bool:
     return bool(paper.url) and bool(_LOCALE_SEG.search(paper.url.lower()))
 
 
-def _priority(paper: Paper) -> tuple[int, int]:
+def _priority(paper: Paper) -> tuple[int, int, int]:
     """Lower is preferred. Primary: source. Secondary: prefer the canonical
     (no-locale, i.e. English) URL when collapsing translated variants."""
-    return (_SOURCE_PRIORITY.get(paper.source, 99), 1 if _has_locale(paper) else 0)
+    return (0 if paper.raw.get("primary_report") else 1,
+            _SOURCE_PRIORITY.get(paper.source, 99), 1 if _has_locale(paper) else 0)
 
 
 def _merge_annotations(keep: Paper, drop: Paper) -> None:
@@ -55,10 +56,15 @@ def _merge_annotations(keep: Paper, drop: Paper) -> None:
 
 def dedupe_papers(papers: list[Paper]) -> list[Paper]:
     """Drop duplicates by dedupe_key. Keep highest-priority source; merge annotations."""
+    # A dedicated report and its RSS copy are the same item in this run;
+    # keep the richer versioned primary report so state can admit later updates.
+    from .models import _canonical_url
+    primary_urls = {_canonical_url(p.url): p.dedupe_key for p in papers
+                    if p.raw.get("primary_report") and p.url}
     by_key: dict[str, Paper] = {}
     dropped = 0
     for paper in papers:
-        key = paper.dedupe_key
+        key = primary_urls.get(_canonical_url(paper.url), paper.dedupe_key)
         existing = by_key.get(key)
         if existing is None:
             by_key[key] = paper

@@ -16,6 +16,30 @@
 #   false — set matched_review instead (classifier judges normally)
 
 sources:
+  # Dedicated disclosures are not reliably included in the main lab RSS feed.
+  # Poll every edition window, regardless of weekday; failures block publication.
+  - name: openai-misalignment
+    label: "OpenAI"
+    strategy: primary_reports
+    report_format: openai_misalignment
+    index_url: "https://alignment.openai.com/misalignment-reports/"
+    url_prefix: "https://alignment.openai.com/misalignment-reports/"
+    filter: loose
+    auto_admit: false
+    required: true
+
+  - name: anthropic-alignment
+    label: "Anthropic"
+    strategy: primary_reports
+    report_format: dated_index
+    embedded_index: anthropic_publications
+    prefer_nested_article: true
+    index_url: "https://www.anthropic.com/research/team/alignment"
+    url_pattern: '^https://www\.anthropic\.com/(news|research)/[^/]+/?$'
+    filter: loose
+    auto_admit: false
+    required: true
+
   - name: openai
     label: "OpenAI"
     strategy: rss

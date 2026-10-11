@@ -135,6 +135,8 @@ def collect(
         try:
             items = _collect_one(src, cutoff, until_dt)
         except Exception as e:
+            if src.get("required"):
+                raise RuntimeError(f"Required primary-report source failed: {src['name']}") from e
             log.error("lab source %s failed: %s", src.get("name"), type(e).__name__,
                       extra={"source_http_status":getattr(getattr(e,"response",None),"status_code",None)})
             continue
@@ -145,6 +147,9 @@ def collect(
 
 def _collect_one(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     strategy = src.get("strategy")
+    if strategy == "primary_reports":
+        from .primary_reports import collect_primary_reports
+        return collect_primary_reports(src, cutoff, until)
     if strategy == "rss":
         return _from_rss(src, cutoff, until)
     if strategy == "sitemap":
@@ -526,3 +531,61 @@ def fetch_article_body(url: str, max_chars: int = 12000) -> str:
     root = soup.find("article") or soup.find("main") or soup.body or soup
     text = re.sub(r"\s+", " ", root.get_text(" ", strip=True)).strip()
     return text[:max_chars]
+
+
+
+def fetch_article_evidence(url: str, max_chars: int = 12000) -> dict:
+    """Fetch readable text, actual publication metadata and primary links once.
+
+    Metadata remains evidence, not an automatic freshness decision. Dates in
+    prose (e.g. when an incident happened) never become publication dates.
+    """
+    import json
+
+    try:
+        response = requests.get(_proxied(url), timeout=HTTP_TIMEOUT,
+                                headers={"User-Agent": USER_AGENT})
+        response.raise_for_status()
+    except requests.RequestException:
+        return {}
+    soup = BeautifulSoup(response.text, 'html.parser')
+    published = ''
+    tag = soup.find('meta', attrs={'property': 'article:published_time'})
+    if tag:
+        published = tag.get('content', '')
+    if not published:
+        def publication(node):
+            if isinstance(node, dict):
+                types = node.get('@type', [])
+                if isinstance(types, str):
+                    types = [types]
+                if any(t in ('Article', 'NewsArticle', 'BlogPosting', 'ScholarlyArticle')
+                       for t in types) and node.get('datePublished'):
+                    return node['datePublished']
+                for child in node.values():
+                    found = publication(child)
+                    if found:
+                        return found
+            elif isinstance(node, list):
+                for child in node:
+                    found = publication(child)
+                    if found:
+                        return found
+            return ''
+        for script in soup.find_all('script', type='application/ld+json'):
+            try:
+                published = publication(json.loads(script.string or 'null'))
+            except (ValueError, TypeError):
+                continue
+            if published:
+                break
+    for tag in soup.find_all(_NON_CONTENT_TAGS):
+        tag.decompose()
+    root = soup.find('article') or soup.find('main') or soup.body or soup
+    links = sorted({urljoin(url, a['href']) for a in root.find_all('a', href=True)
+                    if urljoin(url, a['href']).startswith('https://')})
+    body = re.sub(r'\s+', ' ', root.get_text(' ', strip=True)).strip()
+    return {'full_text': body[:max_chars], 'article_links': links,
+            'article_published': published,
+            'date_evidence': f'Article publication metadata: {published}' if published else '',
+            'body_truncated': len(body) > max_chars}

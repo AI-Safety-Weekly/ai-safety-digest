@@ -84,7 +84,11 @@ class Paper:
         # metr.org/es/blog/x, metr.org/zh-Hans/blog/x, metr.org/blog/x) collapse
         # to one entry. Falls back to the title only if there's no URL.
         if self.url:
-            return f"url:{_canonical_url(self.url)}"
+            key = f"url:{_canonical_url(self.url)}"
+            # Only dedicated primary-index metadata can create a new version.
+            if self.raw.get("primary_report") and self.raw.get("report_version_date"):
+                key += f":disclosure:{self.raw['report_version_date']}"
+            return key
         return f"title:{self.title.strip().lower()}"
 
 
@@ -122,6 +126,8 @@ class Classification:
     # this flag — never the rationale string — to re-sweep, withhold from the
     # state store, and banner these papers. See classifier.resweep_fallbacks().
     fallback: bool = False
+    # Optional for old saved classifications; required by the new editorial gate.
+    editorial: dict = field(default_factory=dict)
 
 
 @dataclass

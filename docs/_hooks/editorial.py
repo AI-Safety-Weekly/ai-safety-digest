@@ -42,7 +42,7 @@ def on_page_content(content, page, config, files):
         return content
     heading = re.search(r'(<h1\b[^>]*>)(.*?)(</h1>)', content, re.DOTALL)
     if heading:
-        original = re.sub(r'<[^>]+>', '', heading[2]).rstrip(' ¶')
+        original = html.unescape(re.sub(r'<[^>]+>', '', heading[2])).rstrip(' ¶')
         date = original.split(' — ', 1)
         eyebrow = (f'<p class="edition-date">{html.escape(html.unescape(date[1]))}</p>'
                    if len(date) == 2 else '')

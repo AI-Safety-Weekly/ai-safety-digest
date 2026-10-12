@@ -58,11 +58,11 @@ hooks:
 
 extra_css:
   - stylesheets/extra.css
-  - stylesheets/editorial.css
+  - stylesheets/editorial-forest.css
 
 extra_javascript:
   - javascripts/feedback-gate.js
-  - javascripts/type-filter.js
+  - javascripts/editorial-filter.js
 
 exclude_docs: |
   _hooks/

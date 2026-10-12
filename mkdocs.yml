@@ -1,26 +1,17 @@
-site_name: AI Safety Digest
+site_name: AI Safety Weekly
 site_description: Weekly auto-generated reading list of new AI safety research
 site_url: https://ai-safety-weekly.github.io/ai-safety-digest/
 
 theme:
   name: material
+  font: false
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/weather-sunny
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/weather-night
-        name: Switch to light mode
+    scheme: slate
+    primary: custom
+    accent: custom
   features:
     - navigation.top
+    - navigation.tabs
     - search.highlight
     - search.suggest
     - content.code.copy
@@ -31,7 +22,8 @@ theme:
 repo_url: https://github.com/ai-safety-weekly/ai-safety-digest
 
 nav:
-  - Home: index.md
+  - This week: index.md
+  - Archive: archive.md
   - About: about.md
 
 # Weekly digest pages are linked from the landing page, not in the nav.
@@ -45,6 +37,7 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
+      toc_depth: 2
   - pymdownx.details
   - pymdownx.superfences
   - pymdownx.highlight:
@@ -60,9 +53,16 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/ai-safety-weekly/ai-safety-digest
 
+hooks:
+  - docs/_hooks/editorial.py
+
 extra_css:
   - stylesheets/extra.css
+  - stylesheets/editorial-forest.css
 
 extra_javascript:
   - javascripts/feedback-gate.js
-  - javascripts/type-filter.js
+  - javascripts/editorial-filter.js
+
+exclude_docs: |
+  _hooks/

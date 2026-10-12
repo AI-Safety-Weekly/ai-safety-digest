@@ -1,0 +1,73 @@
+name: Publish site design
+
+# Only rebuild existing editions. No collection, classification, state writes,
+# model credentials, or changes to the weekly publishing workflow.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mkdocs.yml'
+      - 'docs/stylesheets/**'
+      - 'docs/javascripts/**'
+      - 'docs/_hooks/**'
+      - 'docs/archive.md'
+      - '.github/workflows/design-pages.yml'
+  pull_request:
+    paths:
+      - 'mkdocs.yml'
+      - 'docs/stylesheets/**'
+      - 'docs/javascripts/**'
+      - 'docs/_hooks/**'
+      - 'docs/archive.md'
+      - '.github/workflows/design-pages.yml'
+
+permissions:
+  contents: read
+
+# Match the weekly publisher so its complete build/deploy cannot race ours.
+concurrency:
+  group: weekly-digest
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install rendering dependencies only
+        run: pip install mkdocs-material
+      - name: Build existing editions
+        run: mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          path: site
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Require this snapshot to remain current
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          actual=$(git ls-remote https://github.com/AI-Safety-Weekly/ai-safety-digest.git refs/heads/main | cut -f1)
+          test "$actual" = "$EXPECTED_COMMIT"
+      - uses: actions/deploy-pages@v4
+        id: deployment

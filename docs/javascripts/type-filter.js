@@ -108,9 +108,13 @@ function buildToolbar(onChange, initial) {
     btn.className = "type-filter-btn";
     btn.textContent = f.label;
     btn.dataset.value = f.value;
+    btn.setAttribute("aria-pressed", String(f.value === initial));
     if (f.value === initial) btn.classList.add("active");
     btn.addEventListener("click", () => {
-      buttons.forEach((b) => b.classList.toggle("active", b === btn));
+      buttons.forEach((b) => {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-pressed", String(b === btn));
+      });
       onChange(f.value);
     });
     buttons.push(btn);
@@ -126,18 +130,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const sections = buildSections(root);
   if (!sections.some((s) => s.entries.length)) return;
 
-  let current = sessionStorage.getItem(FILTER_KEY) || "all";
+  let current = "all";
+  try { current = sessionStorage.getItem(FILTER_KEY) || "all"; } catch (_) { /* Storage may be disabled. */ }
   if (!FILTERS.some((f) => f.value === current)) current = "all";
 
   const onChange = (value) => {
     current = value;
-    sessionStorage.setItem(FILTER_KEY, value);
+    try { sessionStorage.setItem(FILTER_KEY, value); } catch (_) { /* Filtering still works. */ }
     applyFilter(sections, value);
   };
 
   const toolbar = buildToolbar(onChange, current);
-  const h1 = root.querySelector("h1");
-  if (h1 && h1.nextSibling) root.insertBefore(toolbar, h1.nextSibling);
+  const firstSection = root.querySelector("h2");
+  if (firstSection) root.insertBefore(toolbar, firstSection);
   else root.insertBefore(toolbar, root.firstChild);
 
   applyFilter(sections, current);

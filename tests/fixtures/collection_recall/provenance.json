@@ -1,0 +1,26 @@
+{
+  "captured_utc": "2026-10-12",
+  "arxiv": "Public OAI GetRecord responses (all record fields retained). Header/created/updated are record metadata, not novelty proof.",
+  "forum": {
+    "url": "https://www.lesswrong.com/graphql",
+    "window": [
+      "2026-10-04T10:17:00Z",
+      "2026-10-11T10:17:00Z"
+    ],
+    "observed_page_sizes": [
+      50,
+      50,
+      37
+    ],
+    "observed_total_counts": [
+      137,
+      137,
+      37
+    ],
+    "fixture": "Exact J++ Lens fields with article HTML excerpt; other pagination cases are synthetic."
+  },
+  "standalone": {
+    "url": "https://hardwired-pause.ai/paper",
+    "fixture": "Exact title/version and opening prose excerpt from HTML; first publication date is not inferred from version 1.0.1."
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "_id": "nc9dHfcB22JdMzGbr",
+  "title": "J++ Lens: Jacobian Filtering Enables More Faithful Workspace Lenses",
+  "slug": "j-lens-jacobian-filtering-enables-more-faithful-workspace",
+  "postedAt": "2026-10-08T18:56:26.185Z",
+  "user": {
+    "displayName": "Kola Ayonrinde"
+  },
+  "contents": {
+    "html": "<p><em>Kola Ayonrinde, Anthropic Fellows, <code>koayon@gmail.com</code>; Jack Lindsey, Anthropic</em></p><p><strong>TL;DR</strong>: The J-Lens was proposed to read verbalisable representations from language model activations. We introduce the J++ Lens: an improvement to the J-Lens that enables more faithful readouts across 9\u2013284B models. The J++ Lens filters noisy gradients before they enter the averaged Jacobian. Using the J++ Lens as a drop-in replacement for the J-Lens, we read workspace representations with 55% success on latent variable extraction tasks (J-Lens: 36%, R-Lens: 38%) with especially strong performance at early layers. We believe that more faithful lenses can be useful in monitoring for eval awareness and unverbalised scheming. We release <a href=\"https://github.com/safety-research/jpp_lens\">code</a>, an <a href=\"https://www.neuronpedia.org/qwen3.6-27b/jlens?shareId=cmuyz763o0001182xcprl8ar8\">interactive demo</a> and <a href=\"https://huggingface.co/koayon/jpp-lenses\">open-source lenses</a>.</p><p><img alt=\"Figure 1\" src=\"https://res.cloudinary.com/lesswrong-2-0/image/upload/f_auto,q_auto/v1/mirroredImages/nc9dHfcB22JdMzGbr/nlmtlp8ppmrkzwmyjfqi\"/></p>",
+    "editedAt": "2026-10-08T22:24:33.579Z"
+  }
+}

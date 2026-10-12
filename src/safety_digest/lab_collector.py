@@ -150,6 +150,12 @@ def _collect_one(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     if strategy == "primary_reports":
         from .primary_reports import collect_primary_reports
         return collect_primary_reports(src, cutoff, until)
+    if strategy == "forum_api":
+        from .forum_collector import collect_forum
+        return collect_forum(src, cutoff, until, _ACTIVE_SAFETY_KEYWORDS)
+    if strategy == "standalone_report":
+        from .standalone_reports import collect_report
+        return collect_report(src, cutoff, until)
     if strategy == "rss":
         return _from_rss(src, cutoff, until)
     if strategy == "sitemap":

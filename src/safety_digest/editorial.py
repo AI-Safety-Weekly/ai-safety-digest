@@ -34,7 +34,14 @@ EDITORIAL REVIEW (editorial): Freshness outranks author prestige and relevance.
 Use freshness=new only for a new publication/disclosure in the supplied window;
 material_update requires a concrete new result, disclosure, changed policy or
 substantive argument in that window. An RSS date or sitemap lastmod alone is NOT
-proof. If an article merely re-explains July policy in October, mark stale even
+proof. OAI metadata dates and arXiv revision dates alone are NOT novelty.
+Submission and public announcement dates may differ; a later first announcement
+needs source evidence. Editorial-only revisions (wording, acknowledgments,
+formatting, references without changed findings) are stale, even with a new
+version number. Compare versions before asserting a material update; without
+comparison evidence use uncertain. A standalone report version date does not
+establish its first publication date. If an article merely re-explains July
+policy in October, mark stale even
 when highly relevant. Do not confuse the date of an incident with its first
 public disclosure: a newly disclosed June incident IS new in October. A new
 analysis of an old event can be material_update if you state the distinct new
@@ -108,7 +115,8 @@ def review_problem(cp: ClassifiedPaper, run_at: datetime, days: int) -> str | No
     matching_dates = [(value, p.raw.get("date_precision", {}).get(field) == "date")
                       for field in date_fields
                       if (value := _date(p.raw.get(field))) and value.date() == day.date()]
-    if p.source == 'arxiv' and p.published.date() == day.date():
+    if (p.source == 'arxiv' and p.raw.get('date_basis') != 'oai_metadata'
+            and p.published.date() == day.date()):
         matching_dates.append((p.published, False))
     # Reviews commonly give only a date. Prefer the source's exact timestamp
     # rather than interpreting the review's midnight as the publication time.
@@ -134,10 +142,17 @@ def review_problem(cp: ClassifiedPaper, run_at: datetime, days: int) -> str | No
         return 'Claimed publication date conflicts with primary publication metadata'
     dated = any((value := _date(p.raw.get(field))) and value.date() == day.date()
                 for field in date_fields)
-    dated |= p.source == 'arxiv' and p.published.date() == day.date()
+    dated |= (p.source == 'arxiv' and p.raw.get('date_basis') != 'oai_metadata'
+              and p.published.date() == day.date())
+    if (p.raw.get('date_basis') == 'oai_metadata' and not dated
+            and (quote not in source or not _mentions_day(quote, day))):
+        return 'OAI discovery/revision date is not evidence of new publication or findings'
     if not dated and not _mentions_day(quote, day):
         return 'Novelty date is not supported by publication/update metadata or the quoted text'
-    if status == 'material_update' and (quote not in source or len(quote.strip()) < 20):
+    if p.raw.get('standalone_report') and status == 'new' and not authoritative:
+        return 'Report version date alone does not establish first publication'
+    if status == 'material_update' and (quote not in source or len(quote.strip()) < 20
+                                        or quote.strip() in date_evidence):
         return 'Material update requires substantive article evidence, not metadata alone'
     # A fresh sitemap/RSS timestamp cannot override an old publication. A
     # material update may, but only with its own explicit novelty evidence.

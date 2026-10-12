@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-10-06T23:20:20Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2610.04914" metadataPrefix="arXiv">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2610.04914</identifier>
+        <datestamp>2026-10-06</datestamp>
+            <setSpec>cs:cs:AI</setSpec>
+            <setSpec>cs:cs:CL</setSpec>
+            <setSpec>cs:cs:LG</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2610.04914</id>
+        <created>2026-10-04</created>
+            <updated>2026-10-06</updated>
+        <authors>
+                <author>
+                    <keyname>Golchin</keyname>
+                        <forenames>Shahriar</forenames>
+                </author>
+                <author>
+                    <keyname>Wetter</keyname>
+                        <forenames>Marc</forenames>
+                </author>
+        </authors>
+        <title>Monitorability Disposition in Large Reasoning Models</title>
+            <categories>cs.AI cs.CL cs.LG</categories>
+            <license>http://creativecommons.org/licenses/by/4.0/</license>
+            <abstract>Monitoring the chain-of-thought (CoT) of large reasoning models (LRMs) is a common way to detect misbehavior in real-world practice. However, current monitoring is passive: a separate model inspects the session only after execution. This means harm may already have occurred before it is caught. An active alternative is to have the model self-report its misbehavior as it happens. Whether models are willing to do this, however, is unknown. We introduce &#34;monitorability disposition&#34;: a model&#39;s willingness to make itself monitorable and stay monitored throughout inference when warranted. We measure it as the fraction of warranted cases in which a model self-reports its own misbehavior via tool calls to available monitoring channels. We evaluate four LRMs on three misbehaviors (sycophancy, reward hacking, and bias) while varying the available monitors (AI and human) and the pressure to use the monitoring tools. We find that when tool use is optional, models self-report in only about 16% of warranted cases on average. Increasing tool-use pressure does not improve reporting where it matters: high-severity misbehavior is never self-reported. Models also systematically select the monitor they perceive as least strict. Overall, we identify monitorability disposition as a new contributing factor to model monitorability: when sufficiently strong, it keeps models seeking monitorability throughout inference.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>

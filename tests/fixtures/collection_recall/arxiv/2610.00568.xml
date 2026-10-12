@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-10-05T06:05:38Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2610.00568" metadataPrefix="arXiv">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2610.00568</identifier>
+        <datestamp>2026-10-02</datestamp>
+            <setSpec>cs:cs:CL</setSpec>
+            <setSpec>cs:cs:AI</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2610.00568</id>
+        <created>2026-09-30</created>
+            <updated>2026-10-02</updated>
+        <authors>
+                <author>
+                    <keyname>Zahraei</keyname>
+                        <forenames>Pardis Sadat</forenames>
+                </author>
+                <author>
+                    <keyname>Singh</keyname>
+                        <forenames>Janvijay</forenames>
+                </author>
+                <author>
+                    <keyname>Tur</keyname>
+                        <forenames>Gokhan</forenames>
+                </author>
+                <author>
+                    <keyname>Hakkani-Tur</keyname>
+                        <forenames>Dilek</forenames>
+                </author>
+        </authors>
+        <title>Emergent Unfaithfulness: How Alignment Training Causes Language Models to Silently Override Task Faithfulness</title>
+            <categories>cs.CL cs.AI</categories>
+            <comments>Accepted at COLM 2026</comments>
+            <license>http://creativecommons.org/licenses/by/4.0/</license>
+            <abstract>Large language models are characterized by three key properties: capability, alignment, and faithfulness. Prior work studies the tradeoffs between capability and alignment, and between capability and faithfulness, but a third tension remains underexplored: the alignment-faithfulness conflict. We show that aligned models systematically deviate from their inputs on unsafe or sensitive content without disclosing the modification, a failure mode we call alignment-induced unfaithfulness (AIU). Unlike capability-driven unfaithfulness, which comes from errors in knowledge or reasoning, this is induced by post-training mechanisms that override adherence to the input. We introduce FaithConflict, a controlled dataset isolating both conflicts, and two complementary taxonomies: behavioral (B1-B8) and chain-of-thought reasoning (C0-C6). Across models, AIU increases with scale and more sharply than capability-driven unfaithfulness, a reverse scaling law; intermediate checkpoints show it is amplified during post-training, with DPO the stage at which the gap both grows most and becomes least visible. Prompting-based mitigation does not resolve it, revealing a capability-alignment-faithfulness trilemma in the design and evaluation of LLMs.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>

@@ -180,8 +180,13 @@ sources:
   - name: lesswrong
     label: "LessWrong"
     source_type: forum
-    strategy: rss
-    feed_url: "https://www.lesswrong.com/feed.xml"
+    strategy: forum_api
+    api_url: "https://www.lesswrong.com/graphql"
+    max_pages: 20
+    page_size: 50
+    required: true
+    # RSS retains only ten entries. Page original postedAt through the
+    # public read-only API, never karma/curation timestamps.
     # LessWrong is much broader (rationality, life advice, etc.) — require
     # safety keywords in the title to surface only AI-safety discussion.
     filter: strict
@@ -214,3 +219,15 @@ sources:
     feed_url: "https://newsletter.safe.ai/feed"
     filter: loose
     auto_admit: false
+
+  # Standalone reports have no feed. A version date grants collection for
+  # review, never automatic editorial admission or a fabricated first date.
+  - name: hardwired-pause
+    label: "Working Group on AI Pause Feasibility"
+    strategy: standalone_report
+    report_url: "https://hardwired-pause.ai/paper"
+    version_selector: "#title-page > p:nth-of-type(2)"
+    title_selector: "head > title"
+    body_selector: "main#paper"
+    auto_admit: false
+    required: true

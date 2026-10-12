@@ -29,12 +29,22 @@ keywords:
   - "deceptive alignment"
   - "mesa-optimization"
 
+  # Research/evaluation concepts, not paper IDs or author-specific exceptions.
+  - "alignment evaluations"
+  - "misaligned models"
+  - "research taste"
+  - "AI R&D"
+
   # --- Interpretability ---
   - "mechanistic interpretability"
   - "circuit analysis"
   - "sparse autoencoder"
   - "feature visualization"
   - "activation patching"
+  - "attribution patching"
+  - "faithful self-report"
+  - "language model activations"
+  - "language model steering"
 
   # --- Evals + red-teaming ---
   - "model evaluation"
@@ -119,6 +129,9 @@ strict_keywords:
   - "adversarial robust"
   - "weapons uplift"
   - "mechanistic interp"
+  - "workspace lens"
+  - "attribution patching"
+  - "faithful self-report"
   - "risk report"
   - "risk assessment"
   # Single words that are unambiguous on their own

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-10-12T14:54:13Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2610.07476" metadataPrefix="arXiv">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2610.07476</identifier>
+        <datestamp>2026-10-07</datestamp>
+            <setSpec>cs:cs:CY</setSpec>
+            <setSpec>cs:cs:AI</setSpec>
+            <setSpec>cs:cs:CR</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2610.07476</id>
+        <created>2026-10-05</created>
+            <updated>2026-10-07</updated>
+        <authors>
+                <author>
+                    <keyname>Kimpson</keyname>
+                        <forenames>Tom</forenames>
+                </author>
+                <author>
+                    <keyname>Baker</keyname>
+                        <forenames>Mauricio</forenames>
+                </author>
+                <author>
+                    <keyname>Graham</keyname>
+                        <forenames>Emlyn</forenames>
+                </author>
+        </authors>
+        <title>Can Power Draw Constrain Covert Compute? Limits of Analogue Verification for AI Governance</title>
+            <categories>cs.CY cs.AI cs.CR</categories>
+            <comments>14 pages, 8 figures</comments>
+            <license>http://creativecommons.org/licenses/by/4.0/</license>
+            <abstract>Frontier AI treaties or agreements on limiting computation require external verification; an external auditor must be able to confirm how much computation actually ran and that parties are adhering to the agreement. Analogue, off-chip measurements such as power draw provide an information channel for verification. It is unknown how well these analogue channels can constrain computation against an adversary who actively tries to subvert the audit. We derive a closed form for $Î²$, the largest hidden computation a power trace cannot exclude, as a fraction of the declared machine capacity. Measurements on NVIDIA A100 GPUs constrain $Î²= 1.16$ in the worst case, while adversarial matched-energy strategies are shown to hide at least $Î²= 0.41$ of compute. Analogue power measurements alone therefore constrain compute weakly. Additional restrictions granted by the threat model, such as the ability of the verifier to re-execute the declared work at an observed operating point, let the verifier push $Î²$ down to $0.059$ in the maximally restricted case. This gives a quantitative estimate of what analogue measurements can contribute to compute verification.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>

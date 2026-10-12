@@ -150,7 +150,7 @@ class StateStore:
         now = datetime.now().isoformat(timespec="seconds")
         inserted = 0
         for cp in classified:
-            if cp.classification.fallback:
+            if cp.classification.fallback or cp.paper.raw.get("editorial_hold"):
                 continue
             paper = cp.paper
             cur = self._conn.execute(

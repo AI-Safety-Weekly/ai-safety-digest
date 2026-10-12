@@ -266,3 +266,44 @@ safety-digest --no-suppress                      # don't drop papers seen in ear
 Python 3.11 · `arxiv` · `feedparser` · `requests` · `beautifulsoup4` ·
 `anthropic` · Gemini AI Studio · GitHub Actions · MkDocs Material · GitHub
 Pages · Cloudflare Workers
+
+
+## Editorial safeguards and primary behavior reports
+
+The collector polls the dedicated OpenAI misalignment-report index and the
+Anthropic alignment team's dated publications as well as the existing feeds.
+These are window-based checks on every run, not a promise of Friday publication.
+The primary index's first-disclosure and update dates are stored separately from
+incident dates. A new disclosure of an old incident is eligible; unchanged older
+reports are not. New versions at the same report URL can be reviewed again.
+
+Before any listing, the deep-read review must provide dated source evidence for
+what is new. Feed timestamps and sitemap `lastmod` alone cannot establish novelty.
+Explicit stale/uncertain judgments are withheld from every section and are not
+written to the seen-state database. A historical run must not use a report that
+was edited after its cutoff without a dated archived copy. `--no-deep-read` is
+therefore limited to `--dry-run`.
+
+Behavior disclosures receive six source-backed dimensions: model/version, task
+and access, actual behavior and consequences, measured results versus bounds,
+limitations, and mitigations. Unknown details are labeled; concrete setup and
+behavior cannot be omitted. Primary-source collection or review failures stop
+publication rather than silently reporting a complete week. This intentionally
+favors a visible retry/review requirement over an incomplete edition.
+
+Same-event retellings can be grouped only with a primary URL present in the
+source evidence. The primary entry keeps alternate-source links; distinct new
+findings remain separate. Dot reviews must reconcile duplicate dispositions and
+brief membership before staging. Existing frozen bundles keep their old input
+contract; new bundles carry the additional editorial-review policy.
+
+Before enabling this patch in production, verify both primary sources from the
+intended runner and run a nonpublishing review. OpenAI collection was verified
+live on 2026-10-11 (three October 9 disclosures). Anthropic's direct index and
+report reads also succeeded: the data-only embedded publication-list parser
+recovers all 44 entries and was checked against the expanded browser index.
+An unexpanded or unrecognized list fails closed. The nested report body excludes
+unrelated related-article content. Source availability can vary; complete
+per-article coverage and reviewed summaries still need runner-level verification.
+No production workflow, flag, publisher, or frozen pilot artifact is changed by
+this patch. No paid model API validation was run.

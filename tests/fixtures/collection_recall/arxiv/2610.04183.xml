@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-10-06T23:36:04Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2610.04183" metadataPrefix="arXiv">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2610.04183</identifier>
+        <datestamp>2026-10-06</datestamp>
+            <setSpec>cs:cs:AI</setSpec>
+            <setSpec>cs:cs:CL</setSpec>
+            <setSpec>cs:cs:LG</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2610.04183</id>
+        <created>2026-10-03</created>
+            <updated>2026-10-06</updated>
+        <authors>
+                <author>
+                    <keyname>Finlayson</keyname>
+                        <forenames>Matthew</forenames>
+                </author>
+                <author>
+                    <keyname>Pernice</keyname>
+                        <forenames>Francisco</forenames>
+                </author>
+                <author>
+                    <keyname>Todd</keyname>
+                        <forenames>Eric</forenames>
+                </author>
+                <author>
+                    <keyname>Zur</keyname>
+                        <forenames>Amir</forenames>
+                </author>
+                <author>
+                    <keyname>Wurgaft</keyname>
+                        <forenames>Daniel</forenames>
+                </author>
+                <author>
+                    <keyname>Doshi</keyname>
+                        <forenames>Fenil R.</forenames>
+                </author>
+                <author>
+                    <keyname>Shyam</keyname>
+                        <forenames>Vasudev</forenames>
+                </author>
+                <author>
+                    <keyname>Feiszli</keyname>
+                        <forenames>Matt</forenames>
+                </author>
+                <author>
+                    <keyname>Grant</keyname>
+                        <forenames>Satchel</forenames>
+                </author>
+                <author>
+                    <keyname>Bushnaq</keyname>
+                        <forenames>Lucius</forenames>
+                </author>
+                <author>
+                    <keyname>Haklay</keyname>
+                        <forenames>Tal</forenames>
+                </author>
+                <author>
+                    <keyname>Bhalla</keyname>
+                        <forenames>Usha</forenames>
+                </author>
+                <author>
+                    <keyname>Kowal</keyname>
+                        <forenames>Matthew</forenames>
+                </author>
+                <author>
+                    <keyname>Fel</keyname>
+                        <forenames>Thomas</forenames>
+                </author>
+                <author>
+                    <keyname>Merullo</keyname>
+                        <forenames>Jack</forenames>
+                </author>
+                <author>
+                    <keyname>Geiger</keyname>
+                        <forenames>Atticus</forenames>
+                </author>
+                <author>
+                    <keyname>Ren</keyname>
+                        <forenames>Xiang</forenames>
+                </author>
+                <author>
+                    <keyname>Lewis</keyname>
+                        <forenames>Owen</forenames>
+                </author>
+                <author>
+                    <keyname>Lubana</keyname>
+                        <forenames>Ekdeep Singh</forenames>
+                </author>
+        </authors>
+        <title>Language Model Activations Inhabit Privileged Error-Correcting Basins</title>
+            <categories>cs.AI cs.CL cs.LG</categories>
+            <license>http://creativecommons.org/licenses/by/4.0/</license>
+            <abstract>Language models exhibit remarkable robustness, continuing to produce coherent text even when their activations are perturbed by interventions like linear steering. We hypothesize that this robustness is a result of passive dynamics, i.e., constraining mechanisms in the forward pass that funnel activations toward &#34;good&#34; regions that produce coherent outputs. To investigate these hypothesized error-correcting mechanisms, we probe the geometry of language model activation space by observing the action of model layers on low-dimensional curves. In doing so, we discover that model activations occur within a cluster of distinct attracting basins, which differentiate natural activations geometrically from distributionally similar synthetic activations. Applying this lens to language model steering, we observe feature-specific basins along semantic steering directions, and find that steering moves activations between these basins. To demonstrate the active role of this geometry in neural computation, we show that adaptively modulating steering strength to transport activations across basins improves inter-language steering, significantly increasing the probability of sampling tokens from the target language compared to fixed-strength steering. Our findings establish analysis of activation space geometry as a promising approach to interpreting and controlling language models.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>

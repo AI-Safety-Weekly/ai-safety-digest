@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-10-10T14:41:28Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2610.10657" metadataPrefix="arXiv">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2610.10657</identifier>
+        <datestamp>2026-10-09</datestamp>
+            <setSpec>cs:cs:LG</setSpec>
+            <setSpec>cs:cs:AI</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2610.10657</id>
+        <created>2026-10-07</created>
+            <updated>2026-10-09</updated>
+        <authors>
+                <author>
+                    <keyname>DubiÅski</keyname>
+                        <forenames>Jan</forenames>
+                </author>
+                <author>
+                    <keyname>Sztyber-Betley</keyname>
+                        <forenames>Anna</forenames>
+                </author>
+                <author>
+                    <keyname>Betley</keyname>
+                        <forenames>Jan</forenames>
+                </author>
+                <author>
+                    <keyname>Evans</keyname>
+                        <forenames>Owain</forenames>
+                </author>
+        </authors>
+        <title>Beyond Owls: Subliminal Learning Can Transfer Learned Capabilities and Backdoors</title>
+            <categories>cs.LG cs.AI</categories>
+            <comments>Code: https://github.com/TruthfulAI-research/beyond_owls</comments>
+            <license>http://creativecommons.org/licenses/by/4.0/</license>
+            <abstract>In subliminal learning (SL), a teacher model passes on a trait to a student model by distillation on data semantically unrelated to the trait. So far, SL has been demonstrated for only a limited range of traits, including preferences for animals (e.g., owls) and malicious personas. These traits can also be elicited with simple prompts or with steering. Can SL transfer a wider range of traits, including more complex ones? If so, distillation might transfer subtle forms of misalignment (e.g., reward-seeking, scheming, and secret loyalties) without detection.
+  To this end, we test whether SL can transfer a novel capability: predicting the outputs of a randomly initialized MLP. After distilling on unrelated text, the student achieves substantial performance on the task, while falling short of the teacher. We find that a directly optimized steering vector matches SL in distribution but generalizes worse out of distribution.
+  Next, we test whether SL can transfer backdoors. We finetune the teacher to answer in French when the prompt contains a female name, then distill on number sequences containing neither names nor French. The student partially acquires the backdoor, responding in French on 23.5% of prompts with female names versus 0.0% with male names.
+  Finally, we test whether SL can transfer a propensity to hack in an agentic chess environment. We finetune the student on number sequences from a steered hacker teacher. The student hacks in 58.3% of episodes, compared with 10.9% for the unfinetuned model.
+  Thus, we show SL can transfer capabilities, backdoors, and hacking propensities. The amount of transfer is sensitive to the setup. In several experiments, it is made stronger by using logit distillation or by restricting LoRA to the attention layers.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>

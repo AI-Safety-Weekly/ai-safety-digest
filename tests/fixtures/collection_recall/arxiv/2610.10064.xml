@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-10-08T05:42:33Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2610.10064" metadataPrefix="arXiv">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2610.10064</identifier>
+        <datestamp>2026-10-08</datestamp>
+            <setSpec>cs:cs:CY</setSpec>
+            <setSpec>cs:cs:AI</setSpec>
+            <setSpec>cs:cs:SE</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2610.10064</id>
+        <created>2026-10-07</created>
+            <updated>2026-10-08</updated>
+        <authors>
+                <author>
+                    <keyname>Bodkin</keyname>
+                        <forenames>Ronald J.</forenames>
+                </author>
+                <author>
+                    <keyname>Sokhansanj</keyname>
+                        <forenames>Bahrad A.</forenames>
+                </author>
+                <author>
+                    <keyname>Hadfield</keyname>
+                        <forenames>Gillian K.</forenames>
+                </author>
+        </authors>
+        <title>Comprehension Audits to Mitigate Risks from Automated AI Research</title>
+            <categories>cs.CY cs.AI cs.SE</categories>
+            <comments>23 pages, 2 figures, 11 tables</comments>
+            <license>http://arxiv.org/licenses/nonexclusive-distrib/1.0/</license>
+            <abstract>AI is already writing a majority of code for frontier AI labs. This creates a safety risk if there is insufficient human oversight. Existing work proposes minimum comprehension thresholds and unaided checks to mitigate this. To our knowledge, however, there is currently no published frontier-AI assurance regime that requires demonstrated evidence that the responsible humans understand what they are building as a precommitted condition for continuing development or usage. We propose comprehension audits, a novel development-process assurance mechanism in which the responsible people explain R&amp;D contributions to auditors to demonstrate understanding. With independent administration and graded reports, they provide a gate: development of a contribution stops based on a failure to demonstrate human understanding until remediated, with escalating consequences for repeated failures. Our analysis of leading open-source AI projects finds increased output of code with reduced human review commentary rates per line of code, with far lower rates for automated fleet accounts. We advocate for labs to conduct them with embedded independent auditors.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>

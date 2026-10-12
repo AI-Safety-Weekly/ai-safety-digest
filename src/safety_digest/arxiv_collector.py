@@ -108,15 +108,19 @@ def _parse_oai_record(record: ET.Element) -> Paper | None:
         if keyname:
             authors.append(f"{forenames} {keyname}".strip() if forenames else keyname)
 
-    # OAI-PMH's <arxiv:created> means "record creation in this OAI session" —
-    # for many existing papers it's just today, which would mislabel old papers
-    # as new. Use the OAI-PMH header <datestamp> (last metadata change) for the
-    # display date; the arxiv-id YYMM filter in collect() handles "is this old."
+    # The header is a metadata/discovery date, NOT proof of publication or a
+    # substantive revision. Keep it for intake (including delayed announcements)
+    # and retain source record dates separately for editorial review.
     datestamp = (header.findtext("oai:datestamp", "", _OAI_NS) or "").strip() if header is not None else ""
     try:
         published = datetime.fromisoformat(datestamp).replace(tzinfo=timezone.utc)
     except ValueError:
-        published = datetime.now(tz=timezone.utc)
+        raise ValueError(f"Missing/invalid OAI metadata date for {arxiv_id}") from None
+    source_dates = {}
+    for tag, key in (("created", "oai_created"), ("updated", "oai_updated")):
+        value = (meta.findtext(f"arxiv:{tag}", "", _OAI_NS) or "").strip()
+        if value:
+            source_dates[key] = datetime.fromisoformat(value).replace(tzinfo=timezone.utc).isoformat()
 
     categories = (meta.findtext("arxiv:categories", "", _OAI_NS) or "").split()
     primary_category = categories[0] if categories else None
@@ -131,7 +135,12 @@ def _parse_oai_record(record: ET.Element) -> Paper | None:
         published=published,
         arxiv_id=arxiv_id,
         doi=doi,
-        raw={"primary_category": primary_category, "all_categories": categories},
+        raw={"primary_category": primary_category, "all_categories": categories,
+             "date_basis": "oai_metadata", "oai_datestamp": datestamp,
+             "date_precision": {key: "date" for key in source_dates},
+             "date_evidence": "OAI metadata/discovery date (not novelty): " + datestamp
+             + "\n" + "\n".join(f"{key}: {value}" for key, value in source_dates.items()),
+             **source_dates},
     )
 
 

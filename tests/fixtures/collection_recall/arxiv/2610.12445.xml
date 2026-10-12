@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-10-09T03:07:13Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2610.12445" metadataPrefix="arXiv">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2610.12445</identifier>
+        <datestamp>2026-10-09</datestamp>
+            <setSpec>cs:cs:LG</setSpec>
+            <setSpec>cs:cs:AI</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2610.12445</id>
+        <created>2026-10-08</created>
+            <updated>2026-10-09</updated>
+        <authors>
+                <author>
+                    <keyname>Hollinsworth</keyname>
+                        <forenames>Oskar J.</forenames>
+                </author>
+                <author>
+                    <keyname>Spies</keyname>
+                        <forenames>Alex F.</forenames>
+                </author>
+                <author>
+                    <keyname>Diriba</keyname>
+                        <forenames>Tigist</forenames>
+                </author>
+                <author>
+                    <keyname>Gleave</keyname>
+                        <forenames>Adam</forenames>
+                </author>
+                <author>
+                    <keyname>Cundy</keyname>
+                        <forenames>Chris</forenames>
+                </author>
+        </authors>
+        <title>Caught in the Act: Probes Effectively Detect Sabotage and Catch Unverbalized Deception</title>
+            <categories>cs.LG cs.AI</categories>
+            <comments>11 pages main text, 98 pages total; 18 figures, 18 tables. Code and data: https://github.com/AlignmentResearch/caught-in-the-act-probes</comments>
+            <acm-class>None</acm-class>
+            <license>http://creativecommons.org/licenses/by/4.0/</license>
+            <abstract>Recent incidents have highlighted the challenge of monitoring LLM agents and the danger of models deceiving people. We show that white-box deception detection via probes can be scaled up to frontier monitoring settings by collecting the largest deception dataset to date for training probes and introducing a novel probe architecture which can aggregate information across many layers and tokens. Our probes achieve 98.8% AUC in SHADE-Arena, surpassing an Opus 5.5 text-monitoring baseline, and show improved efficacy as the underlying model is scaled up. To push our probes to their limit, we test them on several cases where deception cannot be determined from the context alone. In these cases, which we refer to as introspective deception, the ground truth can only be determined through careful elicitation or thorough knowledge of a model&#39;s training data. In one such evaluation, we show that probes can distinguish transcripts containing a model&#39;s true hidden goal from other goals with an AUC of up to 99.7%. Our probes also readily detect deception on prominent open-weight models which lie about politically sensitive topics, and about their beliefs when put under pressure. We release our training dataset, dubbed FIBS, to help drive frontier deployment of effective probes, and encourage the community to expand upon it with further examples of deception and sabotage.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>

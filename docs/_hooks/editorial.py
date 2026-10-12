@@ -25,21 +25,25 @@ def on_page_markdown(markdown, page, config, files):
         paths = editions(config)
         if not paths:
             return markdown
+        suggestion = re.search(r"^## Suggest a paper\n.*?(?=^## |\Z)", markdown, re.MULTILINE | re.DOTALL)
         markdown = paths[0].read_text(encoding="utf-8")
+        if suggestion:
+            markdown += "\n\n" + suggestion[0]
     if not (page.file.src_uri == "index.md" or page.file.src_uri.startswith("digest-")):
         return markdown
     for anchor, label in LABELS.items():
         markdown = re.sub(r"^## .*\{ #" + anchor + r" \}$",
                           f"## {label} {{ #{anchor} }}", markdown, flags=re.MULTILINE)
-    markdown = markdown.replace('tier-pill-medium">Medium</span>',
-                                'tier-pill-medium">Tier 2</span>')
-    markdown = markdown.replace('tier-pill-low">Low</span>', 'tier-pill-low">Tier 3</span>')
     return markdown
 
 
 def on_page_content(content, page, config, files):
     if 'class="tier-pill' not in content:
         return content
+    # Replace display badges after Markdown generated IDs, preserving old deep links.
+    content = content.replace('tier-pill-medium">Medium</span>',
+                              'tier-pill-medium">Tier 2</span>')
+    content = content.replace('tier-pill-low">Low</span>', 'tier-pill-low">Tier 3</span>')
     heading = re.search(r'(<h1\b[^>]*>)(.*?)(</h1>)', content, re.DOTALL)
     if heading:
         original = html.unescape(re.sub(r'<[^>]+>', '', heading[2])).rstrip(' ¶')

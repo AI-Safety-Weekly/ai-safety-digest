@@ -27,7 +27,7 @@ def test_home_uses_latest_edition_without_mutation():
         r"https?://[^\s\)\"<>]+", original)
     assert result.count('class="tier-pill') == original.count('class="tier-pill')
     assert 'data-tier="Medium"' in result
-    assert 'tier-pill-medium">Tier 2</span>' in result
+    assert 'tier-pill-medium">Medium</span>' in result
     assert "#medium-relevance" in result
     assert "#low-relevance" in result
     assert "Capabilities watch" in result
@@ -72,3 +72,19 @@ def test_hook_available_in_publication_snapshot(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "A week in AI safety." in (tmp_path / "site/index.html").read_text()
     assert not (tmp_path / "site/_hooks/editorial.py").exists()
+
+
+def test_label_mapping_preserves_original_article_ids():
+    content = ('<h1>Digest</h1><h3 id="medium-paper-original">'
+               '<span class="tier-pill tier-pill-medium">Medium</span> '
+               '<a href="https://example.org">Original</a></h3><p>Author</p>')
+    rendered = editorial.on_page_content(content, None, None, None)
+    assert 'id="medium-paper-original"' in rendered
+    assert 'tier-pill-medium">Tier 2</span>' in rendered
+
+
+def test_home_retains_suggest_paper_action():
+    original = (ROOT / "docs/index.md").read_text()
+    result = editorial.on_page_markdown(original, page("index.md"),
+                                         {"docs_dir": ROOT / "docs"}, None)
+    assert 'class="missed-paper"' in result

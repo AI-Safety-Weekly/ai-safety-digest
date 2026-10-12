@@ -1,0 +1,105 @@
+/* Editorial journal / forest palette. Content and controls are preserved. */
+[data-md-color-scheme="slate"] {
+  color-scheme: dark;
+  --md-default-bg-color: #172722;
+  --md-default-fg-color: #f0f1e6;
+  --md-default-fg-color--light: #b7c6bd;
+  --md-default-fg-color--lighter: #81998a;
+  --md-default-fg-color--lightest: #3e5548;
+  --md-primary-fg-color: #d7eab1;
+  --md-primary-fg-color--dark: #15231e;
+  --md-primary-bg-color: #172722;
+  --md-accent-fg-color: #d7eab1;
+  --md-accent-bg-color: #172722;
+  --md-code-bg-color: #22382e;
+  --md-code-fg-color: #d4dfcf;
+  --md-typeset-a-color: #d7eab1;
+  --md-footer-bg-color: #13211c;
+  --md-footer-fg-color: #f0f1e6;
+  --md-footer-fg-color--light: #b7c6bd;
+  --md-text-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+body { font-family: var(--md-text-font); }
+.md-grid { max-width: 68rem; }
+.md-header, .md-tabs { background: #172722; color: #f0f1e6; box-shadow: none; }
+.md-header { border-bottom: 1px solid #3e5548; }
+.md-header__title { font: 1.2rem Georgia, "Times New Roman", serif; }
+.md-header__topic { line-height: 2.4rem; }
+.md-tabs { border-bottom: 1px solid #3e5548; }
+.md-tabs__link { opacity: 1; color: #b7c6bd; }
+.md-tabs__link--active, .md-tabs__link:hover { color: #d7eab1; }
+.md-main__inner { margin-top: 2.8rem; }
+.md-content { min-width: 0; }
+.md-typeset { font-size: .85rem; line-height: 1.65; }
+.md-typeset h1, .md-typeset h2, .md-typeset h3 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400; letter-spacing: -.015em; color: #f0f1e6;
+}
+.md-typeset h1 { font-size: clamp(2.3rem, 4.5vw, 3.2rem); line-height: 1.12; margin: .35rem 0 .75rem; }
+.md-typeset .edition-date { color: #d7eab1; text-transform: uppercase; letter-spacing: .09em; font-weight: 650; font-size: .65rem; margin: 0 0 1rem; }
+.md-typeset .edition-intro { color: #b7c6bd; font-size: 1rem; max-width: 39rem; margin: .8rem 0 1.5rem; }
+.md-typeset .edition-context { border-top: 1px solid #3e5548; padding-top: .8rem; color: #b7c6bd; font-size: .7rem; }
+.md-typeset .edition-context em { font-style: normal; }
+.md-typeset h2, [data-md-color-scheme="slate"] .md-typeset h2[id] {
+  color: #f0f1e6; border-left: 0; border-top: 1px solid #3e5548;
+  padding: 1.2rem 0 0; margin: 2rem 0 1.1rem; font-size: 1.65rem;
+}
+.md-typeset h2#high-relevance { border-top: 0; padding-top: .35rem; margin-top: .5rem; }
+.md-typeset h3.article-title { position: relative; font-size: 1.25rem; line-height: 1.3; padding-top: 1rem; margin: 1.3rem 0 .4rem; border-top: 1px solid #3e5548; }
+.article-title > a:not(.headerlink) { display: block; margin-top: .45rem; color: #f0f1e6; }
+.article-title > a:not(.headerlink):hover { color: #d7eab1; text-decoration: underline; text-underline-offset: .15em; }
+.article-number { font: .75rem Georgia, serif; color: #d7eab1; margin-right: .6rem; }
+.md-typeset .article-meta { font-size: .65rem; color: #b7c6bd; margin: .4rem 0 .75rem; }
+.md-typeset .article-meta code { font-size: .95em; }
+.tier-pill, .type-badge, .lab-badge { font-family: var(--md-text-font); font-size: .48rem; line-height: 1.4; letter-spacing: .04em; vertical-align: middle; }
+[data-md-color-scheme="slate"] .tier-pill { border-radius: 2rem; padding: .2rem .55rem; background: #bdd3a8; color: #172722; }
+[data-md-color-scheme="slate"] .tier-pill-high { background: #d7eab1; }
+[data-md-color-scheme="slate"] .tier-pill-capability { background: #b1d6cb; }
+[data-md-color-scheme="slate"] .tier-pill-breakthrough { background: #dac6e5; }
+[data-md-color-scheme="slate"] .type-badge, .lab-badge { background: transparent; color: #c0cec5; border: 0; padding-left: 0; }
+.type-filter { border-radius: .45rem; background: #21362b; padding: .25rem; gap: .3rem; margin: 1.3rem 0 .8rem; }
+.type-filter-label { padding-left: .4rem; color: #b7c6bd; opacity: 1; }
+.type-filter-btn { font-size: .65rem; border: 1px solid transparent; padding: .35rem .7rem; color: #c0cec5; }
+.type-filter-btn.active { background: #d7eab1; color: #172722; }
+.md-typeset details { box-shadow: none; background: #1c3027; border-color: #3e5548; color: #c0cec5; font-size: .78rem; }
+.md-typeset details > summary { background: #21362b; color: #d7eab1; font-size: .75rem; padding: .6rem 1rem; }
+.md-typeset details > summary::before { display: none; }
+.md-typeset details p, .md-typeset details li { color: #c0cec5; }
+.md-sidebar--secondary .md-nav { background: #21362b; padding: 1rem; border: 1px solid #3e5548; border-radius: .45rem; font-size: .72rem; }
+.md-sidebar--secondary .md-nav__title { color: #f0f1e6; background: transparent; box-shadow: none; font: 1.15rem Georgia, serif; padding-bottom: .8rem; }
+.md-sidebar--secondary .md-nav__link { color: #c0cec5; padding: .3rem 0; }
+.md-sidebar--secondary .md-nav__link--active { color: #d7eab1; }
+.md-search__form { border: 1px solid #3e5548; background: #21362b; }
+.feedback-btn-submit { color: #172722; }
+:where(a, button, input, select, textarea, summary):focus-visible { outline: 3px solid #d7eab1; outline-offset: 4px; }
+.md-typeset a, .md-typeset h3 { overflow-wrap: anywhere; }
+@media (min-width: 76.25em) {
+  .md-sidebar--primary { display: none; }
+  .md-content { margin-right: 2rem; }
+  .md-sidebar--secondary { width: 14rem; }
+}
+@media (max-width: 59.984375em) {
+  .md-main__inner { margin-top: 1.5rem; }
+  .md-typeset { font-size: .85rem; }
+  .md-typeset h1 { font-size: 2.35rem; }
+  .md-typeset h3.article-title { font-size: 1.2rem; }
+  .md-typeset .edition-intro { font-size: .9rem; }
+  .md-header__title { font-size: 1rem; margin-left: .25rem; }
+  .md-typeset .edition-context { font-size: .65rem; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+/* Override legacy ID-specific tier colors as well as the theme defaults. */
+[data-md-color-scheme="slate"] .md-typeset h2#high-relevance,
+[data-md-color-scheme="slate"] .md-typeset h2#medium-relevance,
+[data-md-color-scheme="slate"] .md-typeset h2#low-relevance,
+[data-md-color-scheme="slate"] .md-typeset h2#zone-2 {
+  color: #f0f1e6; border-left: 0; padding-left: 0;
+}
+[data-md-color-scheme="slate"] .md-typeset h2#high-relevance {
+  padding-top: .35rem; margin-top: .5rem; border-top: 0;
+}
+.md-search__icon { color: #b7c6bd; }
+.md-header__topic .md-ellipsis { font-weight: 400; }
+@media (min-width: 60em) {
+  .md-tabs { display: block; }
+}

@@ -2,13 +2,14 @@
 
 A weekly auto-generated reading list of new AI-safety research. Papers are pulled from arXiv every Monday morning, filtered against a curated list of safety keywords and ~300 tracked researchers, then classified by Claude into high / medium / low relevance with a one-sentence summary.
 
-!!! tip "Latest digest — Oct 5 – 11, 2026"
-    **Capabilities: 4 · Zone 1: 4 direct + 17 backbone · Zone 2: 0 · Zone 3: 35 · 60 items shown**
+!!! tip "Latest digest — Oct 12 – 18, 2026"
+    **Capabilities: 5 · Zone 1: 13 direct + 17 backbone · Zone 2: 0 · Zone 3: 25 · 60 items shown**
 
-    [Read the full digest :material-arrow-right:](digest-2026-W41.md){ .md-button .md-button--primary }
+    [Read the full digest :material-arrow-right:](digest-2026-W42.md){ .md-button .md-button--primary }
 
 ## Recent weeks
 
+- [**Oct 12 – 18, 2026**](digest-2026-W42.md)
 - [**Oct 5 – 11, 2026**](digest-2026-W41.md)
 - [**Sep 28 – Oct 4, 2026**](digest-2026-W40.md)
 - [**Jun 8 – 14, 2026**](digest-2026-W24.md)
@@ -29,4 +30,4 @@ Every item is tagged **Paper**, **Blog post**, or **Other**, and each digest pag
 
 Spot something the bot missed? <a class="missed-paper" href="#">:material-email-plus-outline: Send it in</a> (password-gated).
 
-_Last updated: 2026-10-11_
+_Last updated: 2026-10-18_

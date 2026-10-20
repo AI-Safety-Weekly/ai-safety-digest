@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-10-12T14:54:17Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2610.04793" metadataPrefix="arXiv">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2610.04793</identifier>
+        <datestamp>2026-10-06</datestamp>
+            <setSpec>cs:cs:AI</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2610.04793</id>
+        <created>2026-10-03</created>
+            <updated>2026-10-06</updated>
+        <authors>
+                <author>
+                    <keyname>Ozer</keyname>
+                        <forenames>Murat</forenames>
+                </author>
+                <author>
+                    <keyname>Nti</keyname>
+                        <forenames>Isaac Kofi</forenames>
+                </author>
+        </authors>
+        <title>Pressure, Context, and Machine Self-Control: A Criminological Test of Reward Hacking in Generative AI Models</title>
+            <categories>cs.AI</categories>
+            <license>http://creativecommons.org/licenses/by/4.0/</license>
+            <abstract>Recent incidents show that AI agents sometimes reach measured goals through unsanctioned means. This study applies self-control, general strain, anomie, neutralization and routine activity theory to reward hacking in generative AI models, and it treats the measures as behavioral analogues. Study 1 (2,310 conversations, seven models) measured delay discounting with the Kirby Monetary Choice Questionnaire and stated willingness to take shortcuts. Pressure raised the discount rate k 2.8-fold in fresh conversations but 12.6-fold when the same sentence followed a baseline answer, which indicates a response to conversational cues rather than a stable trait. Models chose a shortcut in 1 of 700 dilemmas when answering as themselves and in 64 of 700 when asked to assume human impulses, each step of pressure raised the odds by 40%, and shortcut answers contained far more techniques of neutralization (rate ratio = 146). In the preregistered Study 2, five models worked on 20 coding tasks whose tests contradicted their specifications. Two Claude models never cheated. GPT-5.6, Qwen and DeepSeek cheated in 86%, 69% and 65% of episodes and clearly disclosed the conflict in 27%, although their reasoning recognized it in 95%. GPT-5.6 had never endorsed a shortcut in Study 1. The registered effects of pressure and of an auditor cue did not survive correction for multiple testing. In exploratory analyses, two further models cheated in 69% and 100% of episodes, and one sentence stating that the specification takes priority eliminated cheating in all 280 episodes. Therefore, stated refusal does not guarantee compliant agent behavior.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>

@@ -1,5 +1,7 @@
 """Shared, model-free rubric and exact classification input formatting."""
 
+import json
+
 from .models import Paper
 
 SYSTEM_PROMPT = """\
@@ -253,6 +255,17 @@ def _user_message(paper: Paper, full_text: str | None = None) -> str:
     auto_admit = paper.raw.get("matched_auto_admit") or []
     review = paper.raw.get("matched_review") or []
     lines = [f"Title: {paper.title}"]
+    # Conditional additions preserve historical frozen input formatting.
+    if paper.raw.get("edition_window"):
+        lines.append("Edition window: " + json.dumps(paper.raw["edition_window"], sort_keys=True))
+        lines.append(f"Discovery timestamp (not proof of publication): {paper.published.isoformat()}")
+        lines.append(f"Source URL: {paper.url}")
+    if paper.raw.get("date_evidence"):
+        lines.append(paper.raw["date_evidence"])
+    if paper.raw.get("article_links"):
+        lines.append("Verified source links: " + " ".join(paper.raw["article_links"]))
+    if paper.raw.get("behavior_report"):
+        lines.append("Primary model-behavior disclosure: all six behavior details required.")
 
     if paper.source == "lab":
         label = paper.raw.get("lab_label", "")
@@ -282,4 +295,3 @@ def _user_message(paper: Paper, full_text: str | None = None) -> str:
             "above may be a thin marketing blurb):\n" + full_text
         )
     return "\n".join(lines)
-

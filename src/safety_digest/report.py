@@ -99,6 +99,9 @@ def _format_paper(cp: ClassifiedPaper, continuity_rows: list[dict] | None = None
         )
     if continuity_md:
         continuity_md += "\n"
+    for source in p.raw.get("event_sources", []):
+        continuity_md += (f'Also covered by: [{escape(source["title"])}]'
+                          f'({source["url"]})\n\n')
 
     # Key points (deep-read only): the substance of the work as bullets, so
     # skipping the click-through still leaves Aaron with the main results.
@@ -262,8 +265,16 @@ def write_markdown(
         "",
         f"_{counts} · {total} items shown_",
     ]
-    if dropped:
-        lines.append(f"_+ {len(dropped)} paper(s) dropped as off-topic per reviewer rules._")
+    held = [cp for cp in dropped if cp.paper.raw.get("editorial_hold")]
+    duplicates = [cp for cp in dropped if cp.paper.raw.get("event_duplicate_of")]
+    other_dropped = len(dropped) - len(held) - len(duplicates)
+    if other_dropped:
+        lines.append(f"_+ {other_dropped} paper(s) dropped as off-topic per reviewer rules._")
+    if held:
+        lines.append(f"_Editorial review: {len(held)} item(s) withheld because freshness "
+                     "or supporting evidence was uncertain or stale._")
+    if duplicates:
+        lines.append(f"_{len(duplicates)} same-event retelling(s) grouped with their primary entry._")
     if trimmed:
         lines.append(
             f"_+ {trimmed} more off-lane paper(s) trimmed to keep the digest "

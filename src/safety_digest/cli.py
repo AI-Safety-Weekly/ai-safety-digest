@@ -170,6 +170,8 @@ def main() -> None:
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
+    if args.no_deep_read and not args.dry_run:
+        parser.error("--no-deep-read is only supported with --dry-run; publication requires editorial review")
 
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
@@ -295,6 +297,8 @@ def main() -> None:
     # the report header. Compute once (until_dt for backfill, else now).
     run_at = until_dt or datetime.now(tz=timezone.utc)
     current_week = state_store.week_tag(run_at)
+    for paper in papers:
+        paper.raw["edition_window"] = {"until": run_at.isoformat(), "days": args.days}
 
     # Cross-week suppression: drop papers already surfaced in an earlier week's
     # digest. Skipped for --arxiv-ids replay (you're explicitly asking for those
@@ -377,6 +381,19 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(2)
+
+    if not args.dry_run:
+        from .editorial import apply_editorial_gates, listed
+        previously_listed = any(listed(cp) for cp in classified)
+        classified = apply_editorial_gates(classified, run_at, args.days)
+        held = [cp for cp in classified if cp.paper.raw.get("editorial_hold")]
+        if previously_listed and not any(listed(cp) for cp in classified):
+            raise RuntimeError("No current evidence-reviewed items remain; existing edition preserved")
+        if held:
+            log.warning("Editorial review held %d item(s); dates/evidence need review", len(held))
+        if any(cp.paper.raw.get("primary_report")
+               and cp.paper.raw["editorial_hold"] != "Stale resurfacing" for cp in held):
+            raise RuntimeError("Primary report review incomplete; no digest or state published")
 
     _tier_order = {"high": 0, "medium": 1, "low": 2, "off_topic": 3}
     classified.sort(

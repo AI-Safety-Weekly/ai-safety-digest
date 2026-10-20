@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, quote
 
 from .models import Paper, Classification, ClassifiedPaper, FieldSummary
+from .editorial import EDITORIAL_PROMPT, apply_editorial_gates, review_problem
 from .prompts import SYSTEM_PROMPT, _user_message
 from . import feedback_loader, feedback_prompt, report, site_builder, state_store
 
@@ -182,6 +183,16 @@ def validate_bundle(b):
     validate_enrichment_records(b)
     if not isinstance(b['files'], dict):
         raise Invalid('provenance files required')
+    policy = b['collection'].get('editorial_policy')
+    if policy is not None and (type(policy) is not int or policy != 1):
+        raise Invalid('unknown editorial policy')
+    frozen_code = b['files'].get('src/safety_digest/dot_handoff.py', '')
+    try:
+        requires_editorial = b'def editorial_context(' in base64.b64decode(frozen_code, validate=True)
+    except (ValueError, TypeError) as error:
+        raise Invalid('invalid frozen editorial provenance') from error
+    if requires_editorial and policy != 1:
+        raise Invalid('current source provenance requires editorial policy')
     for name, data in b['files'].items():
         path = Path(name)
         if path.is_absolute() or '..' in path.parts or str(path) != name:
@@ -211,7 +222,9 @@ def validate_enrichment_records(bundle):
     attempted = set()
     for candidate in bundle['candidates']:
         body = candidate['body']
-        if type(body['limit_chars']) is not int or body['limit_chars'] != 12000:
+        limit = body['limit_chars']
+        primary = candidate['paper']['raw'].get('primary_report')
+        if type(limit) is not int or (limit != 12000 and not (primary and 12000 <= limit <= 100000)):
             raise Invalid('enrichment body limit must remain 12000 characters')
         if len(body['text']) > body['limit_chars']:
             raise Invalid('enrichment body exceeds its frozen limit')
@@ -295,6 +308,13 @@ def make_candidate(paper):
             'input_text': input_text, 'input_sha256': bytehash(input_text.encode())}
 
 
+
+def editorial_context(run_at, days):
+    return (EDITORIAL_PROMPT + '\nEdition window: '
+            + json.dumps({'until': run_at.isoformat(), 'days': days}, sort_keys=True)
+            + '\nUse each frozen candidate paper.published and date evidence; feed timestamps alone do not prove novelty.')
+
+
 def make_bundle(root, papers, run_at, days, collection, forced_keys=()):
     from .dedupe import dedupe_papers
     root = Path(root)
@@ -310,7 +330,8 @@ def make_bundle(root, papers, run_at, days, collection, forced_keys=()):
             candidates.append(make_candidate(p))
     feedback = feedback_loader.load_feedback(root / 'feedback')
     learned = feedback_prompt.build_learned_context(feedback, now=run_at)
-    system = SYSTEM_PROMPT + ('\n\n' + learned if learned else '')
+    collection = {**collection, 'editorial_policy': 1}
+    system = SYSTEM_PROMPT + editorial_context(run_at, days) + ('\n\n' + learned if learned else '')
     try:
         sha = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
     except subprocess.CalledProcessError as e:
@@ -501,7 +522,10 @@ def template(bundle):
 
 
 def validate_classification(c):
-    keys(c, CLASS_FIELDS, 'classification')
+    expected = CLASS_FIELDS | ({'editorial'} if isinstance(c, dict) and 'editorial' in c else set())
+    keys(c, expected, 'classification')
+    if 'editorial' in c and not isinstance(c['editorial'], dict):
+        raise Invalid('editorial must be an object')
     if c['relevance'] not in {'high', 'medium', 'low', 'off_topic'}:
         raise Invalid('invalid relevance')
     if c['content_type'] not in {'paper', 'blog_post', 'other'}:
@@ -580,6 +604,16 @@ def validate_results(bundle, results, *, final=False):
             read_body |= e['source'] == 'full_text'
         if listed(c) and not substantive:
             raise Invalid('listed decision requires substantive frozen evidence')
+        if final and bundle['collection'].get('editorial_policy'):
+            p = paper_from(copy.deepcopy(candidate['paper']))
+            p.raw['full_text'] = candidate['body']['text']
+            if c.get('editorial', {}).get('freshness') in ('stale', 'uncertain') and c['relevance'] != 'off_topic':
+                raise Invalid('Stale/uncertain candidates must be withheld from all sections and briefs')
+            if listed(c) or p.raw.get('primary_report'):
+                problem = review_problem(ClassifiedPaper(p, Classification(**c)),
+                                         utc(bundle['run_at']), bundle['days'])
+                if problem and not (problem == 'Stale resurfacing' and c['relevance'] == 'off_topic'):
+                    raise Invalid(f'Editorial review: {problem}')
         if final and listed(c):
             if candidate['body']['status'] == 'not_attempted':
                 raise Invalid('listed candidate needs a frozen deep-read attempt; run enrich')
@@ -592,6 +626,19 @@ def validate_results(bundle, results, *, final=False):
         validate_collection_health(bundle)
         if any(d['status'] != 'complete' for d in decisions.values()):
             raise Invalid('unresolved decisions block import; retry the same frozen inputs')
+        reviewed = []
+        for ident, decision in decisions.items():
+            candidate = candidates[ident]
+            if bundle['collection'].get('editorial_policy'):
+                p = paper_from(copy.deepcopy(candidate['paper']))
+                p.raw['full_text'] = candidate['body']['text']
+                reviewed.append(ClassifiedPaper(p, Classification(**decision['classification'])))
+        gated = apply_editorial_gates(reviewed, utc(bundle['run_at']), bundle['days'])
+        if any(cp.paper.raw.get('event_duplicate_of')
+               and (decisions[cp.paper.dedupe_key]['classification']['relevance'] != 'off_topic'
+                    or listed(decisions[cp.paper.dedupe_key]['classification']))
+               for cp in gated):
+            raise Invalid('Duplicate event entries: retain one representative and reconcile summaries')
         for group in ('medium', 'off_lane'):
             eligible = {i for i, d in decisions.items()
                         if not d['classification']['capability'] and
@@ -688,6 +735,7 @@ def validate_summary(summary, eligible):
 def enrich(bundle, results, fetch=None, requested_ids=()):
     """Freeze deep reads after triage; completed decisions on changed inputs reset."""
     from . import lab_collector
+    supplied_fetch = fetch
     fetch = fetch or lab_collector.fetch_article_body
     decisions = validate_results(bundle, results)
     requested = set(requested_ids)
@@ -698,7 +746,8 @@ def enrich(bundle, results, fetch=None, requested_ids=()):
     b['parent_bundle_sha256'] = bundle['bundle_sha256']
     for candidate in b['candidates']:
         d = decisions[candidate['id']]
-        if candidate['id'] not in requested and (d['status'] != 'complete' or not listed(d['classification'])):
+        if (candidate['id'] not in requested and not candidate['paper']['raw'].get('primary_report')
+                and (d['status'] != 'complete' or not listed(d['classification']))):
             continue
         if candidate['body']['status'] != 'not_attempted':
             continue
@@ -709,12 +758,22 @@ def enrich(bundle, results, fetch=None, requested_ids=()):
                 if paper.source == 'arxiv' and paper.arxiv_id else [paper.url])
         body = ''
         for url in urls:
-            body = fetch(url)
+            if paper.raw.get('primary_report') and paper.raw.get('full_text'):
+                body = paper.raw['full_text']
+            elif bundle['collection'].get('editorial_policy') and not supplied_fetch and paper.source in {'lab', 'forum'}:
+                evidence = lab_collector.fetch_article_evidence(url)
+                paper.raw.update(evidence)
+                candidate['paper'] = paper_dict(paper)
+                body = evidence.get('full_text', '')
+            else:
+                body = fetch(url)
             if body:
                 break
+        if len(body) > 100000:
+            raise Invalid('Primary report exceeds review limit; explicit full-text review required')
         candidate['body'] = {'status': 'available' if body else 'unavailable', 'text': body,
                              'url': url, 'fetched_at': datetime.now(timezone.utc).isoformat(),
-                             'limit_chars': 12000}
+                             'limit_chars': max(12000, len(body))}
         candidate['input_text'] = _user_message(paper, body or None)
         candidate['input_sha256'] = bytehash(candidate['input_text'].encode())
     prior_records = {r['id']:r for r in bundle['collection'].get('enrichment_records', [])}
@@ -900,7 +959,9 @@ def stage_import(root, bundle, results, destination):
         return receipt
     feedback = feedback_loader.load_feedback(root / 'feedback')
     learned = feedback_prompt.build_learned_context(feedback, now=utc(bundle['run_at']))
-    expected_system = SYSTEM_PROMPT + ('\n\n' + learned if learned else '')
+    policy = bundle['collection'].get('editorial_policy')
+    expected_system = (SYSTEM_PROMPT + (editorial_context(utc(bundle['run_at']), bundle['days']) if policy else '')
+                       + ('\n\n' + learned if learned else ''))
     if bundle['system_prompt'] != expected_system:
         raise Invalid('frozen rubric does not match source and active feedback')
     if provenance(root) != bundle['files'] or snapshot_rows(root / 'state.db') != bundle['state_rows']:
@@ -919,11 +980,21 @@ def stage_import(root, bundle, results, destination):
         classified = []
         for candidate in bundle['candidates']:
             p = paper_from(candidate['paper'])
-            p.title, p.authors, p.url = plain(p.title), [plain(a) for a in p.authors], safe_url(p.url)
+            p = copy.deepcopy(p)
+            p.raw['full_text'] = candidate['body']['text']
             raw = copy.deepcopy(decisions[candidate['id']]['classification'])
             raw['summary'], raw['rationale'] = plain(raw['summary']), plain(raw['rationale'])
-            raw['key_points'] = [plain(point) for point in raw['key_points']]
             classified.append((candidate['id'], ClassifiedPaper(p, Classification(**raw))))
+        if policy:
+            gated = apply_editorial_gates([cp for _, cp in classified],
+                                          utc(bundle['run_at']), bundle['days'])
+            classified = [(ident, cp) for (ident, _), cp in zip(classified, gated)]
+        for _, cp in classified:
+            p = cp.paper
+            p.title, p.authors, p.url = plain(p.title), [plain(a) for a in p.authors], safe_url(p.url)
+            cp.classification.key_points = [plain(point) for point in cp.classification.key_points]
+            for source in p.raw.get('event_sources', []):
+                source['title'], source['url'] = plain(source['title']), safe_url(source['url'])
         order = {'high': 0, 'medium': 1, 'low': 2, 'off_topic': 3}
         editorial_order = {d['id']: index for index, d in enumerate(results['decisions'])}
         classified.sort(key=lambda x: (order[x[1].classification.relevance],
@@ -956,7 +1027,10 @@ def stage_import(root, bundle, results, destination):
         with sqlite3.connect(staging / 'state.db') as conn:
             conn.execute(state_store._SCHEMA)
             conn.executemany('INSERT INTO seen_papers VALUES (?,?,?,?,?,?)', bundle['state_rows'])
+            held_ids = {ident for ident, cp in classified if cp.paper.raw.get('editorial_hold')}
             for c in bundle['candidates']:
+                if c['id'] in held_ids:
+                    continue
                 p = c['paper']
                 conn.execute('INSERT OR IGNORE INTO seen_papers VALUES (?,?,?,?,?,?)',
                              (c['id'], week, run_at.isoformat(), p['title'], p['source'],

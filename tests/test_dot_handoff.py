@@ -70,6 +70,11 @@ def completed(b, relevance='low'):
                 if next(c for c in b['candidates'] if c['id'] == d['id'])['body']['status'] == 'available'
                 else [])}, continuity=[],
             evidence=[{'source': 'abstract', 'quote': ABSTRACT}])
+        d['classification']['editorial'] = {
+            'freshness': 'new', 'novelty_date': next(
+                c['paper']['published'].split('T')[0] for c in b['candidates'] if c['id'] == d['id']),
+            'novelty_summary': 'A new oversight experiment', 'novelty_quote': ABSTRACT,
+            'primary_event_url': '', 'distinct_finding': True, 'behavior_details': []}
     section = 'medium' if relevance == 'medium' else 'off_lane'
     if relevance in ('medium', 'low'):
         r['summaries'][section] = {'themes': [{'label': 'Oversight', 'summary': 'Studies of oversight.',
@@ -574,3 +579,76 @@ def test_synthetic_can_stage_but_never_pass_publication_gate(root, tmp_path):
     assert receipt['synthetic_fixture'] is True
     with pytest.raises(dot.Invalid,match='synthetic fixtures'):
         dot.validate_for_publication(b,r)
+
+
+
+def test_stale_low_cannot_enter_brief_and_withheld_not_recorded(root, tmp_path):
+    b = bundle(root, n=1)
+    r = completed(b)
+    r['decisions'][0]['classification']['editorial']['freshness'] = 'stale'
+    with pytest.raises(dot.Invalid, match='withheld from all sections'):
+        dot.validate_results(b, r, final=True)
+    r['decisions'][0]['classification']['relevance'] = 'off_topic'
+    r['summaries']['off_lane'] = None
+    destination = tmp_path / 'stage'
+    dot.stage_import(root, b, r, destination)
+    assert dot.snapshot_rows(destination / 'state.db') == []
+    assert 'withheld' in (destination / 'docs/digest-2026-W40.md').read_text()
+
+
+def test_stage_grouping_precedes_display_url_escaping(root, tmp_path):
+    p = paper()
+    p.url = 'https://example.org/report_(AI)'
+    p.raw['article_published'] = NOW.isoformat()
+    b = dot.make_bundle(root, [p], NOW, 7, {'complete': True, 'warnings': []})
+    b, _ = dot.enrich(b, completed(b, 'high'), fetch=lambda _: BODY)
+    r = completed(b, 'high')
+    d = r['decisions'][0]
+    d['classification']['editorial']['primary_event_url'] = p.url
+    d['evidence'] = [{'source': 'full_text', 'quote': ABSTRACT}]
+    destination = tmp_path / 'stage'
+    dot.stage_import(root, b, r, destination)
+    output = (destination / 'docs/digest-2026-W40.md').read_text()
+    assert 'report_%28AI%29' in output
+    assert 'Editorial review:' not in output
+
+
+def test_low_duplicate_must_be_reconciled_before_brief_membership(root):
+    primary, retelling = paper(1), paper(2)
+    retelling.raw['article_links'] = [primary.url]
+    b = dot.make_bundle(root, [primary, retelling], NOW, 7,
+                        {'complete': True, 'warnings': []})
+    b, _ = dot.enrich(b, completed(b), fetch=lambda _: BODY,
+                      requested_ids=[c['id'] for c in b['candidates']])
+    r = completed(b)
+    for d in r['decisions']:
+        d['classification']['editorial']['primary_event_url'] = primary.url
+        d['evidence'] = [{'source': 'full_text', 'quote': ABSTRACT}]
+    r['decisions'][0]['classification']['relevance'] = 'high'
+    r['decisions'][1]['classification']['editorial']['distinct_finding'] = False
+    r['summaries']['off_lane']['themes'][0]['member_ids'] = [b['candidates'][1]['id']]
+    with pytest.raises(dot.Invalid, match='Duplicate event entries'):
+        dot.validate_results(b, r, final=True)
+
+
+def test_key_points_are_escaped_exactly_once(root, tmp_path):
+    b = bundle(root, n=1)
+    b, _ = dot.enrich(b, completed(b, 'high'), fetch=lambda _: BODY)
+    r = completed(b, 'high')
+    r['decisions'][0]['classification']['key_points'] = ['model_A performed the task.']
+    r['decisions'][0]['evidence'] = [{'source': 'full_text', 'quote': ABSTRACT}]
+    destination = tmp_path / 'stage'
+    dot.stage_import(root, b, r, destination)
+    output = (destination / 'docs/digest-2026-W40.md').read_text()
+    assert '- ' + dot.plain('model_A performed the task.') + '\n' in output
+
+
+def test_new_source_provenance_cannot_downgrade_editorial_policy(root):
+    source = root / 'src/safety_digest/dot_handoff.py'
+    source.parent.mkdir(parents=True)
+    source.write_text('def editorial_context(run_at, days):\n    return "policy"\n')
+    b = bundle(root)
+    b['collection'].pop('editorial_policy')
+    b = dot.seal({k: v for k, v in b.items() if k != 'bundle_sha256'})
+    with pytest.raises(dot.Invalid, match='requires editorial policy'):
+        dot.validate_bundle(b)

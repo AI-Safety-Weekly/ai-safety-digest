@@ -40,7 +40,14 @@ def validate(state):
     if not isinstance(state['basis_sha256'], str) or not re.fullmatch('[0-9a-f]{64}',state['basis_sha256']):
         raise dot.Invalid('invalid edition provenance basis')
     anchor,deadline,lease = [dot.utc(state[k]) for k in ('anchor','deadline_at','lease_until')]
-    if (deadline.weekday()!=6 or (deadline.hour,deadline.minute,deadline.second,deadline.microsecond)!=(18,0,0,0)
+    # One-time October 25 recovery approved by Ben: preserve the original
+    # seven-day anchor, with expiry Tuesday October 27 at 11am Pacific.
+    # This is not a general late-release switch; all ownership, pending-request,
+    # provenance, expiry, completeness and publication checks still apply.
+    approved_late = (state['edition_id'] == 'recovery-20261025'
+                     and anchor == datetime(2026,10,25,10,17,tzinfo=timezone.utc)
+                     and deadline == datetime(2026,10,27,18,tzinfo=timezone.utc))
+    if not approved_late and (deadline.weekday()!=6 or (deadline.hour,deadline.minute,deadline.second,deadline.microsecond)!=(18,0,0,0)
             or anchor.isocalendar()[:2]!=deadline.isocalendar()[:2]):
         raise dot.Invalid('edition deadline must be Sunday 18:00 UTC of the anchored week')
     if not anchor < deadline or lease > deadline:

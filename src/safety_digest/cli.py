@@ -282,6 +282,9 @@ def main() -> None:
             auto_admit_authors=auto_admit_authors,
             review_authors=review_authors,
             until=until_dt,
+            # Bound source-outage retries and stop before paid inference or
+            # publication if any required author profile remains incomplete.
+            require_complete=True,
         )
         log.info("Collected %d papers from Semantic Scholar", len(s2_papers))
         papers = papers + s2_papers

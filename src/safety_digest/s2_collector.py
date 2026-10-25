@@ -27,6 +27,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Callable
 
 import requests
@@ -46,6 +47,36 @@ _PAPER_FIELDS = (
 )
 _DEFAULT_SLEEP_SEC = 3.5
 _RETRY_DELAYS = [5, 20, 60]
+# 294 configured profiles need ~17 minutes of polite pacing alone. Leave
+# headroom for requests/pages while reserving most of CI's 150 minutes for
+# downstream work. Checked between operations; an in-flight HTTP request retains
+# its existing 30-second timeout.
+_COLLECTION_BUDGET_SECONDS = 1800
+
+
+class CollectionIncomplete(RuntimeError):
+    """Required Scholar coverage failed; do not classify or publish partial inputs."""
+
+
+def _pause(seconds: float, deadline: float | None) -> None:
+    if deadline is not None and time.monotonic() + seconds >= deadline:
+        raise CollectionIncomplete("S2 collection budget exhausted; required sources remain incomplete")
+    if seconds:
+        time.sleep(seconds)
+
+
+def _retry_after(response) -> float:
+    value = getattr(response, "headers", {}).get("Retry-After", "")
+    try:
+        return max(0, int(value))
+    except (ValueError, TypeError):
+        try:
+            date = parsedate_to_datetime(value)
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=timezone.utc)
+            return max(0, (date - datetime.now(timezone.utc)).total_seconds())
+        except (ValueError, TypeError, OverflowError):
+            return 0
 
 # An HTTPClient is a callable that takes (method, url, **kwargs) → Response.
 # We thread it as a parameter so tests can inject a fake without monkey-patching.
@@ -66,21 +97,31 @@ def _headers(api_key: str | None) -> dict[str, str]:
 
 
 def _request_with_retry(
-    http: HTTPClient, method: str, url: str, **kwargs: Any
+    http: HTTPClient, method: str, url: str, *, deadline: float | None = None, **kwargs: Any
 ) -> requests.Response | None:
+    resp = None
+    retry_after = 0
     for attempt, delay in enumerate([0, *_RETRY_DELAYS]):
+        delay = max(delay, retry_after)
+        # Never shorten server backoff to fit our budget. Without an outer
+        # deadline, retain the failure rather than sleeping unboundedly.
+        if deadline is None and delay > max(_RETRY_DELAYS):
+            return resp
+        _pause(delay, deadline)
         if delay:
             log.warning("S2 retry %d after %ds", attempt, delay)
-            time.sleep(delay)
         try:
             resp = http(method, url, **kwargs)
         except requests.RequestException as e:
             log.warning("S2 network error: %s", e)
+            resp = None
+            retry_after = 0
             continue
         if resp.status_code in (429, 500, 502, 503, 504):
+            retry_after = _retry_after(resp)
             continue
         return resp
-    return None
+    return resp
 
 
 # ── Author resolution ──────────────────────────────────────────────────────
@@ -230,6 +271,8 @@ def fetch_author_papers(
     http: HTTPClient | None = None,
     api_key: str | None = None,
     until: datetime | None = None,
+    require_complete: bool = False,
+    deadline: float | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch one profile's recent papers from S2. Returns raw paper dicts."""
     if not isinstance(author_id, str):
@@ -246,11 +289,14 @@ def fetch_author_papers(
             S2_AUTHOR_PAPERS.format(author_id=author_id),
             params={"fields": _PAPER_FIELDS, "limit": 100, "offset": offset},
             headers=_headers(api_key),
+            deadline=deadline,
         )
         if resp is None or resp.status_code != 200:
             status = getattr(resp, "status_code", None)
             log.warning("S2 author/papers failed for %s (status=%s)", author_id, status,
                         extra={"source_http_status": status})
+            if require_complete:
+                raise CollectionIncomplete(f"S2 profile {author_id} incomplete (status={status})")
             return out
         body = resp.json()
         page = body.get("data") or []
@@ -263,7 +309,12 @@ def fetch_author_papers(
             break
         if "next" not in body or body.get("next") is None:
             break
-        offset = body["next"]
+        next_offset = body["next"]
+        if type(next_offset) is not int or next_offset <= offset:
+            raise CollectionIncomplete(f"S2 profile {author_id} invalid pagination cursor")
+        offset = next_offset
+        # The author-level pause does not cover pagination within a profile.
+        _pause(_DEFAULT_SLEEP_SEC, deadline)
     return out
 
 
@@ -367,6 +418,8 @@ def collect(
     sleep_sec: float = _DEFAULT_SLEEP_SEC,
     until: datetime | None = None,
     use_env_key: bool = True,
+    require_complete: bool = False,
+    budget_seconds: int = _COLLECTION_BUDGET_SECONDS,
 ) -> list[Paper]:
     """Fetch papers for tracked authors published in `[until - days, until]`.
 
@@ -386,6 +439,13 @@ def collect(
     tracked = list(dict.fromkeys(tracked_authors))
     ids_by_name = {name: author_ids(author_id_cache[name])
                    for name in tracked if name in author_id_cache}
+    deadline = None
+    if require_complete:
+        if type(budget_seconds) is not int or not 1 <= budget_seconds <= _COLLECTION_BUDGET_SECONDS:
+            raise ValueError("S2 collection budget must be 1-1800 seconds")
+        if len(ids_by_name) != len(tracked):
+            raise CollectionIncomplete("S2 required authors lack cached identities")
+        deadline = time.monotonic() + budget_seconds
     auto_set = set(auto_admit_authors or [])
     review_set = set(review_authors or [])
     until_dt = until or datetime.now(tz=timezone.utc)
@@ -401,7 +461,8 @@ def collect(
             continue
         for author_id in ids:
             raw_papers = fetch_author_papers(
-                author_id, days=days, http=http, api_key=api_key, until=until_dt
+                author_id, days=days, http=http, api_key=api_key, until=until_dt,
+                require_complete=require_complete, deadline=deadline,
             )
             for rp in raw_papers:
                 if not rp.get("paperId"):
@@ -413,7 +474,7 @@ def collect(
                                      auto_admit=auto_set, review=review_set)
                 if paper:
                     papers.append(paper)
-            time.sleep(sleep_sec)
+            _pause(sleep_sec, deadline)
 
     papers = merge_papers(papers)
     log.info(

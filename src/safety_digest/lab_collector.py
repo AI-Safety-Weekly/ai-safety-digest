@@ -135,6 +135,8 @@ def collect(
         try:
             items = _collect_one(src, cutoff, until_dt)
         except Exception as e:
+            if src.get("required"):
+                raise RuntimeError(f"Required primary-report source failed: {src['name']}") from e
             log.error("lab source %s failed: %s", src.get("name"), type(e).__name__,
                       extra={"source_http_status":getattr(getattr(e,"response",None),"status_code",None)})
             continue
@@ -145,6 +147,9 @@ def collect(
 
 def _collect_one(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     strategy = src.get("strategy")
+    if strategy == "primary_reports":
+        from .primary_reports import collect_primary_reports
+        return collect_primary_reports(src, cutoff, until)
     if strategy == "rss":
         return _from_rss(src, cutoff, until)
     if strategy == "sitemap":

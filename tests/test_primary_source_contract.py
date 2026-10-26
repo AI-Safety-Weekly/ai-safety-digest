@@ -142,3 +142,13 @@ def test_future_report_discloses_all_people_without_checked_claims(root,tmp_path
     assert record['source_contract']['people']==[{'name':'Alice','arxiv_identity':'unchecked','official_identity':'unchecked','openalex':'unchecked'}]
     assert record['source_contract']['original_full_edition_complete'] is False
     assert 'not queried' in record['source_contract']['notice']
+
+
+def test_runtime_coverage_preserves_feed_failures_without_claiming_completeness(root,tmp_path):
+    (root/'config/authors.yml').write_text('auto_admit: []\nreview_carefully: []\n')
+    health=[{'source':'Example','status':'failed','error_type':'Timeout'}]
+    path=contract.runtime_coverage(root/'config',tmp_path/'docs',NOW,7,{},lab_health=health)
+    record=dot.read_json(path)['source_contract']
+    assert record['lab_feed_health']==health
+    assert record['original_full_edition_complete'] is False
+    assert 'does not prove' in record['lab_feed_health_notice']

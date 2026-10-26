@@ -972,6 +972,8 @@ def stage_import(root, bundle, results, destination):
                     cp.paper.published = utc(proof['published_at'])
         report.write_markdown([cp for _, cp in classified],
                               staging / 'docs' / f'digest-{week}.md', run_at,
+                              collection_start=utc(bundle['collection']['window_start']),
+                              collection_end=utc(bundle['collection']['window_end']),
                               medium_overview=brief('medium'), field_summary=brief('off_lane'),
                               continuity=continuity)
         if 'source_contract' in bundle['collection']:

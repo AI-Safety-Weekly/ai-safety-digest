@@ -14,7 +14,7 @@ ids (`#high-relevance` etc.) are kept so the stylesheet can color-code them.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 
@@ -185,6 +185,8 @@ def write_markdown(
     out_path: Path,
     run_at: datetime,
     *,
+    collection_start: datetime | None = None,
+    collection_end: datetime | None = None,
     medium_overview: FieldSummary | None = None,
     field_summary: FieldSummary | None = None,
     max_items: int | None = 60,
@@ -257,11 +259,24 @@ def write_markdown(
         f"Zone 1: {len(high)} direct + {len(medium)} backbone · "
         f"Zone 2: {len(zone2)} · Zone 3: {len(off_lane)}"
     )
+    iso = run_at.isocalendar()
+    window = None
+    if collection_start is not None or collection_end is not None:
+        if collection_start is None or collection_end is None:
+            raise ValueError("both collection window endpoints are required")
+        if any(t.tzinfo is None or t.utcoffset() is None for t in (collection_start, collection_end)):
+            raise ValueError("collection timestamps must include a timezone")
+        if collection_start >= collection_end:
+            raise ValueError("collection window must be increasing")
+        stamp = lambda t: t.astimezone(timezone.utc).isoformat(sep=" ").replace("+00:00", " UTC")
+        window = f"**Collection window:** {stamp(collection_start)} → {stamp(collection_end)}."
     lines: list[str] = [
-        f"# AI Safety Digest — {week_range_label(run_at)}",
+        f"# AI Safety Digest — ISO week {iso.year}-W{iso.week:02d} ({week_range_label(run_at)})",
         "",
         f"_{counts} · {total} items shown_",
     ]
+    if window:
+        lines[2:2] = [window, ""]
     if dropped:
         lines.append(f"_+ {len(dropped)} paper(s) dropped as off-topic per reviewer rules._")
     if trimmed:

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from . import (
@@ -169,6 +170,7 @@ def main() -> None:
              "embedding similarity to config/semantic_seeds.yml — purely additive "
              "recall. Pass this to fall back to the keyword/author gate alone.",
     )
+    parser.add_argument("--run-metadata", type=Path, help="Write the successfully rendered frozen edition identity")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -194,8 +196,11 @@ def main() -> None:
         len(cfg.auto_admit_authors), len(cfg.review_authors),
     )
 
+    # Freeze one anchor before any collector starts; rendering uses this same window.
+    until_dt = until_dt or datetime.now(tz=timezone.utc)
     primary_contract = source_contract.runtime_configuration(args.config_dir)
     source_counts = {}
+    lab_health = []
 
     auto_admit_authors = [a["name"] for a in cfg.auto_admit_authors if a.get("name")]
     review_authors = [a["name"] for a in cfg.review_authors if a.get("name")]
@@ -250,7 +255,7 @@ def main() -> None:
     if cfg.lab_sources and not args.arxiv_ids:
         lab_papers = lab_collector.collect(
             cfg.lab_sources, days=args.days, until=until_dt,
-            safety_keywords=cfg.strict_keywords,
+            safety_keywords=cfg.strict_keywords, health=lab_health,
         )
         log.info("Collected %d items from lab feeds", len(lab_papers))
         source_counts["lab_forum"] = len(lab_papers)
@@ -454,16 +459,25 @@ def main() -> None:
     fname = f"digest-{iso.year}-W{iso.week:02d}.md"
     out_path = report.write_markdown(
         classified, args.out_dir / fname, run_at,
+        collection_start=run_at-timedelta(days=args.days), collection_end=run_at,
         medium_overview=medium_overview, field_summary=field_summary,
         max_items=args.max_items or None,
         continuity=continuity or None,
     )
     if primary_contract:
-        coverage_path = source_contract.runtime_coverage(args.config_dir,args.out_dir,run_at,args.days,source_counts)
+        coverage_path = source_contract.runtime_coverage(args.config_dir,args.out_dir,run_at,args.days,source_counts,lab_health=lab_health)
         with out_path.open('a') as stream:
             stream.write(f"\n\n## Source coverage\n\n{source_contract.CONFIG['label']}. Semantic Scholar and OpenAlex were not queried. "
                          f"Per-person coverage remains unchecked. [Coverage report]({coverage_path.name}).\n")
+        failed = [item["source"] for item in lab_health if item["status"] in {"failed", "incomplete"}]
+        if failed:
+            with out_path.open('a') as stream:
+                stream.write("\nLab feeds unavailable during collection: " + ", ".join(failed) +
+                             ". Missing results do not establish that no items were published.\n")
     index_path = site_builder.build_index(args.out_dir)
+    if args.run_metadata:
+        args.run_metadata.write_text(json.dumps({"edition": f"{iso.year}-W{iso.week:02d}",
+                                                "window_end": run_at.isoformat(), "report": fname}) + "\n")
     if not args.dry_run:
         # Measured run cost from each call's usageMetadata (see the standing
         # cost directive). Printed so the weekly run's $ is a number, not a guess.

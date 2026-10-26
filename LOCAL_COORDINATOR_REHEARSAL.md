@@ -37,3 +37,9 @@ bounded recovery wakes only after acceptance; prevent overlap with the legacy wr
 then apply the approved replacement/publication flags with exact readbacks. Inspect
 all active runs and ownership before that transition. No inference credentials are
 needed for the cloud Dot path; never run the Gemini pipeline as a rehearsal.
+
+Successful active-migration acknowledgment preserves the receipt-bound lease so an
+exact retry after an uncertain CAS remains a no-op. Once that acknowledgment is
+confirmed, renew idle ownership using `claim_idle` in a separate CAS before submitting
+more work. This advances the revision, so an old migration acknowledgment then fails
+closed. Do not alter or ignore the lease recorded in the migration receipt.

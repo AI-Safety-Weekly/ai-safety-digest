@@ -267,7 +267,10 @@ def finish(state, owner_id, request, *, conclusion, receipt=None, artifact=None,
             if not deployed:
                 raise dot.Invalid('publication remains pending until deployment is verified')
             updated['status']='complete'
-    if updated['schema_version'] == 2 and updated['status'] == 'active':
+    # Successful active migration receipts bind the original lease. Preserve it
+    # through exact acknowledgment retries; renew in a separate idle claim CAS.
+    if (updated['schema_version'] == 2 and updated['status'] == 'active'
+            and not (mode == 'migrate_active' and conclusion == 'success')):
         updated['lease_until'] = min((now or now_utc()) + timedelta(minutes=110),
                                      dot.utc(updated['deadline_at'])).isoformat()
     return validate(updated)

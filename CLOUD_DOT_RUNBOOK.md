@@ -385,3 +385,9 @@ the initial, pending and failed state plus full retrieved GitHub evidence. The
 changed revision prevents replay. Only afterward submit a new initial hosted
 export with the unchanged anchor/days through the usual fenced request path.
 All normal provenance, completeness, editorial and publication gates still apply.
+
+Successful active-migration acknowledgment preserves the receipt-bound lease so an
+exact retry after an uncertain CAS remains a no-op. Once that acknowledgment is
+confirmed, renew idle ownership using `claim_idle` in a separate CAS before submitting
+more work. This advances the revision, so an old migration acknowledgment then fails
+closed. Do not alter or ignore the lease recorded in the migration receipt.

@@ -371,3 +371,31 @@ def test_processing_rechecks_exact_state_bytes_even_when_json_is_equal(root, tmp
     with pytest.raises(dot.Invalid, match='ownership changed'):
         transport.run(root, root / REQUEST_PATH, tmp_path / 'output', current, source)
     assert not (tmp_path / 'output/transport-receipt.json').exists()
+
+@pytest.mark.parametrize('field', [None, 'lease_until', 'edition', 'request_sha256', 'migration_receipt_sha256'])
+def test_v2_migration_ack_retry_preserves_audit_and_rejects_forgery(root, tmp_path, monkeypatch, field):
+    state, request, *_ = fixture(root, tmp_path, monkeypatch)
+    state['schema_version'] = 2
+    state['lease_until'] = (NOW + timedelta(minutes=110)).isoformat()
+    pending, request = submitted(root, state, request)
+    artifact = {'artifact_run_id': 30, 'artifact_name': f"dot-handoff-{'c' * 40}", 'bundle_sha256': 'd' * 64}
+    receipt = terminal_receipt(root, pending, request, artifact)
+    at = NOW + timedelta(minutes=120)
+    finished = edition.finish(pending, 'worker-a', request, conclusion='success', receipt=receipt,
+                              artifact=artifact, now=at)
+    if field:
+        receipt[field] = 'forged'
+        with pytest.raises(dot.Invalid):
+            edition.finish(finished, 'worker-a', request, conclusion='success', receipt=receipt,
+                           artifact=artifact, now=at)
+    else:
+        assert edition.finish(finished, 'worker-a', request, conclusion='success', receipt=receipt,
+                              artifact=artifact, now=at) == finished
+        renewed = edition.claim_idle(finished, edition_id=finished['edition_id'], owner_id='worker-a',
+            anchor=finished['anchor'], deadline_at=finished['deadline_at'],
+            basis_sha256=finished['basis_sha256'], now=at)
+        assert renewed['lease_until'] == (at + timedelta(minutes=110)).isoformat()
+        assert renewed['bundle'] == artifact
+        with pytest.raises(dot.Invalid):
+            edition.finish(renewed, 'worker-a', request, conclusion='success', receipt=receipt,
+                           artifact=artifact, now=at)

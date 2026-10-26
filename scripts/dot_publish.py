@@ -50,6 +50,8 @@ def site_build(stage, site, root=None):
             helper.assemble(stage, root)
         subprocess.run([sys.executable,'-m','mkdocs','build','--strict','--config-file',
                         str(config),'--site-dir',str(site)],check=True)
+        if root is not None:
+            helper.finish_site(site, root)
     finally:
         config.write_bytes(original)
 

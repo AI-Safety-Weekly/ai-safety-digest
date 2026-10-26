@@ -112,6 +112,7 @@ def collect(
     days: int = 7,
     until: datetime | None = None,
     safety_keywords: list[str] | None = None,
+    health: list[dict] | None = None,
 ) -> list[Paper]:
     """Pull safety-relevant lab posts in `[until - days, until]`. Returns Paper objects.
 
@@ -130,15 +131,22 @@ def collect(
     out: list[Paper] = []
     for src in sources:
         if src.get("disabled"):
+            if health is not None:
+                health.append({"source": src.get("name"), "status": "disabled"})
             log.info("lab source %s: disabled, skipping", src.get("name"))
             continue
         try:
             items = _collect_one(src, cutoff, until_dt)
         except Exception as e:
+            if health is not None:
+                health.append({"source": src.get("name"), "status": "failed",
+                               "error_type": type(e).__name__})
             log.error("lab source %s failed: %s", src.get("name"), type(e).__name__,
                       extra={"source_http_status":getattr(getattr(e,"response",None),"status_code",None)})
             continue
         log.info("lab source %s: kept %d items", src.get("name"), len(items))
+        if health is not None:
+            health.append({"source": src.get("name"), "status": "returned", "record_count": len(items)})
         out.extend(items)
     return out
 

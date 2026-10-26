@@ -1,4 +1,5 @@
 name: Weekly digest
+run-name: "${{ github.event.inputs.build_only == 'true' && 'Build-only:' || 'Weekly pipeline:' }} ${{ github.run_id }}"
 
 on:
   schedule:
@@ -55,6 +56,9 @@ jobs:
     timeout-minutes: 150
     outputs:
       changed: ${{ steps.commit.outputs.changed }}
+      deployed_commit: ${{ steps.receipt.outputs.commit }}
+      edition: ${{ steps.receipt.outputs.edition }}
+      receipt: ${{ steps.receipt.outputs.present }}
     steps:
       - uses: actions/checkout@v4
 
@@ -131,7 +135,29 @@ jobs:
 
       - name: Build site (mkdocs)
         run: |
-          python scripts/interim_site.py --site-dir site
+          GITHUB_SHA="$(git rev-parse HEAD)" python scripts/interim_site.py --site-dir site
+
+      - name: Bind built edition to the actual source commit
+        id: receipt
+        env:
+          BUILD_ONLY: ${{ github.event.inputs.build_only }}
+        run: |
+          set -euo pipefail
+          COMMIT="$(git rev-parse HEAD)"
+          EDITION="$(date -u +%G-W%V)"
+          if [ "$BUILD_ONLY" = "true" ]; then
+            COVERAGE="$(find site -maxdepth 1 -name 'source-coverage-*.json' | sort | tail -n 1)"
+            if [ -z "$COVERAGE" ]; then
+              echo "present=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            EDITION="${COVERAGE##*/source-coverage-}"
+            EDITION="${EDITION%.json}"
+          fi
+          python scripts/publication_receipt.py prepare --site site --commit "$COMMIT" --edition "$EDITION" --run-id "$GITHUB_RUN_ID"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "edition=$EDITION" >> "$GITHUB_OUTPUT"
+          echo "present=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -148,3 +174,20 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - uses: actions/checkout@v4
+        if: needs.digest.outputs.receipt == 'true'
+        with:
+          ref: ${{ needs.digest.outputs.deployed_commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        if: needs.digest.outputs.receipt == 'true'
+        with:
+          python-version: '3.11'
+      - name: Verify live edition, coverage and exact deployed commit
+        if: needs.digest.outputs.receipt == 'true'
+        env:
+          EXPECTED_COMMIT: ${{ needs.digest.outputs.deployed_commit }}
+          EXPECTED_EDITION: ${{ needs.digest.outputs.edition }}
+        run: |
+          python scripts/publication_receipt.py verify --base https://ai-safety-weekly.github.io/ai-safety-digest/ --edition "$EXPECTED_EDITION" --commit "$EXPECTED_COMMIT"

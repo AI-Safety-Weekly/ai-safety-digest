@@ -98,6 +98,8 @@ jobs:
     outputs:
       deploy: ${{ steps.commit.outputs.deploy }}
       commit: ${{ steps.commit.outputs.commit }}
+      edition: ${{ steps.commit.outputs.edition }}
+      receipt: ${{ steps.commit.outputs.receipt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -170,3 +172,10 @@ jobs:
           test "$actual" = "$EXPECTED_COMMIT"
       - uses: actions/deploy-pages@v4
         id: deployment
+      - name: Verify live homepage, edition, coverage and exact commit
+        if: needs.publish.outputs.receipt == 'true'
+        env:
+          EXPECTED_COMMIT: ${{ needs.publish.outputs.commit }}
+          EXPECTED_EDITION: ${{ needs.publish.outputs.edition }}
+        run: |
+          python scripts/publication_receipt.py verify --base https://ai-safety-weekly.github.io/ai-safety-digest/ --edition "$EXPECTED_EDITION" --commit "$EXPECTED_COMMIT"

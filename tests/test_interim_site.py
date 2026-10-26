@@ -19,6 +19,11 @@ def source(tmp_path):
 
 def test_overlay_preserves_original_and_archives(source,tmp_path):
     before=dot.provenance(source)
+    # Explicit pre-publication fixture, independent of the repository's current edition.
+    for path in (source/'docs').glob('digest-*.md'):
+        if path.stem >= 'digest-2026-W43':
+            path.unlink()
+    before=dot.provenance(source)
     stage=tmp_path/'stage';shutil.copytree(source,stage)
     m.assemble(stage,source)
     first=(stage/'docs/index.md').read_text()
@@ -48,7 +53,8 @@ def test_real_strict_build_preserves_frozen_inputs(tmp_path,monkeypatch):
     assert '12 of 294' in html and '282' in html and '../2026-10-25-coverage.json' in html
     assert (site/'interim/2026-10-25-coverage.json').exists()
     home=(site/'index.html').read_text()
-    assert 'aria-label="Interim bulletin"' in home and 'October 25 interim update is available' in home
+    assert 'aria-label="Interim bulletin"' in home
+    assert ('Interim bulletin archive' in home) == m.has_replacement_edition(ROOT/'docs')
     m.finish_site(site,ROOT)
     assert (site/'index.html').read_text()==home
     assert dot.provenance(ROOT)==before and (ROOT/'state.db').read_bytes()==state and (ROOT/'.dot/active-edition.json').read_bytes()==ownership

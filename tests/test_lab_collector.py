@@ -330,3 +330,19 @@ def test_apollo_flat_sitemap_keeps_research_paths_only(monkeypatch):
         'url_pattern':r'apolloresearch\.ai/(blog|science|governance)/.'}, now-timedelta(days=7), now)
     assert len(papers) == 3
     assert all('/team/' not in p.url and '/press/' not in p.url for p in papers)
+
+
+def test_health_distinguishes_failed_empty_and_disabled_without_exception_details(monkeypatch):
+    def collect_one(source, *_):
+        if source['name'] == 'unavailable':
+            raise RuntimeError('private transport detail must not enter public coverage')
+        return []
+    monkeypatch.setattr(lab_collector, '_collect_one', collect_one)
+    health = []
+    assert lab_collector.collect([{'name': 'unavailable'}, {'name': 'empty'},
+                                  {'name': 'disabled', 'disabled': True}], health=health) == []
+    assert health == [
+        {'source': 'unavailable', 'status': 'failed', 'error_type': 'RuntimeError'},
+        {'source': 'empty', 'status': 'returned', 'record_count': 0},
+        {'source': 'disabled', 'status': 'disabled'},
+    ]

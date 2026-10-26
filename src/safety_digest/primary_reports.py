@@ -116,20 +116,45 @@ def _cell_dates(entry: Tag, label: str) -> list[str]:
     return [t.get("datetime") or t.get_text(" ", strip=True) for t in times]
 
 
+def _openai_count(soup):
+    tag = soup.select_one('#report-feedback')
+    if tag is None:
+        return None
+    match = re.search(r'(\d+) of (\d+) reports', tag.get_text(' ', strip=True))
+    if not match:
+        raise PrimaryReportCollectionError('OpenAI advertised count malformed')
+    shown, total = map(int, match.groups())
+    if not 0 < shown <= total:
+        raise PrimaryReportCollectionError('OpenAI report count mismatch')
+    return shown, total
+
+
+def _same_report(left, right):
+    # Trailing-slash aliases are the same identity; every evidence field must agree.
+    return (left.url.rstrip('/') == right.url.rstrip('/') and
+            all(getattr(left, key) == getattr(right, key) for key in
+                ('title', 'first_posted', 'last_updated', 'incident_dates', 'summary',
+                 'first_posted_date_only', 'last_updated_date_only')))
+
+
 def _openai_reports(soup: BeautifulSoup, src: dict) -> list[_Report]:
     entries = soup.select("#report-entries tbody.report-entry")
     if not entries:
         raise PrimaryReportCollectionError("OpenAI report table missing or empty; coverage unknown")
-    count_tag = soup.select_one("#report-feedback")
-    count = re.search(r"\d+ of (\d+) reports", count_tag.get_text(" ", strip=True)) if count_tag else None
-    if count and int(count.group(1)) != len(entries):
+    count = _openai_count(soup)
+    if count and count[0] != len(entries):
         raise PrimaryReportCollectionError("OpenAI report count mismatch; coverage incomplete")
+    seen = set()
     reports = []
     for entry in entries:
         anchor = entry.select_one("a.report-title[href]")
         url = _report_url(anchor["href"], src["index_url"], src) if anchor else None
         if not url or not anchor.get_text(" ", strip=True):
             raise PrimaryReportCollectionError("OpenAI report row has no valid title or primary URL")
+        identity = url.rstrip('/')
+        if identity in seen:
+            raise PrimaryReportCollectionError('Duplicate OpenAI primary URL within one page')
+        seen.add(identity)
         # data-date is the UPDATE date. data-incident may be months earlier
         # and contains only the last incident when a row lists several.
         posted_cells = _cell_dates(entry, "First posted")
@@ -490,12 +515,19 @@ def collect_primary_reports(src: dict, cutoff: datetime, until: datetime) -> lis
         raise ValueError(f"Unknown primary report format: {kind}")
     index_url = src["index_url"]
     visited = set()
+    advertised_total = None
     reports: dict[str, _Report] = {}
     while index_url:
         if index_url in visited or len(visited) >= src.get("max_index_pages", 10):
             raise PrimaryReportCollectionError("Primary index pagination loop/limit; coverage incomplete")
         visited.add(index_url)
         soup = _get_soup(index_url)
+        if kind == 'openai_misalignment':
+            count = _openai_count(soup)
+            if count:
+                if advertised_total is not None and advertised_total != count[1]:
+                    raise PrimaryReportCollectionError('Conflicting OpenAI advertised totals')
+                advertised_total = count[1]
         embedded = src.get('embedded_index')
         if embedded and embedded != 'anthropic_publications':
             raise PrimaryReportCollectionError('Unsupported embedded primary index format')
@@ -516,12 +548,19 @@ def collect_primary_reports(src: dict, cutoff: datetime, until: datetime) -> lis
                 soup, src, index_url
             )
         for report in parsed:
-            previous = reports.get(report.url)
+            key = report.url.rstrip('/') if kind == 'openai_misalignment' else report.url
+            previous = reports.get(key)
+            if kind == 'openai_misalignment' and previous is not None:
+                if not _same_report(previous, report):
+                    raise PrimaryReportCollectionError('Conflicting OpenAI report across pages')
+                continue  # Identical overlap is harmless, but contributes no new identity.
             if previous is None or (report.last_updated or report.first_posted) > (
                 previous.last_updated or previous.first_posted
             ):
-                reports[report.url] = report
+                reports[key] = report
         index_url = next_url
+    if advertised_total is not None and len(reports) != advertised_total:
+        raise PrimaryReportCollectionError('OpenAI unique report count mismatch; coverage incomplete')
     first_only = src.get('first_disclosures_only', False)
     candidates = [
         report for report in reports.values()

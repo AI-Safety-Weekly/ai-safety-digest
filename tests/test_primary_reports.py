@@ -602,3 +602,61 @@ def test_narrow_route_rejects_conflicting_primary_identity_or_date(monkeypatch,m
     mock_http(monkeypatch,{INDEX:index(row('report')),INDEX+'report/':article(metadata=metadata)})
     with pytest.raises(pr.PrimaryReportCollectionError,match='Conflicting primary'):
         pr.collect_primary_reports(src,START,END)
+
+
+def counted_index(*rows,total,next_link=''):
+    return index(*rows,next_link=next_link)+f'<p id="report-feedback">{len(rows)} of {total} reports</p>'
+
+
+def test_duplicate_openai_rows_cannot_satisfy_advertised_count(monkeypatch):
+    mock_http(monkeypatch,{INDEX:counted_index(row('one'),row('one'),total=2)})
+    with pytest.raises(pr.PrimaryReportCollectionError,match='Duplicate OpenAI'):
+        pr.collect_primary_reports(SOURCE,START,END)
+
+
+def test_real_twenty_row_fixture_with_duplicate_fails_before_article_fetch(monkeypatch):
+    soup=BeautifulSoup((FIXTURES/'openai-index.html').read_text(),'html.parser')
+    rows=soup.select('#report-entries tbody.report-entry')
+    assert len(rows)==20
+    rows[-1].replace_with(copy.copy(rows[0]))
+    seen=mock_http(monkeypatch,{INDEX:str(soup)})
+    with pytest.raises(pr.PrimaryReportCollectionError,match='Duplicate OpenAI'):
+        pr.collect_primary_reports(SOURCE,START,END)
+    assert seen==[INDEX]
+
+
+def test_identical_cross_page_overlap_reconciles_unique_total(monkeypatch):
+    seen=mock_http(monkeypatch,{
+        INDEX:counted_index(row('one'),row('two'),total=3,next_link='<a rel="next" href="?page=2">Next</a>'),
+        INDEX+'?page=2':counted_index(row('two'),row('three'),total=3),
+        **{INDEX+slug+'/':article() for slug in ('one','two','three')},
+    })
+    assert len(pr.collect_primary_reports(SOURCE,START,END))==3
+    assert seen.count(INDEX+'two/')==1
+
+
+@pytest.mark.parametrize('change',['title','posted','updated','incident','summary','precision'])
+def test_conflicting_cross_page_identity_or_evidence_rejected(monkeypatch,change):
+    overlap=row('one')
+    if change=='title':overlap=overlap.replace('>one</a>','>Changed title</a>')
+    if change=='posted':overlap=row('one','2026-10-08','2026-10-09')
+    if change=='updated':overlap=row('one','2026-10-09','2026-10-10')
+    if change=='incident':overlap=row('one',incidents=('2026-06-21',))
+    if change=='summary':overlap=overlap.replace('Synthetic report synopsis.','Changed synopsis.')
+    if change=='precision':overlap=overlap.replace('2026-10-09','2026-10-09T00:00:00Z')
+    mock_http(monkeypatch,{
+        INDEX:counted_index(row('one'),total=1,next_link='<a rel="next" href="?page=2">Next</a>'),
+        INDEX+'?page=2':counted_index(overlap,total=1),
+    })
+    with pytest.raises(pr.PrimaryReportCollectionError,match='Conflicting OpenAI report'):
+        pr.collect_primary_reports(SOURCE,START,END)
+
+
+@pytest.mark.parametrize('second_total',[2,3])
+def test_overlap_cannot_hide_missing_unique_records_or_changed_total(monkeypatch,second_total):
+    mock_http(monkeypatch,{
+        INDEX:counted_index(row('one'),total=3,next_link='<a rel="next" href="?page=2">Next</a>'),
+        INDEX+'?page=2':counted_index(row('one'),row('two'),total=second_total),
+    })
+    with pytest.raises(pr.PrimaryReportCollectionError,match='(unique report count|advertised totals)'):
+        pr.collect_primary_reports(SOURCE,START,END)

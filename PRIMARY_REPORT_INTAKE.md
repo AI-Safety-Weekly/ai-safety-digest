@@ -27,6 +27,12 @@ and the new bounded pagination schema without executing JavaScript. It validates
 team, order, advertised count, unique IDs/URLs, page limits, and visible dates.
 Malformed, repeated, truncated or out-of-domain data cannot produce a complete result.
 
+OpenAI pages reject duplicate primary URLs within a page. Across pages, identical
+overlap is counted once; conflicting titles, dates, precision, incident evidence or
+summaries fail. Advertised totals must agree between pages and equal the final
+unique-URL count before any article fetch. Regression coverage includes the captured
+20-row index with one row replaced by a duplicate.
+
 The two configured sources remain required. Legacy collection raises an explicit
 source failure; hosted collection already records failures and leaves the part
 incomplete. This change does not relax the current all-required-primary-parts gate.

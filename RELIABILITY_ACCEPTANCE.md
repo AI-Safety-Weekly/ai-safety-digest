@@ -8,18 +8,18 @@ The October 25 edition was completed before this branch: base
 ## Changes in this branch
 
 - Bind the built homepage, edition, and source-coverage bytes to an exact source
-  commit in a public receipt. Both the existing weekly deployment and Dot deployment
-  verify live bytes after Pages deployment. A committed artifact is not proof of a
+  commit in a public receipt. The existing weekly, Dot, and design-only deployments
+  verify live bytes against the exact uploaded receipt after Pages deployment. A committed artifact is not proof of a
   successful deployment. Dot retains its ownership/deadline and current-head checks.
 - Watchdog checks the live receipt rather than successful-job duration or commit
   titles. A failed scheduled attempt permits one recovery. Build-only attempts do
   not consume that budget; active runs prevent duplicate dispatch. Exhausted recovery
   without verified publication fails visibly.
 - Report the actual frozen collection interval separately from the ISO week label.
-  The legacy CLI now captures one anchor before collecting.
+  The legacy CLI now captures one anchor before collecting and writes its rendered edition identity for deployment; midnight rollover cannot select another week.
 - Disclose individual lab-adapter failures in the legacy scheduled report and coverage
   JSON. A returned empty result, failed adapter, and disabled source are distinct;
-  returned does not mean exhaustive. Error messages are not copied into public data.
+  returned does not mean exhaustive. Error messages are not copied into public data. Child sitemap/article retrieval failures raise an explicit incomplete result with preserved partial items.
 - Preserve the archived interim notice when subsequent weeks replace October 25.
 
 ## Still required for unattended Dot acceptance

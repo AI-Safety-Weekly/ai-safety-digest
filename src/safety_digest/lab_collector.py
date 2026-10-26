@@ -107,6 +107,14 @@ def _proxied(url):
     return url
 
 
+class CollectionIncomplete(RuntimeError):
+    """Some required child retrievals failed; preserve successfully read items."""
+    def __init__(self, items, failures):
+        super().__init__(f"{failures} child retrieval(s) failed")
+        self.partial_items = items
+        self.failures = failures
+
+
 def collect(
     sources: list[dict],
     days: int = 7,
@@ -137,6 +145,13 @@ def collect(
             continue
         try:
             items = _collect_one(src, cutoff, until_dt)
+        except CollectionIncomplete as e:
+            out.extend(e.partial_items)
+            if health is not None:
+                health.append({"source": src.get("name"), "status": "incomplete",
+                               "record_count": len(e.partial_items), "failed_retrievals": e.failures})
+            log.warning("lab source %s incomplete: %d child failures", src.get("name"), e.failures)
+            continue
         except Exception as e:
             if health is not None:
                 health.append({"source": src.get("name"), "status": "failed",
@@ -304,14 +319,24 @@ def _from_sitemap_index(src: dict, cutoff: datetime, until: datetime) -> list[Pa
         "sitemap_index %s: %d sub-sitemaps to follow", src.get("name"), len(sub_urls)
     )
     out: list[Paper] = []
+    failures = 0
     for sub_url in sub_urls:
         try:
             sub_r = requests.get(sub_url, timeout=HTTP_TIMEOUT, headers={"User-Agent": USER_AGENT})
             sub_r.raise_for_status()
         except Exception as e:
+            failures += 1
             log.warning("sub-sitemap fetch failed for %s: %s", sub_url, e)
             continue
-        out.extend(_papers_from_sitemap_xml(sub_r.content, src, cutoff, until))
+        try:
+            out.extend(_papers_from_sitemap_xml(sub_r.content, src, cutoff, until))
+        except CollectionIncomplete as e:
+            out.extend(e.partial_items)
+            failures += e.failures
+        except Exception:
+            failures += 1
+    if failures:
+        raise CollectionIncomplete(out, failures)
     return out
 
 
@@ -359,10 +384,12 @@ def _papers_from_sitemap_xml(
     candidates = candidates[:SITEMAP_PAGE_CAP]
 
     out: list[Paper] = []
+    failures = 0
     for url, published in candidates:
         try:
             title, abstract = _scrape_meta(url)
         except Exception as e:
+            failures += 1
             log.warning("page fetch failed for %s: %s", url, e)
             continue
         if not title:
@@ -376,6 +403,8 @@ def _papers_from_sitemap_xml(
             title=title, abstract=abstract, url=url,
             published=published, src=src, matched_kw=matched_kw,
         ))
+    if failures:
+        raise CollectionIncomplete(out, failures)
     return out
 
 
@@ -465,10 +494,12 @@ def _from_index_page(src: dict, cutoff: datetime, until: datetime) -> list[Paper
     candidates = candidates[:SITEMAP_PAGE_CAP]
 
     out: list[Paper] = []
+    failures = 0
     for url, published in candidates:
         try:
             title, abstract = _scrape_meta(url)
         except Exception as e:
+            failures += 1
             log.warning("page fetch failed for %s: %s", url, e)
             continue
         if not title:
@@ -480,6 +511,8 @@ def _from_index_page(src: dict, cutoff: datetime, until: datetime) -> list[Paper
             title=title, abstract=abstract, url=url,
             published=published, src=src, matched_kw=matched_kw,
         ))
+    if failures:
+        raise CollectionIncomplete(out, failures)
     return out
 
 

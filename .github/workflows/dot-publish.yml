@@ -121,6 +121,14 @@ jobs:
           DOT_PUBLISH_ENABLED: ${{ vars.DOT_PUBLISH_ENABLED }}
           REQUEST_PATH: ${{ needs.prepare.outputs.request_path }}
         run: python scripts/dot_publish.py --phase publish --request "$REQUEST_PATH" --artifact-dir "$RUNNER_TEMP/dot-frozen-input" --out "$RUNNER_TEMP/dot-publication"
+      - name: Preserve exact expected publication receipt
+        if: steps.commit.outputs.receipt == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: expected-publication-receipt
+          path: ${{ runner.temp }}/dot-publication/site/publication-receipt.json
+          if-no-files-found: error
+
       - uses: actions/upload-pages-artifact@v3
         if: steps.commit.outputs.deploy == 'true'
         with:
@@ -172,10 +180,17 @@ jobs:
           test "$actual" = "$EXPECTED_COMMIT"
       - uses: actions/deploy-pages@v4
         id: deployment
+      - name: Read receipt from this workflow's uploaded artifact
+        if: needs.publish.outputs.receipt == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: expected-publication-receipt
+          path: ${{ runner.temp }}/expected-publication
+
       - name: Verify live homepage, edition, coverage and exact commit
         if: needs.publish.outputs.receipt == 'true'
         env:
           EXPECTED_COMMIT: ${{ needs.publish.outputs.commit }}
           EXPECTED_EDITION: ${{ needs.publish.outputs.edition }}
         run: |
-          python scripts/publication_receipt.py verify --base https://ai-safety-weekly.github.io/ai-safety-digest/ --edition "$EXPECTED_EDITION" --commit "$EXPECTED_COMMIT"
+          python scripts/publication_receipt.py verify --base https://ai-safety-weekly.github.io/ai-safety-digest/ --edition "$EXPECTED_EDITION" --commit "$EXPECTED_COMMIT" --expected "$RUNNER_TEMP/expected-publication/publication-receipt.json"

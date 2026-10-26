@@ -107,3 +107,59 @@ def test_dot_deploy_retains_ownership_deadline_and_live_commit_checks():
     assert 'git ls-remote' in scripts
     assert 'publication_receipt.py verify' in steps[-1]['run']
     assert '--commit "$EXPECTED_COMMIT"' in steps[-1]['run']
+
+
+def test_same_commit_previous_build_cannot_replace_uploaded_artifact(tmp_path):
+    original=site(tmp_path)
+    (tmp_path/'index.html').write_text('Changed rendering of the same commit')
+    current=r.prepare(tmp_path,'a'*40,'2026-W44','124')
+    assert original['source_commit']==current['source_commit']
+    with pytest.raises(ValueError,match='differs from deployed artifact'):
+        r.verify('', '2026-W44',original,lambda path:(tmp_path/path).read_bytes())
+
+
+def test_all_deploy_routes_require_exact_uploaded_receipt():
+    import yaml
+    root=Path(__file__).parents[1]
+    for name in ('weekly.yml','dot-publish.yml','design-pages.yml'):
+        workflow=yaml.load((root/'.github/workflows'/name).read_text(),Loader=yaml.BaseLoader)
+        steps=workflow['jobs']['deploy']['steps']
+        assert any(s.get('uses')=='actions/download-artifact@v4' and
+                   s.get('with',{}).get('name')=='expected-publication-receipt' for s in steps)
+        assert '--expected "$RUNNER_TEMP/expected-publication/publication-receipt.json"' in steps[-1]['run']
+
+
+def test_design_rebuild_binds_new_render_commit_without_changing_coverage(tmp_path):
+    old=site(tmp_path);coverage=(tmp_path/'source-coverage-2026-W44.json').read_bytes()
+    (tmp_path/'stylesheets').mkdir();(tmp_path/'stylesheets/design.css').write_text('body{color:green}')
+    new=r.prepare(tmp_path,'d'*40,'2026-W44','design-only')
+    assert new['edition']==old['edition'] and new['coverage_sha256']==old['coverage_sha256']
+    assert (tmp_path/'source-coverage-2026-W44.json').read_bytes()==coverage
+    assert r.verify('', '2026-W44',new,lambda path:(tmp_path/path).read_bytes())==new
+
+
+def test_sunday_frozen_output_is_not_relabelled_by_monday_completion(tmp_path, monkeypatch):
+    from safety_digest import cli
+    from datetime import datetime, timezone
+    class Monday(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026,11,2,0,2,tzinfo=timezone.utc)
+    monkeypatch.setattr(cli,'datetime',Monday)
+    metadata=tmp_path/'result.json'
+    monkeypatch.setattr(cli.sys,'argv',['safety-digest','--until','2026-11-01','--dry-run',
+        '--no-semantic','--skip-feedback','--out-dir',str(tmp_path/'docs'),'--run-metadata',str(metadata)])
+    for collector in (cli.arxiv_collector,cli.lab_collector,cli.hn_collector):
+        monkeypatch.setattr(collector,'collect',lambda *a,**k:[])
+    from safety_digest.models import Paper
+    paper=Paper(title='Synthetic governance evaluation',authors=['Example'],abstract='AI safety evaluation',
+                url='https://example.invalid/paper',source='lab',published=datetime(2026,10,30,tzinfo=timezone.utc))
+    monkeypatch.setattr(cli.arxiv_collector,'collect',lambda *a,**k:[paper])
+    def forbidden(*a,**k):pytest.fail('Unexpected inference or Scholar call')
+    monkeypatch.setattr(cli.s2_collector,'collect',forbidden)
+    monkeypatch.setattr(cli.classifier,'classify',forbidden)
+    cli.main()
+    assert json.loads(metadata.read_text())['edition']=='2026-W44'
+    workflow=(Path(__file__).parents[1]/'.github/workflows/weekly.yml').read_text()
+    assert 'date -u +%G-W%V' not in workflow
+    assert '/digest-run.json' in workflow

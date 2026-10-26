@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from datetime import datetime, timezone, timedelta
@@ -169,6 +170,7 @@ def main() -> None:
              "embedding similarity to config/semantic_seeds.yml — purely additive "
              "recall. Pass this to fall back to the keyword/author gate alone.",
     )
+    parser.add_argument("--run-metadata", type=Path, help="Write the successfully rendered frozen edition identity")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -467,12 +469,15 @@ def main() -> None:
         with out_path.open('a') as stream:
             stream.write(f"\n\n## Source coverage\n\n{source_contract.CONFIG['label']}. Semantic Scholar and OpenAlex were not queried. "
                          f"Per-person coverage remains unchecked. [Coverage report]({coverage_path.name}).\n")
-        failed = [item["source"] for item in lab_health if item["status"] == "failed"]
+        failed = [item["source"] for item in lab_health if item["status"] in {"failed", "incomplete"}]
         if failed:
             with out_path.open('a') as stream:
                 stream.write("\nLab feeds unavailable during collection: " + ", ".join(failed) +
                              ". Missing results do not establish that no items were published.\n")
     index_path = site_builder.build_index(args.out_dir)
+    if args.run_metadata:
+        args.run_metadata.write_text(json.dumps({"edition": f"{iso.year}-W{iso.week:02d}",
+                                                "window_end": run_at.isoformat(), "report": fname}) + "\n")
     if not args.dry_run:
         # Measured run cost from each call's usageMetadata (see the standing
         # cost directive). Printed so the weekly run's $ is a number, not a guess.

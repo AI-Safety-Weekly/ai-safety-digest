@@ -42,77 +42,25 @@ jobs:
     if: ${{ vars.DOT_REPLACE_GEMINI != 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Did the digest run today? Recover if not.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify publication and bound recovery
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TODAY="$(date -u +%Y-%m-%d)"
-          SINCE="${TODAY}T00:00:00Z"
-          echo "Watchdog check for UTC day: ${TODAY}"
-
-          # --- Gather signals --------------------------------------------------
-          # weekly.yml runs (recent), and any digest commits the bot pushed today.
-          RUNS="$(gh run list --repo "$REPO" --workflow weekly.yml --limit 40 \
-            --json databaseId,status,conclusion,event,createdAt,startedAt,updatedAt)"
-          PUBLISHED="$(gh api "repos/${REPO}/commits?sha=main&since=${SINCE}" \
-            --jq '[.[].commit.message | select(startswith("Weekly digest:"))] | length' \
-            2>/dev/null || echo 0)"
-
-          # A run created today that is still running.
-          ACTIVE="$(jq --arg d "$TODAY" \
-            '[.[] | select((.createdAt|startswith($d)) and (.status=="queued" or .status=="in_progress"))] | length' \
-            <<<"$RUNS")"
-
-          # A run created today that SUCCEEDED and lasted > 20 min — i.e. a real
-          # pipeline, not a ~40s build-only / test dispatch.
-          REAL_PIPELINE="$(jq --arg d "$TODAY" \
-            '[.[] | select((.createdAt|startswith($d)) and .conclusion=="success"
-                           and ((.updatedAt|fromdateiso8601) - (.startedAt|fromdateiso8601) > 1200))] | length' \
-            <<<"$RUNS")"
-
-          # Only successful scheduled attempts satisfy the watchdog. A cancelled
-          # or failed attempt may never have reached the publication steps.
-          SCHEDULED="$(jq --arg d "$TODAY" \
-            '[.[] | select((.createdAt|startswith($d)) and .event=="schedule" and .conclusion=="success")] | length' \
-            <<<"$RUNS")"
-
-          # Bound automatic recovery to one dispatch per UTC day. Conservatively
-          # count manual dispatches too: a source outage must not create a retry
-          # loop or repeated inference charges across watchdog fires.
-          DISPATCHED="$(jq --arg d "$TODAY" \
-            '[.[] | select((.createdAt|startswith($d)) and .event=="workflow_dispatch")] | length' \
-            <<<"$RUNS")"
-
-          echo "Signals — active:${ACTIVE} real_pipeline:${REAL_PIPELINE} scheduled_success:${SCHEDULED} published:${PUBLISHED} dispatched:${DISPATCHED}"
-
-          if [ "$ACTIVE" -gt 0 ] || [ "$REAL_PIPELINE" -gt 0 ] || [ "$SCHEDULED" -gt 0 ] || [ "$PUBLISHED" -gt 0 ]; then
-            {
-              echo "### ✅ Digest already ran today (${TODAY}) — nothing to do."
-              echo ""
-              echo "| signal | count |"
-              echo "|---|---|"
-              echo "| run active now | ${ACTIVE} |"
-              echo "| real pipeline succeeded today | ${REAL_PIPELINE} |"
-              echo "| scheduled run succeeded today | ${SCHEDULED} |"
-              echo "| digest published today | ${PUBLISHED} |"
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "Nothing to do."
-            exit 0
-          fi
-
-          if [ "$DISPATCHED" -gt 0 ]; then
-            echo "::warning::Digest recovery attempt already used for ${TODAY}; inspect the failed run before retrying."
-            echo "### ⚠️ Recovery already attempted (${TODAY}); publication is not confirmed" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          echo "::warning::No digest run detected for ${TODAY}; dispatching weekly.yml to recover."
-          gh workflow run weekly.yml --repo "$REPO" --ref main
-          {
-            echo "### ⚠️ No digest run found for ${TODAY} — recovery dispatched"
-            echo ""
-            echo "The scheduled weekly run was dropped or did not succeed. The watchdog"
-            echo "dispatched \`weekly.yml\` (full pipeline) to publish this week's digest."
-          } >> "$GITHUB_STEP_SUMMARY"
+          gh run list --repo "$REPO" --workflow weekly.yml --limit 40 --json status,event,createdAt,displayTitle > "$RUNNER_TEMP/weekly-runs.json"
+          DECISION="$(python scripts/publication_receipt.py watchdog --base https://ai-safety-weekly.github.io/ai-safety-digest/ --runs "$RUNNER_TEMP/weekly-runs.json")"
+          echo "Publication watchdog: $DECISION" >> "$GITHUB_STEP_SUMMARY"
+          case "$DECISION" in
+            published) echo "Live edition and coverage bytes verified." ;;
+            active) echo "A run is active; no duplicate dispatch." ;;
+            exhausted) echo "::error::Publication not verified; automatic pipeline recovery budget exhausted."; exit 1 ;;
+            dispatch) gh workflow run weekly.yml --repo "$REPO" --ref main ;;
+            *) echo "::error::Unexpected watchdog decision"; exit 1 ;;
+          esac

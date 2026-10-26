@@ -117,7 +117,7 @@ def assemble(stage, root=ROOT):
     original = index.read_text()
     original = re.sub(re.escape(BEGIN)+r'.*?'+re.escape(END)+r'\n*', '', original, flags=re.S)
     complete_page = docs / 'digest-2026-W43.md'
-    if complete_page.exists():
+    if has_replacement_edition(docs):
         notice = (f'!!! info "Interim bulletin archive"\n'
                   f"    [October 25 interim bulletin](interim/{latest['date']}.md) preserves the earlier incomplete-coverage update.\n\n")
     else:
@@ -143,13 +143,22 @@ def assemble(stage, root=ROOT):
         '\n'.join(f"- [{m['date']} — incomplete coverage]({m['date']}.md)" for m,_ in entries)+'\n')
 
 
+def has_replacement_edition(directory, rendered=False):
+    pattern = 'digest-*/index.html' if rendered else 'digest-*.md'
+    for path in Path(directory).glob(pattern):
+        name = path.parent.name if rendered else path.stem
+        if re.fullmatch(r'digest-\d{4}-W\d{2}', name) and name >= 'digest-2026-W43':
+            return True
+    return False
+
+
 def finish_site(site, root):
     """The editorial hook replaces index Markdown; add its notice after rendering."""
     entries = load(root)
     if not entries:
         return
     latest = entries[-1][0]
-    complete = (Path(site)/'digest-2026-W43/index.html').exists()
+    complete = has_replacement_edition(site, rendered=True)
     label = 'Interim bulletin archive' if complete else 'October 25 interim update is available'
     message = ('An earlier incomplete-coverage bulletin is retained in the archive.' if complete else
                f"Scholar coverage is {latest['coverage']['complete_profile_count']}/{latest['coverage']['required_profile_count']} profiles. "
@@ -182,7 +191,7 @@ def build(root, site):
         from safety_digest import source_contract
         source_contract.finish_site(site, stage)
         entries = load(root)
-        metadata = {'schema_version':1,'status':('complete_with_interim_archive' if (root/'docs/digest-2026-W43.md').exists() else 'interim') if entries else 'ordinary_build',
+        metadata = {'schema_version':1,'status':('complete_with_interim_archive' if has_replacement_edition(root/'docs') else 'interim') if entries else 'ordinary_build',
                     'source_commit':os.environ.get('GITHUB_SHA') or subprocess.check_output(
                         ['git','-C',str(root),'rev-parse','HEAD'],text=True).strip(),
                     'workflow_run_id':os.environ.get('GITHUB_RUN_ID'),

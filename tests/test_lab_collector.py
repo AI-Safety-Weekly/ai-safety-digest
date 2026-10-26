@@ -330,3 +330,49 @@ def test_apollo_flat_sitemap_keeps_research_paths_only(monkeypatch):
         'url_pattern':r'apolloresearch\.ai/(blog|science|governance)/.'}, now-timedelta(days=7), now)
     assert len(papers) == 3
     assert all('/team/' not in p.url and '/press/' not in p.url for p in papers)
+
+
+def test_health_distinguishes_failed_empty_and_disabled_without_exception_details(monkeypatch):
+    def collect_one(source, *_):
+        if source['name'] == 'unavailable':
+            raise RuntimeError('private transport detail must not enter public coverage')
+        return []
+    monkeypatch.setattr(lab_collector, '_collect_one', collect_one)
+    health = []
+    assert lab_collector.collect([{'name': 'unavailable'}, {'name': 'empty'},
+                                  {'name': 'disabled', 'disabled': True}], health=health) == []
+    assert health == [
+        {'source': 'unavailable', 'status': 'failed', 'error_type': 'RuntimeError'},
+        {'source': 'empty', 'status': 'returned', 'record_count': 0},
+        {'source': 'disabled', 'status': 'disabled'},
+    ]
+
+
+@pytest.mark.parametrize('failure_kind', ['submap', 'article', 'index_article'])
+@pytest.mark.parametrize('all_failed', [False, True])
+def test_child_failures_preserve_partial_items_and_disclose_incomplete(monkeypatch, failure_kind, all_failed):
+    now = datetime(2026, 5, 25, tzinfo=timezone.utc)
+    src = {'name':'x','label':'X','filter':'loose','strategy':'sitemap_index',
+           'sitemap_url':'https://x.test/index.xml'}
+    routes = {'index.xml': _sitemap_index_xml([('https://x.test/good.xml',now),('https://x.test/bad.xml',now)]),
+              'good.xml': _sitemap_xml([('https://x.test/good',now)]),
+              'bad.xml': _sitemap_xml([('https://x.test/bad',now)])}
+    if failure_kind == 'submap':
+        del routes['bad.xml']
+        if all_failed: del routes['good.xml']
+    if failure_kind == 'index_article':
+        src.update(strategy='index_page',index_url='https://x.test/cards',url_prefix='https://x.test/')
+        routes['cards'] = b'<main><div class="card"><a href="https://x.test/good">Good</a>May 25, 2026</div><div class="card"><a href="https://x.test/bad">Bad</a>May 25, 2026</div></main>'
+    monkeypatch.setattr(lab_collector.requests,'get',_fake_get(routes))
+    def scrape(url):
+        if failure_kind != 'submap' and (all_failed or url.endswith('/bad')):
+            raise RuntimeError('unavailable')
+        return ('AI safety', 'Evidence')
+    monkeypatch.setattr(lab_collector,'_scrape_meta',scrape)
+    health=[]
+    papers=lab_collector.collect([src],until=now,health=health)
+    assert len(papers)==(0 if all_failed else 1)
+    assert health==[{'source':'x','status':'incomplete','record_count':len(papers),
+                     'failed_retrievals':2 if all_failed else 1}]
+    with pytest.raises(lab_collector.CollectionIncomplete):
+        lab_collector._collect_one(src,now-timedelta(days=7),now)

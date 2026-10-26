@@ -191,7 +191,7 @@ def runtime_configuration(config_dir):
     return configured({'config/source_contract.yml':base64.b64encode(path.read_bytes()).decode()} if path.exists() else {})
 
 
-def runtime_coverage(config_dir,out_dir,run_at,days,source_counts):
+def runtime_coverage(config_dir,out_dir,run_at,days,source_counts,*,lab_health=None):
     """Legacy scheduled runner's disclosure; never invent per-person audit receipts."""
     from datetime import timedelta
     authors=(Path(config_dir)/'authors.yml').read_bytes()
@@ -199,6 +199,8 @@ def runtime_coverage(config_dir,out_dir,run_at,days,source_counts):
     record['scholar_profiles_complete']=0
     record['notice']='Semantic Scholar and OpenAlex were not queried. Per-person source coverage is unchecked; collection counts do not prove exhaustive coverage. Dates originate from source metadata unless separately reviewed.'
     record['collected_record_counts']=source_counts
+    record['lab_feed_health']=lab_health if lab_health is not None else []
+    record['lab_feed_health_notice']='Returned means the adapter returned; it does not prove exhaustive indexing or identity coverage. Missing health records are unchecked.'
     week=dot.state_store.week_tag(run_at)
     path=Path(out_dir)/f'source-coverage-{week}.json'
     path.parent.mkdir(parents=True,exist_ok=True)

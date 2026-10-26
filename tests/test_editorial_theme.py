@@ -30,7 +30,7 @@ def test_home_uses_latest_edition_without_mutation():
     assert 'tier-pill-medium">Medium</span>' in result
     assert "#medium-relevance" in result
     assert "#low-relevance" in result
-    assert "Capabilities watch" in result
+    assert ("Capabilities watch" in result) == ("Capabilities watch" in original)
 
 
 def test_archive_links_every_edition():

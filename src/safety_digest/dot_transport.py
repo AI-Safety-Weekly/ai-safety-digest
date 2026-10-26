@@ -93,6 +93,32 @@ def load_results(root, spec):
             'decisions':decisions, 'summaries':manifest['summaries']}
 
 
+def retain_collection_checkpoint(bundle, artifact_dir, out):
+    """Keep a verified discovery checkpoint available after hosted enrichment."""
+    binding = bundle['collection'].get('checkpoint_binding')
+    if binding is None:
+        return  # Legacy local fixtures without resumable collection state.
+    if artifact_dir is None:
+        raise dot.Invalid('resumable enrichment requires its hosted checkpoint')
+    source = Path(artifact_dir) / 'checkpoints' / 'collection-checkpoint.json'
+    if source.is_symlink() or not source.is_file():
+        raise dot.Invalid('enrichment collection checkpoint missing or unsafe')
+    checkpoint = dot.read_json(source)
+    dot.keys(checkpoint, {'schema_version','binding','parts','sha256'}, 'checkpoint')
+    if (checkpoint['schema_version'] != 1 or checkpoint['binding'] != binding
+            or checkpoint['sha256'] != dot.digest({k:v for k,v in checkpoint.items() if k!='sha256'})):
+        raise dot.Invalid('enrichment checkpoint hash/window/provenance mismatch')
+    target = Path(out) / 'checkpoints'
+    target.mkdir()
+    shutil.copyfile(source, target / source.name)
+    migration = source.with_name('migration-receipt.json')
+    if migration.exists():
+        if migration.is_symlink():
+            raise dot.Invalid('unsafe checkpoint migration receipt')
+        dot.read_json(migration)  # Copy exact bytes; resume revalidates its policy.
+        shutil.copyfile(migration, target / migration.name)
+
+
 def run(root, request_path, out, artifact_dir=None, checkpoint_artifact_dir=None):
     root, out = Path(root).resolve(), Path(out).resolve()
     if root == out or root in out.parents or out.exists():
@@ -111,8 +137,8 @@ def run(root, request_path, out, artifact_dir=None, checkpoint_artifact_dir=None
     fields = common | extra[mode]
     if mode == 'export':
         fields |= {k for k in ('resume','resume_migration','collection_budget_seconds') if k in req}
-    if mode == 'enrich' and 'deep_read_ids' in req:
-        fields = fields | {'deep_read_ids'}
+    if mode == 'enrich':
+        fields |= {k for k in ('deep_read_ids','primary_review') if k in req}
     dot.keys(req, fields, 'request')
     if req['schema_version'] != 1 or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}', req['run_id']):
         raise dot.Invalid('invalid schema/run ID')
@@ -182,7 +208,7 @@ def run(root, request_path, out, artifact_dir=None, checkpoint_artifact_dir=None
             if dot.digest({'files': bundle['files'], 'state': bundle['state_rows']}) != req['from_basis_sha256']:
                 raise dot.Invalid('active migration input artifact basis mismatch')
         policy = dot_edition.active_migration_policy(root, edition, req)
-        if policy['kind'] == 'frozen_source_exclusions_v1':
+        if policy['kind'] in {'frozen_source_exclusions_v1','primary_source_contract_v1'}:
             if req['bundle'] != req['checkpoint_source'] or previous != checkpoint_source:
                 raise dot.Invalid('exclusion migration requires the identical current artifact/checkpoint')
         elif previous['parent_bundle_sha256'] != checkpoint_source['bundle_sha256']:
@@ -281,7 +307,8 @@ def run(root, request_path, out, artifact_dir=None, checkpoint_artifact_dir=None
             bundle = dot.collect_export(root, out / 'bundle.json', dot.utc(req['until']), req['days'],
                                         checkpoint_dir, progress=lambda event: print(dot.canonical(event).decode(), flush=True))
         if ('resume' in req and any(name in previous['collection']
-                for name in ('active_author_migration', 'reconciliation'))):
+                for name in ('active_author_migration', 'reconciliation',
+                             'enrichment_records', 'external_enrichment_records'))):
             bundle = dot.reconcile_collected(previous, bundle)
             dot.write_json(out / 'bundle.json', bundle)
         dot.write_json(out / 'results-template.json', dot.template(bundle))
@@ -304,7 +331,17 @@ def run(root, request_path, out, artifact_dir=None, checkpoint_artifact_dir=None
             ids = req.get('deep_read_ids', [])
             if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
                 raise dot.Invalid('deep_read_ids must be a JSON string array')
+            retain_collection_checkpoint(bundle, artifact_dir, out)
             enriched, pending = dot.enrich(bundle, results, requested_ids=ids)
+            if 'primary_review' in req:
+                from . import source_contract
+                if not source_contract.configured(enriched['files']):
+                    raise dot.Invalid('primary review requires frozen source contract')
+                reviews = dot.read_json(input_file(root, req['primary_review']))
+                source_contract.validate_reviews(enriched, reviews)
+                enriched['collection']['primary_review'] = reviews
+                enriched = dot.seal({k:v for k,v in enriched.items() if k!='bundle_sha256'})
+                pending = dot.template(enriched)
             dot.write_json(out / 'bundle.json', enriched)
             dot.write_json(out / 'results-template.json', pending)
             metadata.update(candidate_count=len(enriched['candidates']), bundle_sha256=enriched['bundle_sha256'])

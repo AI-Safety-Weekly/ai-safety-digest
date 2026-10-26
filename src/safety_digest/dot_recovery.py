@@ -140,6 +140,9 @@ def _author_documents(value):
 
 def validate_active_policy(policy):
     """Check the immutable manifest shape; migrate_active verifies actual bytes."""
+    if isinstance(policy, dict) and policy.get('kind') == 'primary_source_contract_v1':
+        from . import source_contract
+        return source_contract.validate_policy(policy)
     if isinstance(policy, dict) and policy.get('kind') == 'frozen_source_exclusions_v1':
         from . import dot_dispositions
         return dot_dispositions.validate_policy(policy)
@@ -191,6 +194,9 @@ def migrate_active(root, previous, checkpoint_source, checkpoint_dir, policy, *,
     editorial completion or source eligibility before collection is resumed.
     """
     validate_active_policy(policy)
+    if policy['kind'] == 'primary_source_contract_v1':
+        from . import source_contract
+        return source_contract.migrate(root, previous, checkpoint_source, checkpoint_dir, policy, request_sha256=request_sha256)
     if policy['kind'] == 'frozen_source_exclusions_v1':
         from . import dot_dispositions
         return dot_dispositions.migrate(root, previous, checkpoint_source, checkpoint_dir,

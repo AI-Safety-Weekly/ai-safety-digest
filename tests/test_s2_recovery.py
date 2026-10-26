@@ -117,6 +117,8 @@ def test_transient_failure_recovers_complete_results(clock):
 
 def test_cli_source_failure_stops_before_inference_or_state(clock, monkeypatch, tmp_path):
     from safety_digest import cli
+    # Legacy configurations must retain the original strict S2 gate.
+    monkeypatch.setattr(cli.source_contract, "runtime_configuration", lambda _: False)
     monkeypatch.setattr(cli.sys, "argv", ["safety-digest", "--skip-feedback", "--no-semantic",
                         "--out-dir", str(tmp_path / "docs"), "--state-db", str(tmp_path / "state.db")])
     for collector in (cli.arxiv_collector, cli.lab_collector, cli.hn_collector):

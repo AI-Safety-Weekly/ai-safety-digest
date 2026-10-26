@@ -1,0 +1,6 @@
+schema_version: 1
+id: primary_sources_v1
+primary: [arxiv, official_sources]
+supplemental: [openalex, semantic_scholar]
+unchecked_coverage: visible
+label: 'AI Safety Weekly — arXiv and official sources; source coverage disclosed'

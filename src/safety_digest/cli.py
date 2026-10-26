@@ -21,6 +21,7 @@ from . import (
     report,
     s2_collector,
     site_builder,
+    source_contract,
     state_store,
 )
 
@@ -193,6 +194,9 @@ def main() -> None:
         len(cfg.auto_admit_authors), len(cfg.review_authors),
     )
 
+    primary_contract = source_contract.runtime_configuration(args.config_dir)
+    source_counts = {}
+
     auto_admit_authors = [a["name"] for a in cfg.auto_admit_authors if a.get("name")]
     review_authors = [a["name"] for a in cfg.review_authors if a.get("name")]
 
@@ -241,6 +245,7 @@ def main() -> None:
                 papers = papers + forced
                 forced_keys = {p.dedupe_key for p in forced}
     log.info("Collected %d papers from arXiv", len(papers))
+    source_counts["arxiv"] = len(papers)
 
     if cfg.lab_sources and not args.arxiv_ids:
         lab_papers = lab_collector.collect(
@@ -248,6 +253,7 @@ def main() -> None:
             safety_keywords=cfg.strict_keywords,
         )
         log.info("Collected %d items from lab feeds", len(lab_papers))
+        source_counts["lab_forum"] = len(lab_papers)
         papers = papers + lab_papers
 
     if not args.arxiv_ids:
@@ -268,7 +274,7 @@ def main() -> None:
         log.info("Collected %d items from Bluesky", len(bsky_papers))
         papers = papers + bsky_papers
 
-    if not args.skip_s2 and not args.arxiv_ids:
+    if not primary_contract and not args.skip_s2 and not args.arxiv_ids:
         cache = s2_collector.load_author_id_cache(args.s2_author_cache)
         if not cache:
             log.warning(
@@ -452,6 +458,11 @@ def main() -> None:
         max_items=args.max_items or None,
         continuity=continuity or None,
     )
+    if primary_contract:
+        coverage_path = source_contract.runtime_coverage(args.config_dir,args.out_dir,run_at,args.days,source_counts)
+        with out_path.open('a') as stream:
+            stream.write(f"\n\n## Source coverage\n\n{source_contract.CONFIG['label']}. Semantic Scholar and OpenAlex were not queried. "
+                         f"Per-person coverage remains unchecked. [Coverage report]({coverage_path.name}).\n")
     index_path = site_builder.build_index(args.out_dir)
     if not args.dry_run:
         # Measured run cost from each call's usageMetadata (see the standing

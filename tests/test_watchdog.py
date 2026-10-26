@@ -6,6 +6,7 @@ import subprocess
 
 import pytest
 import yaml
+from test_publication_receipt import r
 
 
 def run(event="schedule", conclusion="cancelled", status="completed", day="2026-10-25"):
@@ -16,11 +17,11 @@ def run(event="schedule", conclusion="cancelled", status="completed", day="2026-
 
 def execute(tmp_path, runs, published=0):
     workflow = yaml.safe_load(Path(".github/workflows/watchdog.yml").read_text())
-    script = workflow["jobs"]["check"]["steps"][0]["run"]
+    script = next(step["run"] for step in workflow["jobs"]["check"]["steps"] if "run" in step)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name, source in {
-        "date": '#!/bin/sh\necho 2026-10-25\n',
+        "python": '#!/bin/sh\necho "$TEST_DECISION"\n',
         "gh": '''#!/bin/sh
 case "$1 $2" in
   "run list") printf '%s\\n' "$TEST_RUNS" ;;
@@ -36,10 +37,11 @@ esac
     dispatch = tmp_path / "dispatch"
     env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
                TEST_RUNS=json.dumps(runs), TEST_PUBLISHED=str(published),
+               TEST_DECISION=r.decision(runs,"2026-10-25",bool(published)), RUNNER_TEMP=str(tmp_path),
                TEST_DISPATCH=str(dispatch), REPO="test/repo",
                GITHUB_STEP_SUMMARY=str(tmp_path / "summary"))
     result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == (1 if env["TEST_DECISION"]=="exhausted" else 0), result.stderr
     return dispatch.exists(), result.stdout
 
 
@@ -50,7 +52,6 @@ def test_failed_schedule_gets_one_recovery(tmp_path, conclusion):
 
 
 @pytest.mark.parametrize("runs,published", [
-    ([run(conclusion="success")], 0),
     ([run(status="in_progress", conclusion=None)], 0),
     ([run(status="queued", conclusion=None)], 0),
     ([], 1),
@@ -66,4 +67,8 @@ def test_dropped_schedule_recovers(tmp_path):
 
 def test_exhausted_recovery_is_not_reported_as_success(tmp_path):
     _, output = execute(tmp_path, [run(), run(event="workflow_dispatch")])
-    assert "recovery attempt already used" in output
+    assert "recovery budget exhausted" in output
+
+
+def test_success_without_live_receipt_still_recovers(tmp_path):
+    assert execute(tmp_path,[run(conclusion="success")])[0]

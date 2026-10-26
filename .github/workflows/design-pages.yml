@@ -34,6 +34,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      edition: ${{ steps.receipt.outputs.edition }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,7 +46,24 @@ jobs:
       - name: Install rendering dependencies only
         run: pip install mkdocs-material
       - name: Build existing editions
-        run: mkdocs build --strict
+        env:
+          PYTHONPATH: src
+        run: python scripts/interim_site.py --site-dir site
+      - name: Bind rebuilt content to this design commit
+        id: receipt
+        run: |
+          set -euo pipefail
+          COVERAGE="$(find site -maxdepth 1 -name 'source-coverage-*.json' | sort | tail -n 1)"
+          test -n "$COVERAGE"
+          EDITION="${COVERAGE##*/source-coverage-}"
+          EDITION="${EDITION%.json}"
+          python scripts/publication_receipt.py prepare --site site --commit "$GITHUB_SHA" --edition "$EDITION" --run-id "$GITHUB_RUN_ID"
+          echo "edition=$EDITION" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: expected-publication-receipt
+          path: site/publication-receipt.json
+          if-no-files-found: error
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
@@ -71,3 +90,20 @@ jobs:
           test "$actual" = "$EXPECTED_COMMIT"
       - uses: actions/deploy-pages@v4
         id: deployment
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: expected-publication-receipt
+          path: ${{ runner.temp }}/expected-publication
+      - name: Verify exact rebuilt publication
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_EDITION: ${{ needs.build.outputs.edition }}
+        run: |
+          python scripts/publication_receipt.py verify --base https://ai-safety-weekly.github.io/ai-safety-digest/ --edition "$EXPECTED_EDITION" --commit "$EXPECTED_COMMIT" --expected "$RUNNER_TEMP/expected-publication/publication-receipt.json"

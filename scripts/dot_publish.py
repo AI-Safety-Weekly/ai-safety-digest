@@ -164,6 +164,17 @@ def publish(root, bundle, results, run_id, out, *, enabled=False, build=site_bui
     return {'status':'committed_pending_deploy','commit':commit,'deploy':True,'published':False}
 
 
+def bind_publication_receipt(out, bundle, result, run_id):
+    """Add live-verifiable bytes after guarded publication, including a replay."""
+    import publication_receipt
+    from safety_digest import source_contract
+    result['receipt'] = source_contract.configured(bundle['files'])
+    if result['receipt']:
+        edition = publication_receipt.week(dot.utc(bundle['run_at']))
+        publication_receipt.prepare(Path(out)/'site', result['commit'], edition, run_id)
+        result['edition'] = edition
+
+
 def outputs(values):
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'],'a') as f:
@@ -221,6 +232,7 @@ def main():
             enabled=(os.environ.get('DOT_PUBLISH_ENABLED')=='true' and os.environ.get('GITHUB_REF')=='refs/heads/main'
                      and os.environ.get('GITHUB_REPOSITORY')=='AI-Safety-Weekly/ai-safety-digest' and r['mode']=='publish')
             result=publish(a.root,b,results,r['run_id'],a.out,enabled=enabled,lease_guard=guard)
+            bind_publication_receipt(a.out, b, result, r['run_id'])
             dot.write_json(a.out/'publication-result.json',result)
             outputs(result)
     except (dot.Invalid,OSError,KeyError,TypeError,subprocess.CalledProcessError) as error:

@@ -123,7 +123,7 @@ def test_header_shows_week_date_range(tmp_path: Path) -> None:
     text = report.write_markdown(
         [_make("x", "high")], tmp_path / "d.md", _AT
     ).read_text(encoding="utf-8")
-    assert "# AI Safety Digest — May 25 – 31, 2026" in text
+    assert "# AI Safety Digest — ISO week 2026-W22 (May 25 – 31, 2026)" in text
 
 
 def test_counts_reflect_visible_papers_only(tmp_path: Path) -> None:
@@ -285,3 +285,18 @@ def test_field_summary_and_fold_for_off_lane(tmp_path: Path) -> None:
     assert "Interp keeps advancing." in text
     assert "**interpretability** (1)" in text          # fold grouped by primary area
     assert "TailPaper" in text
+
+
+
+def test_iso_week_is_distinct_from_actual_collection_interval(tmp_path):
+    anchor=datetime(2026,10,25,10,17,tzinfo=timezone.utc)
+    start=datetime(2026,10,18,10,17,tzinfo=timezone.utc)
+    text=report.write_markdown([],tmp_path/'digest.md',anchor,
+        collection_start=start,collection_end=anchor).read_text()
+    assert 'ISO week 2026-W43 (Oct 19 – 25, 2026)' in text
+    assert '**Collection window:** 2026-10-18 10:17:00 UTC → 2026-10-25 10:17:00 UTC.' in text
+
+
+def test_unknown_collection_window_is_not_invented(tmp_path):
+    text=report.write_markdown([],tmp_path/'digest.md',_AT).read_text()
+    assert 'ISO week' in text and '**Collection window:**' not in text

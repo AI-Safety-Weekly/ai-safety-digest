@@ -38,9 +38,20 @@ def request(root, path):
     return value
 
 
-def site_build(stage, site):
-    subprocess.run([sys.executable,'-m','mkdocs','build','--strict','--config-file',
-                    str(stage/'mkdocs.yml'),'--site-dir',str(site)],check=True)
+def site_build(stage, site, root=None):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('interim_site', Path(__file__).with_name('interim_site.py'))
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    config = stage / 'mkdocs.yml'
+    original = config.read_bytes()
+    try:
+        if root is not None:
+            helper.assemble(stage, root)
+        subprocess.run([sys.executable,'-m','mkdocs','build','--strict','--config-file',
+                        str(config),'--site-dir',str(site)],check=True)
+    finally:
+        config.write_bytes(original)
 
 
 def remote_head(root):
@@ -87,6 +98,8 @@ def replay_existing(root, sha, receipt, request_hash, out, build):
 
 def publish(root, bundle, results, run_id, out, *, enabled=False, build=site_build, before_push=None, lease_guard=None):
     root,out=Path(root).resolve(),Path(out).resolve()
+    if build is site_build:
+        build = lambda stage, site: site_build(stage, site, root)
     if not enabled:
         raise dot.Invalid('production publication gate is disabled')
     if out==root or root in out.parents or out.exists():
@@ -198,7 +211,7 @@ def main():
         dot.validate_for_publication(b,results)
         if a.phase=='validate':
             dot.stage_import(a.root,b,results,a.out/'stage')
-            site_build(a.out/'stage',a.out/'site')
+            site_build(a.out/'stage',a.out/'site',a.root)
             outputs({'strict_build_passed':True,'deploy':False})
         else:
             enabled=(os.environ.get('DOT_PUBLISH_ENABLED')=='true' and os.environ.get('GITHUB_REF')=='refs/heads/main'

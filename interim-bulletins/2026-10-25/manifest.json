@@ -1,0 +1,1344 @@
+{
+  "schema_version": 1,
+  "kind": "interim_bulletin",
+  "date": "2026-10-25",
+  "full_edition_complete": false,
+  "source": {
+    "repository": "AI-Safety-Weekly/ai-safety-digest",
+    "run_id": 40277625667,
+    "commit": "191b00a982b014897060c7b11366f5d20870ef4b",
+    "artifact_name": "dot-handoff-191b00a982b014897060c7b11366f5d20870ef4b",
+    "bundle_sha256": "f6eba86e467e491b653cb6245c28bd71b402fa88d25fd896808e2f6f824d34ce"
+  },
+  "coverage": {
+    "required_profile_count": 294,
+    "complete_profile_count": 12,
+    "pending_profile_count": 282,
+    "complete_profiles": [
+      {
+        "name": "Chris Olah",
+        "author_id": "2287268442"
+      },
+      {
+        "name": "Collin Burns",
+        "author_id": "90909974"
+      },
+      {
+        "name": "Dario Amodei",
+        "author_id": "2330246598"
+      },
+      {
+        "name": "Geoffrey Irving",
+        "author_id": "2060655766"
+      },
+      {
+        "name": "Jacob Hilton",
+        "author_id": "2286540856"
+      },
+      {
+        "name": "Jan Leike",
+        "author_id": "2990741"
+      },
+      {
+        "name": "Mary Phuong",
+        "author_id": "145115235"
+      },
+      {
+        "name": "Neel Nanda",
+        "author_id": "2051128902"
+      },
+      {
+        "name": "Rohin Shah",
+        "author_id": "40947489"
+      },
+      {
+        "name": "Tom Everitt",
+        "author_id": "1868196"
+      },
+      {
+        "name": "Victoria Krakovna",
+        "author_id": "2578985"
+      },
+      {
+        "name": "Zac Kenton",
+        "author_id": "40947466"
+      }
+    ],
+    "pending_profiles": [
+      {
+        "author_id": "52238703",
+        "name": "Sam McCandlish"
+      },
+      {
+        "author_id": "152724169",
+        "name": "Jared Kaplan"
+      },
+      {
+        "author_id": "3439053",
+        "name": "Ethan Perez"
+      },
+      {
+        "author_id": "145370786",
+        "name": "Paul Christiano"
+      },
+      {
+        "author_id": "29687567",
+        "name": "Stuart Russell"
+      },
+      {
+        "author_id": "3393209",
+        "name": "Daniel Filan"
+      },
+      {
+        "author_id": "16760120",
+        "name": "Lawrence Chan"
+      },
+      {
+        "author_id": "1380953573",
+        "name": "Micah Carroll"
+      },
+      {
+        "author_id": "5164568",
+        "name": "Jacob Steinhardt"
+      },
+      {
+        "author_id": "3422872",
+        "name": "Dan Hendrycks"
+      },
+      {
+        "author_id": "34594377",
+        "name": "Adam Gleave"
+      },
+      {
+        "author_id": "40641364",
+        "name": "Stephen Casper"
+      },
+      {
+        "author_id": "1704657",
+        "name": "David Duvenaud"
+      },
+      {
+        "author_id": "1799822",
+        "name": "Sam Bowman"
+      },
+      {
+        "author_id": "40049586",
+        "name": "Stuart Armstrong"
+      },
+      {
+        "author_id": "47107786",
+        "name": "Owain Evans"
+      },
+      {
+        "author_id": "2261097150",
+        "name": "Mrinank Sharma"
+      },
+      {
+        "author_id": "2085493674",
+        "name": "Hjalmar Wijk"
+      },
+      {
+        "author_id": "34936272",
+        "name": "David Krueger"
+      },
+      {
+        "author_id": "2267502247",
+        "name": "Lee Sharkey"
+      },
+      {
+        "author_id": "2267508917",
+        "name": "Marius Hobbhahn"
+      },
+      {
+        "author_id": "30023177",
+        "name": "Tomasz Korbak"
+      },
+      {
+        "author_id": "1749270",
+        "name": "Laurent Orseau"
+      },
+      {
+        "author_id": "34313265",
+        "name": "Shane Legg"
+      },
+      {
+        "author_id": "116542396",
+        "name": "Pedro Ortega"
+      },
+      {
+        "author_id": "1757629",
+        "name": "Murray Shanahan"
+      },
+      {
+        "author_id": "2218379197",
+        "name": "Ramana Kumar"
+      },
+      {
+        "author_id": "3081854",
+        "name": "Tim Genewein"
+      },
+      {
+        "author_id": "1399315491",
+        "name": "Jordi Grau-Moya"
+      },
+      {
+        "author_id": "1700356",
+        "name": "Joel Z Leibo"
+      },
+      {
+        "author_id": "48219711",
+        "name": "Michael Dennis"
+      },
+      {
+        "author_id": "144154444",
+        "name": "Marcus Hutter"
+      },
+      {
+        "author_id": "67011691",
+        "name": "Tom McGrath"
+      },
+      {
+        "author_id": "153440022",
+        "name": "Ian Goodfellow"
+      },
+      {
+        "author_id": "2278009",
+        "name": "Rif A. Saurous"
+      },
+      {
+        "author_id": "3436470",
+        "name": "Kimin Lee"
+      },
+      {
+        "author_id": "3316311",
+        "name": "Max Vladymyrov"
+      },
+      {
+        "author_id": "1396841807",
+        "name": "Alexander D'Amour"
+      },
+      {
+        "author_id": "122902793",
+        "name": "Karan Singhal"
+      },
+      {
+        "author_id": "1407546424",
+        "name": "Jascha Sohl-Dickstein"
+      },
+      {
+        "author_id": "2210865",
+        "name": "Ivan Vendrov"
+      },
+      {
+        "author_id": "80857023",
+        "name": "Louis Martin"
+      },
+      {
+        "author_id": "2267341626",
+        "name": "Jason Weston"
+      },
+      {
+        "author_id": "32452344",
+        "name": "William Saunders"
+      },
+      {
+        "author_id": "2318703608",
+        "name": "Josh Achiam"
+      },
+      {
+        "author_id": "2160390",
+        "name": "John Schulman"
+      },
+      {
+        "author_id": "49407415",
+        "name": "Ryan Lowe"
+      },
+      {
+        "author_id": "48892101",
+        "name": "Tom Brown"
+      },
+      {
+        "author_id": "30176974",
+        "name": "Stanislav Fort"
+      },
+      {
+        "author_id": "103143311",
+        "name": "Tom Henighan"
+      },
+      {
+        "author_id": "39182747",
+        "name": "Danny Hernandez"
+      },
+      {
+        "author_id": "1387983862",
+        "name": "Nisan Stiennon"
+      },
+      {
+        "author_id": "1689992",
+        "name": "Pieter Abbeel"
+      },
+      {
+        "author_id": "2745001",
+        "name": "Anca Dragan"
+      },
+      {
+        "author_id": "2371105943",
+        "name": "Dawn Song"
+      },
+      {
+        "author_id": "22192824",
+        "name": "Sam Toyer"
+      },
+      {
+        "author_id": "10369568",
+        "name": "Rachel Freedman"
+      },
+      {
+        "author_id": "37372079",
+        "name": "Siddharth Reddy"
+      },
+      {
+        "author_id": "2391831",
+        "name": "Scott Emmons"
+      },
+      {
+        "author_id": "114339785",
+        "name": "Cassidy Laidlaw"
+      },
+      {
+        "author_id": "1413775966",
+        "name": "Anand Siththaranjan"
+      },
+      {
+        "author_id": "69997220",
+        "name": "Arnaud Fickinger"
+      },
+      {
+        "author_id": "2287826196",
+        "name": "Erik Jenner"
+      },
+      {
+        "author_id": "1519584460",
+        "name": "Johannes Treutlein"
+      },
+      {
+        "author_id": "2651789",
+        "name": "Andrew Critch"
+      },
+      {
+        "author_id": "1736651",
+        "name": "Sergey Levine"
+      },
+      {
+        "author_id": "2064424741",
+        "name": "Frances Ding"
+      },
+      {
+        "author_id": "51320292",
+        "name": "Kaylene Stocking"
+      },
+      {
+        "author_id": "2283509966",
+        "name": "Yaodong Yu"
+      },
+      {
+        "author_id": "4321368",
+        "name": "Alex Pan"
+      },
+      {
+        "author_id": "16787428",
+        "name": "Mantas Mazeika"
+      },
+      {
+        "author_id": "2312326461",
+        "name": "Adria Garriga Alonso"
+      },
+      {
+        "author_id": "47627548",
+        "name": "Daniel S Brown"
+      },
+      {
+        "author_id": "2068865135",
+        "name": "Nate Thomas"
+      },
+      {
+        "author_id": "47632615",
+        "name": "Paul Knott"
+      },
+      {
+        "author_id": "2214496",
+        "name": "Andreas Stuhlmüller"
+      },
+      {
+        "author_id": "144002017",
+        "name": "Noah Goodman"
+      },
+      {
+        "author_id": "145419642",
+        "name": "Percy Liang"
+      },
+      {
+        "author_id": "2563117",
+        "name": "Emma Brunskill"
+      },
+      {
+        "author_id": "1779671",
+        "name": "Dorsa Sadigh"
+      },
+      {
+        "author_id": "2257346440",
+        "name": "Chelsea Finn"
+      },
+      {
+        "author_id": "1410571525",
+        "name": "Vael Gates"
+      },
+      {
+        "author_id": "24769718",
+        "name": "Chris Cundy"
+      },
+      {
+        "author_id": "88726969",
+        "name": "Alex Tamkin"
+      },
+      {
+        "author_id": "19308176",
+        "name": "Maxinder Kanwal"
+      },
+      {
+        "author_id": "144383716",
+        "name": "Kush Bhatia"
+      },
+      {
+        "author_id": "145616412",
+        "name": "Daniel Kunin"
+      },
+      {
+        "author_id": "2298969446",
+        "name": "Scott Viteri"
+      },
+      {
+        "author_id": "2184139310",
+        "name": "Jonathan Cefalu"
+      },
+      {
+        "author_id": "1397904824",
+        "name": "Dylan Hadfield-Menell"
+      },
+      {
+        "author_id": "2094770",
+        "name": "Phillip Isola"
+      },
+      {
+        "author_id": "1763295",
+        "name": "Joshua Tenenbaum"
+      },
+      {
+        "author_id": "1390033240",
+        "name": "Max Kleiman-Weiner"
+      },
+      {
+        "author_id": "47775569",
+        "name": "Sydney Levine"
+      },
+      {
+        "author_id": "1735083",
+        "name": "Vikash Mansinghka"
+      },
+      {
+        "author_id": "143826246",
+        "name": "Aleksander Madry"
+      },
+      {
+        "author_id": "120636597",
+        "name": "Tan Zhi-Xuan"
+      },
+      {
+        "author_id": "49944508",
+        "name": "Max Tegmark"
+      },
+      {
+        "author_id": "2064378912",
+        "name": "Eric Michaud"
+      },
+      {
+        "author_id": "34840427",
+        "name": "Elad Hazan"
+      },
+      {
+        "author_id": "1843342",
+        "name": "Jaime Fisac"
+      },
+      {
+        "author_id": "1910920876",
+        "name": "Jovana Kondic"
+      },
+      {
+        "author_id": "8307674",
+        "name": "Erdem Biyik"
+      },
+      {
+        "author_id": "133797256",
+        "name": "Claudia Shi"
+      },
+      {
+        "author_id": "34241850",
+        "name": "Chad DeChant"
+      },
+      {
+        "author_id": "2552141",
+        "name": "Jeff Clune"
+      },
+      {
+        "author_id": "2503659",
+        "name": "Jimmy Ba"
+      },
+      {
+        "author_id": "1785346",
+        "name": "Roger Grosse"
+      },
+      {
+        "author_id": "2772217",
+        "name": "Chris Maddison"
+      },
+      {
+        "author_id": "1683896",
+        "name": "Sheila McIlraith"
+      },
+      {
+        "author_id": "40959392",
+        "name": "Maayan Shvo"
+      },
+      {
+        "author_id": "1758085",
+        "name": "Toryn Klassen"
+      },
+      {
+        "author_id": "40488746",
+        "name": "Eric Langlois"
+      },
+      {
+        "author_id": "32305445",
+        "name": "Silviu Pitis"
+      },
+      {
+        "author_id": "1804104",
+        "name": "Richard Zemel"
+      },
+      {
+        "author_id": "2261058",
+        "name": "Ron Bodkin"
+      },
+      {
+        "author_id": "2162768",
+        "name": "Florian Shkurti"
+      },
+      {
+        "author_id": "3422058",
+        "name": "Tegan Maharaj"
+      },
+      {
+        "author_id": "1492181289",
+        "name": "Alexander Lyzhov"
+      },
+      {
+        "author_id": "6956819",
+        "name": "David Rein"
+      },
+      {
+        "author_id": "144196816",
+        "name": "Miles Turpin"
+      },
+      {
+        "author_id": "1751762",
+        "name": "Yoshua Bengio"
+      },
+      {
+        "author_id": "145978795",
+        "name": "Alan Chan"
+      },
+      {
+        "author_id": "2277893434",
+        "name": "Niki Howe"
+      },
+      {
+        "author_id": "2385968241",
+        "name": "Sharon Li"
+      },
+      {
+        "author_id": "39402882",
+        "name": "Neil Crawford"
+      },
+      {
+        "author_id": "145410252",
+        "name": "Nick Cohen"
+      },
+      {
+        "author_id": "2127881074",
+        "name": "Josiah Lopez-Wild"
+      },
+      {
+        "author_id": "3433248",
+        "name": "Gemma Moran"
+      },
+      {
+        "author_id": "3744475",
+        "name": "Luciano Cavalcante Siebert"
+      },
+      {
+        "author_id": "1746466",
+        "name": "Amos Azaria"
+      },
+      {
+        "author_id": "144368601",
+        "name": "Doina Precup"
+      },
+      {
+        "author_id": "145134886",
+        "name": "Joelle Pineau"
+      },
+      {
+        "author_id": "2108384223",
+        "name": "Satinder Singh"
+      },
+      {
+        "author_id": "1796536",
+        "name": "Michael Wellman"
+      },
+      {
+        "author_id": "66238030",
+        "name": "Anthony DiGiovanni"
+      },
+      {
+        "author_id": "40384830",
+        "name": "Spencer Frazier"
+      },
+      {
+        "author_id": "2757194",
+        "name": "Mark Riedl"
+      },
+      {
+        "author_id": "144885169",
+        "name": "Michael Littman"
+      },
+      {
+        "author_id": "2974320",
+        "name": "Victor Veitch"
+      },
+      {
+        "author_id": "145689002",
+        "name": "David McAllester"
+      },
+      {
+        "author_id": "1753269",
+        "name": "Brian Ziebart"
+      },
+      {
+        "author_id": "1749906",
+        "name": "Vincent Conitzer"
+      },
+      {
+        "author_id": "36548992",
+        "name": "Andy Zou"
+      },
+      {
+        "author_id": "2145376783",
+        "name": "Leqi Liu"
+      },
+      {
+        "author_id": "2827196",
+        "name": "Caspar Oesterheld"
+      },
+      {
+        "author_id": "47273329",
+        "name": "Vojtěch Kovařík"
+      },
+      {
+        "author_id": "146400709",
+        "name": "Chris van Merwijk"
+      },
+      {
+        "author_id": "1691828",
+        "name": "Joseph Halpern"
+      },
+      {
+        "author_id": "1744679",
+        "name": "Bart Selman"
+      },
+      {
+        "author_id": "47832539",
+        "name": "Aaron Tucker"
+      },
+      {
+        "author_id": "39732299",
+        "name": "Meir Friedenberg"
+      },
+      {
+        "author_id": "39781414",
+        "name": "Lionel Levine"
+      },
+      {
+        "author_id": "1818756",
+        "name": "Jelena Luketina"
+      },
+      {
+        "author_id": "8383113",
+        "name": "Ryan Carey"
+      },
+      {
+        "author_id": "2301201483",
+        "name": "Phillip Torr"
+      },
+      {
+        "author_id": "144484861",
+        "name": "Michael Osborne"
+      },
+      {
+        "author_id": "143841496",
+        "name": "Stephen Roberts"
+      },
+      {
+        "author_id": "1701316",
+        "name": "Marta Kwiatkowska"
+      },
+      {
+        "author_id": "144938187",
+        "name": "Alessandro Abate"
+      },
+      {
+        "author_id": "1687524",
+        "name": "Andrea Vedaldi"
+      },
+      {
+        "author_id": "1766767",
+        "name": "Shimon Whiteson"
+      },
+      {
+        "author_id": "2681954",
+        "name": "Yarin Gal"
+      },
+      {
+        "author_id": "1412004702",
+        "name": "Jakob Foerster"
+      },
+      {
+        "author_id": "2372244",
+        "name": "Chris Summerfield"
+      },
+      {
+        "author_id": "80433032",
+        "name": "Michael Cohen"
+      },
+      {
+        "author_id": "40482332",
+        "name": "Jan Brauner"
+      },
+      {
+        "author_id": "33859827",
+        "name": "Seb Farquhar"
+      },
+      {
+        "author_id": "2274932640",
+        "name": "Seb Farquhar"
+      },
+      {
+        "author_id": "32777162",
+        "name": "Sören Mindermann"
+      },
+      {
+        "author_id": "39439114",
+        "name": "Clare Lyle"
+      },
+      {
+        "author_id": "38098315",
+        "name": "Thomas Orton"
+      },
+      {
+        "author_id": "84379741",
+        "name": "Lewis Hammond"
+      },
+      {
+        "author_id": "147156275",
+        "name": "Joar Skalse"
+      },
+      {
+        "author_id": "115975458",
+        "name": "Isaac Dunn"
+      },
+      {
+        "author_id": "3363139",
+        "name": "Ondrej Bajgar"
+      },
+      {
+        "author_id": "145694459",
+        "name": "James Fox"
+      },
+      {
+        "author_id": "2143198655",
+        "name": "Fazl Barez"
+      },
+      {
+        "author_id": "1514899069",
+        "name": "Freddie Bickford Smith"
+      },
+      {
+        "author_id": "39879848",
+        "name": "Lorenz Kuhn"
+      },
+      {
+        "author_id": "1490643311",
+        "name": "Julian D'Costa"
+      },
+      {
+        "author_id": "2373026215",
+        "name": "Carlo Attubato"
+      },
+      {
+        "author_id": "3391593",
+        "name": "Bogdan-Ionut Cirstea"
+      },
+      {
+        "author_id": "31847520",
+        "name": "Eleonora Giunchiglia"
+      },
+      {
+        "author_id": "7641268",
+        "name": "Samuel Albanie"
+      },
+      {
+        "author_id": "2106415649",
+        "name": "Lauro Langosco"
+      },
+      {
+        "author_id": "52510051",
+        "name": "Dmitrii Krasheninnikov"
+      },
+      {
+        "author_id": "145689461",
+        "name": "Adrian Weller"
+      },
+      {
+        "author_id": "152594187",
+        "name": "Neel Alex"
+      },
+      {
+        "author_id": "123723354",
+        "name": "Daniel Jarrett"
+      },
+      {
+        "author_id": "83246796",
+        "name": "Alihan Hüyük"
+      },
+      {
+        "author_id": "4540537",
+        "name": "Charlotte Roman"
+      },
+      {
+        "author_id": "144066371",
+        "name": "Tom Lenaerts"
+      },
+      {
+        "author_id": "34751767",
+        "name": "The Anh Han"
+      },
+      {
+        "author_id": "1747400",
+        "name": "Luís Moniz Pereira"
+      },
+      {
+        "author_id": "145955156",
+        "name": "Francisco C Santos"
+      },
+      {
+        "author_id": "1398777358",
+        "name": "José Hernández Orallo"
+      },
+      {
+        "author_id": "1689184",
+        "name": "Ariel Procaccia"
+      },
+      {
+        "author_id": "2340014",
+        "name": "Dominik Peters"
+      },
+      {
+        "author_id": "9623412",
+        "name": "El Mahdi El Mhamdi"
+      },
+      {
+        "author_id": "3438462",
+        "name": "Le Nguyên Hoang"
+      },
+      {
+        "author_id": "1727558",
+        "name": "Rachid Guerraoui"
+      },
+      {
+        "author_id": "51957922",
+        "name": "Steve Kommrusch"
+      },
+      {
+        "author_id": "1403034406",
+        "name": "Shiri Dori-Hacohen"
+      },
+      {
+        "author_id": "2217024086",
+        "name": "Aidan Kierans"
+      },
+      {
+        "author_id": "1389955537",
+        "name": "Shai Shalev-Shwartz"
+      },
+      {
+        "author_id": "138216265",
+        "name": "Max Chiswick"
+      },
+      {
+        "author_id": "143980218",
+        "name": "Alexandre Maurer"
+      },
+      {
+        "author_id": "1714059",
+        "name": "Bas Steunebrink"
+      },
+      {
+        "author_id": "1868067",
+        "name": "Benjamin Rubinstein"
+      },
+      {
+        "author_id": "1835262",
+        "name": "Daniel Murfet"
+      },
+      {
+        "author_id": "1788623",
+        "name": "Ben Smith"
+      },
+      {
+        "author_id": "14613659",
+        "name": "Alexander Turner"
+      },
+      {
+        "author_id": "13002147",
+        "name": "Neale Ratzlaff"
+      },
+      {
+        "author_id": "2047255463",
+        "name": "Quintin Pope"
+      },
+      {
+        "author_id": "1976753",
+        "name": "Roman V. Yampolskiy"
+      },
+      {
+        "author_id": "103767116",
+        "name": "Carl Henrik Rolf Åslund"
+      },
+      {
+        "author_id": "1744910",
+        "name": "Herbert Wiklicky"
+      },
+      {
+        "author_id": "1907671255",
+        "name": "Francis Rhys Ward"
+      },
+      {
+        "author_id": "1485377354",
+        "name": "Nandi Schoots"
+      },
+      {
+        "author_id": "34413625",
+        "name": "Tobias Baumann"
+      },
+      {
+        "author_id": "2024989125",
+        "name": "Isak Falk"
+      },
+      {
+        "author_id": "113569365",
+        "name": "Robert Kirk"
+      },
+      {
+        "author_id": "49213201",
+        "name": "Akbir Khan"
+      },
+      {
+        "author_id": "66455566",
+        "name": "Reuben Adams"
+      },
+      {
+        "author_id": "2111472502",
+        "name": "Zhijing Jin"
+      },
+      {
+        "author_id": "2068958696",
+        "name": "Julian Stastny"
+      },
+      {
+        "author_id": "2122327821",
+        "name": "Benedikt Höltgen"
+      },
+      {
+        "author_id": "2064453117",
+        "name": "Florian E. Dorner"
+      },
+      {
+        "author_id": "2444919",
+        "name": "Florian Tramer"
+      },
+      {
+        "author_id": "107942599",
+        "name": "Andreas Krause"
+      },
+      {
+        "author_id": "2403655825",
+        "name": "Xin Chen"
+      },
+      {
+        "author_id": "2064454931",
+        "name": "David Lindner"
+      },
+      {
+        "author_id": "65973752",
+        "name": "Montaser Mohammedalamen"
+      },
+      {
+        "author_id": "2791038",
+        "name": "Scott Niekum"
+      },
+      {
+        "author_id": "50555742",
+        "name": "David Dalrymple"
+      },
+      {
+        "author_id": "144625004",
+        "name": "Peter Hase"
+      },
+      {
+        "author_id": "2426559",
+        "name": "Dylan Losey"
+      },
+      {
+        "author_id": "80503353",
+        "name": "Phil Thomas"
+      },
+      {
+        "author_id": "143733385",
+        "name": "Jordan Schneider"
+      },
+      {
+        "author_id": "47662867",
+        "name": "Herke van Hoof"
+      },
+      {
+        "author_id": "1731564",
+        "name": "Jan A. Bergstra"
+      },
+      {
+        "author_id": "2270351678",
+        "name": "Aaron M. Roth"
+      },
+      {
+        "author_id": "2277119597",
+        "name": "Jesse Clifton"
+      },
+      {
+        "author_id": "3338508",
+        "name": "John Wentworth"
+      },
+      {
+        "author_id": "49600640",
+        "name": "Pavel Osinenko"
+      },
+      {
+        "author_id": "2450752",
+        "name": "Oliver De Candido"
+      },
+      {
+        "author_id": "2053036883",
+        "name": "Richard Mallah"
+      },
+      {
+        "author_id": "144775419",
+        "name": "Koen Holtman"
+      },
+      {
+        "author_id": "2064858464",
+        "name": "Eleanor Nell Watson"
+      },
+      {
+        "author_id": "3004898",
+        "name": "Matthias Samwald"
+      },
+      {
+        "author_id": "1833516091",
+        "name": "Gavin Leech"
+      },
+      {
+        "author_id": "3327913",
+        "name": "Richard Dazeley"
+      },
+      {
+        "author_id": "2215192039",
+        "name": "Haddie Harland"
+      },
+      {
+        "author_id": "1990124",
+        "name": "Peter Vamplew"
+      },
+      {
+        "author_id": "2249532084",
+        "name": "Jessica Rumbelow"
+      },
+      {
+        "author_id": "2298415345",
+        "name": "Sammy Martin"
+      },
+      {
+        "author_id": "144718940",
+        "name": "Richard Willis"
+      },
+      {
+        "author_id": "103671810",
+        "name": "Alexander Oldenziel Gietelink"
+      },
+      {
+        "author_id": "2114852779",
+        "name": "Thiago Viana"
+      },
+      {
+        "author_id": "1878109",
+        "name": "Steve Petersen"
+      },
+      {
+        "author_id": "102827376",
+        "name": "Olle Häggstrom"
+      },
+      {
+        "author_id": "1799949",
+        "name": "Frans A. Oliehoek"
+      },
+      {
+        "author_id": "49307492",
+        "name": "Yaodong Yang"
+      },
+      {
+        "author_id": "2298928922",
+        "name": "Xiting Wang"
+      },
+      {
+        "author_id": "1519290245",
+        "name": "Jindong Wang"
+      },
+      {
+        "author_id": "2973831",
+        "name": "Huishuai Zhang"
+      },
+      {
+        "author_id": "1730108",
+        "name": "Minlie Huang"
+      },
+      {
+        "author_id": "2010396714",
+        "name": "Hang Su"
+      },
+      {
+        "author_id": "2108307841",
+        "name": "Yingjie Zhang"
+      },
+      {
+        "author_id": "2273481225",
+        "name": "Shanghang Zhang"
+      },
+      {
+        "author_id": "2149174723",
+        "name": "Xin Zhang"
+      },
+      {
+        "author_id": "2004734354",
+        "name": "Meng Sun"
+      },
+      {
+        "author_id": "46566334",
+        "name": "Di He"
+      },
+      {
+        "author_id": "22266416",
+        "name": "Yi Wu"
+      },
+      {
+        "author_id": "2108297815",
+        "name": "Jianyu Chen"
+      },
+      {
+        "author_id": "9950441",
+        "name": "Han Qiu"
+      },
+      {
+        "author_id": "2065024",
+        "name": "Jun Zhu"
+      },
+      {
+        "author_id": "1877890",
+        "name": "Peng Cui"
+      },
+      {
+        "author_id": "3285568",
+        "name": "Yanan Sui"
+      },
+      {
+        "author_id": "49681411",
+        "name": "Liwei Wang"
+      },
+      {
+        "author_id": "145016605",
+        "name": "Jie Fu"
+      }
+    ],
+    "other_parts": [
+      {
+        "name": "arxiv",
+        "complete": true
+      },
+      {
+        "name": "hn",
+        "complete": true
+      },
+      {
+        "name": "lab:alignment-forum",
+        "complete": true
+      },
+      {
+        "name": "lab:anthropic",
+        "complete": true
+      },
+      {
+        "name": "lab:apollo",
+        "complete": true
+      },
+      {
+        "name": "lab:cais",
+        "complete": true
+      },
+      {
+        "name": "lab:cset",
+        "complete": true
+      },
+      {
+        "name": "lab:deepmind",
+        "complete": true
+      },
+      {
+        "name": "lab:govai",
+        "complete": true
+      },
+      {
+        "name": "lab:lesswrong",
+        "complete": true
+      },
+      {
+        "name": "lab:metr",
+        "complete": true
+      },
+      {
+        "name": "lab:openai",
+        "complete": true
+      },
+      {
+        "name": "lab:rand",
+        "complete": true
+      },
+      {
+        "name": "lab:substack-aisn",
+        "complete": true
+      },
+      {
+        "name": "lab:substack-import-ai",
+        "complete": true
+      },
+      {
+        "name": "lab:substack-zvi",
+        "complete": true
+      },
+      {
+        "name": "lab:uk-aisi",
+        "complete": true
+      }
+    ]
+  },
+  "checked_at": "2026-10-26T06:03:54.861563+00:00",
+  "prepared_at": "2026-10-26T06:27:53.605866+00:00",
+  "window": {
+    "start": "2026-10-18T10:17:00+00:00",
+    "end": "2026-10-25T10:17:00+00:00",
+    "days": 7
+  },
+  "markdown_sha256": "eafe04751f51bfd8aade84d2dce81aaebbca06e17947f04ecf83c0e6e4a5743a",
+  "items": [
+    {
+      "id": "arxiv:2610.30182",
+      "url": "https://arxiv.org/abs/2610.30182",
+      "reviewed": true,
+      "hosted_candidate_sha256": "556c87ecac21d53de767a2c3524c3ef9e58575edba60c50c2754d2e3837c04e3",
+      "hosted_input_sha256": "c6905db9a64010fcb52831a2a9b6dbd9f1d30806bda71ff1efb54b4e4cd92d47",
+      "primary_body_sha256": "5710fb8c6d3b32772bba2f33e07d34bd9be5a1707ef842378f1efb29352bf324",
+      "primary_body_fetched_at": "2026-10-25T23:10:37.661261+00:00",
+      "primary_body_origin": "preserved local primary-source read; candidate paper exactly matches hosted checkpoint",
+      "review_evidence_sha256": "d5fd860f9bd71fb1ca7edc98b73bb3c02c41d884aa69cf7de22a3fd520baf8b9"
+    },
+    {
+      "id": "arxiv:2610.27543",
+      "url": "https://arxiv.org/abs/2610.27543",
+      "reviewed": true,
+      "hosted_candidate_sha256": "ce88d8966593c2e1b0f672bee17953871abe0e91d36b4548217c16a02d0455e1",
+      "hosted_input_sha256": "2368cf65cf8200d909112d98458fce054a158afe95a5b78abf7a14b479a26fab",
+      "primary_body_sha256": "87e52b423d58d4a179f6b2a0bc3f09cb7bd3d8587afdbe296e507f85df6818ad",
+      "primary_body_fetched_at": "2026-10-25T23:30:46.258195+00:00",
+      "primary_body_origin": "preserved local primary-source read; candidate paper exactly matches hosted checkpoint",
+      "review_evidence_sha256": "9680dd3080b78cfbb9af9d24f6c1e21515c469ddcf51f8baf52af59aab3abd5c"
+    },
+    {
+      "id": "url:openai.com/index/openai-nask-ai-safety-security-partnership",
+      "url": "https://openai.com/index/openai-nask-ai-safety-security-partnership",
+      "reviewed": true,
+      "hosted_candidate_sha256": "059e76c06cd6f5a352286c74a6fd661e0591513f733953c2ebb4efbababe7982",
+      "hosted_input_sha256": "2ff69543197fd8192558ba174394dfaf23d1c107116ef9b38324fa70e48ea6a5",
+      "primary_body_sha256": "d06de7f0729a2e5f0e1545ef2d5af85978112dd841c1213449864ea1c17ddde0",
+      "primary_body_fetched_at": "2026-10-25T23:38:54.451577+00:00",
+      "primary_body_origin": "preserved local primary-source read; candidate paper exactly matches hosted checkpoint",
+      "review_evidence_sha256": "211bd40898182cbe7b3c607a0ca2d3fd5067ac51288e361ddd8f0d809d363817"
+    },
+    {
+      "id": "url:metr.org/blog/2026-10-22-red-teaming-openai-agent-monitoring",
+      "url": "https://metr.org/blog/2026-10-22-red-teaming-openai-agent-monitoring/",
+      "reviewed": true,
+      "hosted_candidate_sha256": "b1259698ccff77361d84b7ffaf2fdaf7627367ba5739892634ffd620927f3cf8",
+      "hosted_input_sha256": "fe6243b77f0e7bea9b3180d870acbf2751b7611836e5bb24eb7a4f24301aed7d",
+      "primary_body_sha256": "e0f3e3ddb8d36d64183e991481a21eb2b0c73b5cbc66239892c1862ae74f39af",
+      "primary_body_fetched_at": "2026-10-25T23:00:24.805351+00:00",
+      "primary_body_origin": "preserved local primary-source read; candidate paper exactly matches hosted checkpoint",
+      "review_evidence_sha256": "a6551d2db8a23ac7884fe98662fba3b517be7b2e42172b1ec1f8bc4185b11029"
+    },
+    {
+      "id": "url:metr.org/blog/2026-10-20-misalignment-risk-report-august-2026-review",
+      "url": "https://metr.org/blog/2026-10-20-misalignment-risk-report-august-2026-review/",
+      "reviewed": true,
+      "hosted_candidate_sha256": "3651c248986bfc1646a2359e426da156e8cf8561eec6d60181f165ad9d0355ab",
+      "hosted_input_sha256": "06ed5e68f7b74063b6aa56e4c9c403cac52a25956a1ab6a8da695be2f9ec07fe",
+      "primary_body_sha256": "bfe0bc64fef8b095537eac76515579be021182635c6d8e989fe38010c51c57c7",
+      "primary_body_fetched_at": "2026-10-25T23:38:54.612034+00:00",
+      "primary_body_origin": "preserved local primary-source read; candidate paper exactly matches hosted checkpoint",
+      "review_evidence_sha256": "77c505b5d663d0ccda8a03166eab58dd52fedf672f60fe8a942138db782742ae"
+    },
+    {
+      "id": "url:www.aisi.gov.uk/blog/investigating-alignment-failures-in-aisis-incident",
+      "url": "https://www.aisi.gov.uk/blog/investigating-alignment-failures-in-aisis-incident",
+      "reviewed": true,
+      "hosted_candidate_sha256": "0939010461fe6119c99f3e79c3e0c81deb14c3698322f52764722a48b1a5cfec",
+      "hosted_input_sha256": "ac371b15a01e14cfdfe9c4586195a418b5e68a9439d8214296f9f33eeef7fc76",
+      "primary_body_sha256": "d01974e07bd9c7b8265c05ba2b829368995b262570542e67494a0e6dd48638e9",
+      "primary_body_fetched_at": "2026-10-25T23:38:54.913885+00:00",
+      "primary_body_origin": "preserved local primary-source read; candidate paper exactly matches hosted checkpoint",
+      "review_evidence_sha256": "a624415bece6c984be50a54b216bd9ab9b815d6a1b35af96a0b38e5d8782dbad"
+    }
+  ]
+}

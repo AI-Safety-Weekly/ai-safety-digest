@@ -205,13 +205,15 @@ fixed release commit, to construct state. A worker must have a unique owner ID.
    Compute `basis_sha256 = digest({'files': frozen_release_files,
    'state': frozen_state_rows})`; after migration it is also derivable directly
    from the new bundle. The release handoff supplies the expected value.
-2. `claim(previous, edition_id=..., owner_id=..., anchor=..., deadline_at=...,
-   lease_until=..., basis_sha256=...)` acquires or resumes the edition. Use the
-   anchored week's Sunday **18:00 UTC** deadline. For this acceptance run the
-   anchor remains October 9 20:46:27 UTC and deadline is October 11 18:00 UTC.
-   Prefer a lease through that deadline, so a long running job does not outlive
-   a short lease. A different owner cannot take an unexpired lease. Expiry does
-   not discard an active edition or a pending request.
+2. New coordinators use `claim_idle(previous, edition_id=..., owner_id=...,
+   anchor=..., deadline_at=..., basis_sha256=...)`. This creates version-2 state
+   with a 110-minute idle lease capped at the anchored week's Sunday **18:00 UTC**
+   deadline. A different owner cannot take an unexpired idle lease. Once a request
+   is submitted, its exact pending fence permits execution/replay until that same
+   deadline; idle expiry does not unlock it. Never mutate pending state or lease
+   bytes. Successful/failed data acknowledgment restores a bounded idle lease.
+   Version-1 records retain their previous lease-expiry semantics. Upgrade only
+   through `claim_idle` while idle and normal ownership/CAS checks permit it.
 3. Commit the claim through GitHub `create_blob`, `create_tree` (base tree from
    the observed HEAD), `create_commit` (parent exactly that HEAD), then
    `update_ref(force=false, expected_sha=observed_HEAD)`. Never force-push.
@@ -231,7 +233,13 @@ fixed release commit, to construct state. A worker must have a unique owner ID.
    reference; their bundle hashes and request hash must match. A successful
    migration/export/enrichment/evidence acknowledgment stores the new bundle
    and clears stale result references. Failed/cancelled/timed-out jobs retain
-   the last durable artifact. A publish acknowledgment requires verified Pages
+   the last durable artifact. Before data acknowledgment, download and hash-check
+   the artifact bytes; expired/missing artifacts are blockers, not completion.
+   For version-2 publish failures before cutoff, `finish` returns the pending state
+   unchanged. Inspect the verified content commit and rerun the same failed job;
+   do not create a replacement request. At cutoff, a verified terminal failure
+   records `failed`, never `complete`. Still-running or uncertain jobs remain fenced.
+   A publish acknowledgment requires verified Pages
    deployment (`deployed=True`), not merely a commit receipt. `finish` is a pure
    state transition, **not a substitute for querying GitHub**.
 7. Commit the acknowledgment with the same CAS protocol. After an uncertain
@@ -377,3 +385,9 @@ the initial, pending and failed state plus full retrieved GitHub evidence. The
 changed revision prevents replay. Only afterward submit a new initial hosted
 export with the unchanged anchor/days through the usual fenced request path.
 All normal provenance, completeness, editorial and publication gates still apply.
+
+Successful active-migration acknowledgment preserves the receipt-bound lease so an
+exact retry after an uncertain CAS remains a no-op. Once that acknowledgment is
+confirmed, renew idle ownership using `claim_idle` in a separate CAS before submitting
+more work. This advances the revision, so an old migration acknowledgment then fails
+closed. Do not alter or ignore the lease recorded in the migration receipt.

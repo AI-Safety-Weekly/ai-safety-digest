@@ -5,7 +5,7 @@ an observed branch HEAD, then a non-force ref update. A rejected update must be
 re-read, never force-pushed. Owner IDs coordinate authorized repository writers;
 they are not secrets or authentication credentials.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import base64
 import copy
@@ -30,7 +30,7 @@ def basis(root):
 
 def validate(state):
     dot.keys(state, FIELDS, 'edition state')
-    if type(state['schema_version']) is not int or state['schema_version'] != 1:
+    if type(state['schema_version']) is not int or state['schema_version'] not in {1, 2}:
         raise dot.Invalid('invalid edition schema')
     for field in ('edition_id', 'owner_id'):
         if not isinstance(state[field], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,100}', state[field]):
@@ -90,11 +90,31 @@ def claim(previous, *, edition_id, owner_id, anchor, deadline_at, lease_until, b
         'basis_sha256':basis_sha256,'status':'active','pending':None,'bundle':None,'results':None})
 
 
+def claim_idle(previous, *, edition_id, owner_id, anchor, deadline_at,
+               basis_sha256, now=None):
+    """Version 2 coordinator: bounded idle lease, deadline-bound pending fence.
+
+    Upgrade only while idle via claim's normal CAS transition. Never rewrite an
+    in-flight version-1 state; it retains its original execution expiry.
+    """
+    now = now or now_utc()
+    lease = min(now + timedelta(minutes=110), dot.utc(deadline_at))
+    state = claim(previous, edition_id=edition_id, owner_id=owner_id, anchor=anchor,
+                  deadline_at=deadline_at, lease_until=lease.isoformat(),
+                  basis_sha256=basis_sha256, now=now)
+    return validate({**state, 'schema_version': 2})
+
+
 def owned(state, owner_id, now=None, *, allow_expired=False):
     validate(state); now = now or now_utc()
     if state['status'] != 'active' or state['owner_id'] != owner_id:
         raise dot.Invalid('worker does not own the active edition')
-    if not allow_expired and (dot.utc(state['lease_until']) <= now or dot.utc(state['deadline_at']) <= now):
+    # V2 idle ownership can expire, but an immutable pending request cannot be
+    # stolen or renewed. Its execution remains bounded by the edition deadline.
+    idle_expired = dot.utc(state['lease_until']) <= now
+    if state['schema_version'] == 2 and state['pending'] is not None:
+        idle_expired = False
+    if not allow_expired and (idle_expired or dot.utc(state['deadline_at']) <= now):
         raise dot.Invalid('edition lease/deadline expired; publication is blocked')
 
 
@@ -200,7 +220,10 @@ def finish(state, owner_id, request, *, conclusion, receipt=None, artifact=None,
            deployed=False, now=None):
     """Record a verified terminal Actions outcome; callers must fetch it from GitHub.
 
-    A cancelled/failed job clears pending but retains the last durable input.
+    A cancelled/failed data job clears pending but retains durable input.
+    V2 publish failures retain their fence until retry succeeds or the edition
+    deadline passes; verified terminal failure after cutoff records failed,
+    never complete. V1 behavior is unchanged for existing state records.
     Successful data jobs require the matching transport receipt and artifact.
     No implicit timeout unlock: reconcile the actual job, even after lease expiry.
     """
@@ -218,6 +241,11 @@ def finish(state, owner_id, request, *, conclusion, receipt=None, artifact=None,
         raise dot.Invalid('completion does not match the pending request')
     if conclusion not in {'success','failure','cancelled','timed_out'}:
         raise dot.Invalid('request is not terminal')
+    if state['schema_version'] == 2 and mode == 'publish' and conclusion != 'success':
+        if (now or now_utc()) < dot.utc(state['deadline_at']):
+            return copy.deepcopy(state)  # Same-job retry keeps the exact pending bytes.
+        return validate({**copy.deepcopy(state), 'revision': state['revision'] + 1,
+                         'pending': None, 'status': 'failed'})
     updated=copy.deepcopy(state);updated['revision']+=1;updated['pending']=None
     if mode == 'migrate_active':
         active_migration_request(state, request)
@@ -239,6 +267,12 @@ def finish(state, owner_id, request, *, conclusion, receipt=None, artifact=None,
             if not deployed:
                 raise dot.Invalid('publication remains pending until deployment is verified')
             updated['status']='complete'
+    # Successful active migration receipts bind the original lease. Preserve it
+    # through exact acknowledgment retries; renew in a separate idle claim CAS.
+    if (updated['schema_version'] == 2 and updated['status'] == 'active'
+            and not (mode == 'migrate_active' and conclusion == 'success')):
+        updated['lease_until'] = min((now or now_utc()) + timedelta(minutes=110),
+                                     dot.utc(updated['deadline_at'])).isoformat()
     return validate(updated)
 
 

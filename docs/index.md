@@ -1,14 +1,21 @@
+<!-- interim-bulletin:start -->
+!!! info "Interim bulletin archive"
+    [October 25 interim bulletin](interim/2026-10-25.md) preserves the earlier incomplete-coverage update.
+
+<!-- interim-bulletin:end -->
+
 # AI Safety Digest
 
-A weekly auto-generated reading list of new AI-safety research. Papers are pulled from arXiv every Monday morning, filtered against a curated list of safety keywords and ~300 tracked researchers, then classified by Claude into high / medium / low relevance with a one-sentence summary.
+A weekly reading list from the existing arXiv, tracked-author, lab, policy and forum sources, curated by dot. High means Aaron's coordination and verification lane; Medium means the catastrophic-risk technical backbone.
 
-!!! tip "Latest digest — Oct 12 – 18, 2026"
-    **Capabilities: 5 · Zone 1: 13 direct + 17 backbone · Zone 2: 0 · Zone 3: 25 · 60 items shown**
+!!! tip "Latest digest — Oct 19 – 25, 2026"
+    **Capabilities: 0 · Zone 1: 7 direct + 24 backbone · Zone 2: 0 · Zone 3: 29 · 60 items shown**
 
-    [Read the full digest :material-arrow-right:](digest-2026-W42.md){ .md-button .md-button--primary }
+    [Read the full digest :material-arrow-right:](digest-2026-W43.md){ .md-button .md-button--primary }
 
 ## Recent weeks
 
+- [**Oct 19 – 25, 2026**](digest-2026-W43.md)
 - [**Oct 12 – 18, 2026**](digest-2026-W42.md)
 - [**Oct 5 – 11, 2026**](digest-2026-W41.md)
 - [**Sep 28 – Oct 4, 2026**](digest-2026-W40.md)
@@ -30,4 +37,4 @@ Every item is tagged **Paper**, **Blog post**, or **Other**, and each digest pag
 
 Spot something the bot missed? <a class="missed-paper" href="#">:material-email-plus-outline: Send it in</a> (password-gated).
 
-_Last updated: 2026-10-18_
+_Last updated: 2026-10-25_

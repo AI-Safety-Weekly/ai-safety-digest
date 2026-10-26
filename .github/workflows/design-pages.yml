@@ -46,6 +46,8 @@ jobs:
       - name: Install rendering dependencies only
         run: pip install mkdocs-material
       - name: Build existing editions
+        env:
+          PYTHONPATH: src
         run: python scripts/interim_site.py --site-dir site
       - name: Bind rebuilt content to this design commit
         id: receipt

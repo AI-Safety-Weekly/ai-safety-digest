@@ -138,7 +138,9 @@ def provenance(root):
              *root.glob('feedback/*.md'), *root.glob('docs/**/*'),
              root / 'pyproject.toml', root / 'mkdocs.yml']
     return {str(p.relative_to(root)): base64.b64encode(p.read_bytes()).decode()
-            for p in sorted(paths) if p.is_file() and not p.is_symlink()}
+            for p in sorted(paths) if p.is_file() and not p.is_symlink()
+            and "__pycache__" not in p.relative_to(root).parts
+            and p.suffix.lower() not in {".pyc", ".pyo"}}
 
 
 def seal(payload):

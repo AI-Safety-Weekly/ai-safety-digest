@@ -339,3 +339,41 @@ dropped candidates or contradictory dispositions, preserves the original decisio
 order, leaves changed/new/missing inputs unresolved and resets theme partitions.
 The older generic `same_basis`/`rebase_reviews` guard remains unchanged and must
 not be bypassed for a configuration migration.
+
+## Proposed recovery of a failed, unstarted initial export
+
+This is a separate, explicit recovery transition, not `claim`, `abandon`, or a
+manual basis edit. Review and authorize the exact fingerprint fix and transition
+before applying it. It does not migrate collected artifacts or permit a local
+bundle to stand in for hosted provenance.
+
+`dot_unstarted_recovery.prepare(root, owner_id, request_commit=..., run_id=...)`
+only reads local Git history and fresh GitHub evidence using existing `gh`
+authentication. Run it from a clean, committed checkout of the observed live
+HEAD after integrating the reviewed repair. It returns replacement state and an
+audit document without writing either. The historical request must be an initial,
+unresumed export committed atomically with its ownership fence. The current state
+must exactly equal its failed acknowledgment, with no pending request, bundle or
+results. Owner, original window, deadline and lease remain unchanged; revision
+increases. Expired ownership is rejected.
+
+GitHub must show exactly one first-attempt validation run for that request, failed
+at the preparation step, with processing and artifact downloads skipped. All runs
+at that commit must be terminal, with no publishing run, artifact or deployment.
+Truncated inventories and ambiguous outcomes block recovery. Both the final diff
+and intervening commit history must contain only the fingerprint repair files
+and ownership acknowledgment, with no subsequent requests, content or state.db
+changes. Generated Python bytecode is excluded from provenance; all remaining
+fingerprint inputs must be tracked. Real source hooks and documents stay hashed.
+
+After reviewing the returned audit against the authorized patch, preserve it as
+`.dot/recovery-audit-<canonical audit SHA256>.json` and commit it **together** with
+the returned `.dot/active-edition.json`, using the existing observed-HEAD,
+non-force CAS protocol. Never overwrite an existing audit. Re-fetch the live
+HEAD and rerun the read-only preparation immediately before constructing that
+commit; if HEAD, run attempt, ownership or evidence changed, stop and reassess.
+Check uncertain push outcomes before retrying. The Git history and audit retain
+the initial, pending and failed state plus full retrieved GitHub evidence. The
+changed revision prevents replay. Only afterward submit a new initial hosted
+export with the unchanged anchor/days through the usual fenced request path.
+All normal provenance, completeness, editorial and publication gates still apply.

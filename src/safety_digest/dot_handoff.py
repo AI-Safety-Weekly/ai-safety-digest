@@ -256,6 +256,9 @@ def validate_enrichment_records(bundle):
 
 def validate_collection_health(bundle, *, publication=False):
     health = bundle['collection']
+    if 'source_contract' in health:
+        from . import source_contract
+        return source_contract.validate_health(bundle)
     if health.get('complete') is not True:
         raise Invalid('collection is degraded; publishing is blocked')
     warnings = health.get('warnings')
@@ -396,6 +399,8 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
         raise Invalid('empty Semantic Scholar author cache')
     handler = CollectionLog()
     logging.getLogger('safety_digest').addHandler(handler)
+    from . import source_contract
+    primary_contract = source_contract.configured(before)
     counts, forced, pending_authors = {}, set(), []
     try:
         audit = arxiv_collector.CollectAudit()
@@ -435,6 +440,8 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
         # Each verified profile has its own checkpoint. A deferred profile must
         # not erase completed sibling work or falsely complete the whole author.
         scholar = []
+        if primary_contract:
+            checkpoints.read_only = True  # Optional Scholar stays disclosed; never request around its cooldown.
         tracked = list(dict.fromkeys(auto + review))
         pending_profiles = []
         for name in tracked:
@@ -486,6 +493,8 @@ def collect_export(root, destination, run_at, days, checkpoint_dir=None, progres
         's2_authors_without_cached_ids': sorted(set(auto + review) - set(cache)),
         'bluesky_enabled': False,
     }
+    if primary_contract:
+        health['source_contract'] = source_contract.coverage(before, checkpoints.data['parts'])
     b = make_bundle(root, papers, run_at, days, health, forced)
     if before != b['files'] or state_before != b['state_rows']:
         raise Invalid('checkout changed during collection; retry from a stable base')
@@ -583,6 +592,9 @@ def validate_results(bundle, results, *, final=False):
         if listed(c) and not substantive:
             raise Invalid('listed decision requires substantive frozen evidence')
         if final and listed(c):
+            if 'source_contract' in bundle['collection']:
+                from . import source_contract
+                source_contract.validate_listed(bundle, ident)
             if candidate['body']['status'] == 'not_attempted':
                 raise Invalid('listed candidate needs a frozen deep-read attempt; run enrich')
             if candidate['body']['status'] == 'available' and not read_body:
@@ -780,6 +792,8 @@ def reconcile_collected(previous, collected):
         if ident in old_records:
             records.append(copy.deepcopy(old_records[ident]))
         dispositions[ident] = 'missing_from_recollection'
+    if 'primary_review' in previous['collection']:
+        result['collection']['primary_review'] = copy.deepcopy(previous['collection']['primary_review'])
     result['collection']['enrichment_records'] = records
     result['collection']['reconciliation'] = {
         'previous_bundle_sha256': previous['bundle_sha256'],
@@ -949,10 +963,21 @@ def stage_import(root, bundle, results, destination):
                 {'prior_title': plain(history[link['prior_id']][3]),
                  'prior_week': history[link['prior_id']][1], 'relation': plain(link['relation'])}
                 for link in decisions[ident]['continuity']]
+        if 'source_contract' in bundle['collection']:
+            from . import source_contract
+            source_contract.write_coverage(staging / 'docs', bundle)
+            for ident, cp in classified:
+                proof = bundle['collection'].get('primary_review', {}).get(ident)
+                if proof and decisions[ident]['status']=='complete' and listed(decisions[ident]['classification']):
+                    cp.paper.published = utc(proof['published_at'])
         report.write_markdown([cp for _, cp in classified],
                               staging / 'docs' / f'digest-{week}.md', run_at,
                               medium_overview=brief('medium'), field_summary=brief('off_lane'),
                               continuity=continuity)
+        if 'source_contract' in bundle['collection']:
+            path = staging / 'docs' / f'digest-{week}.md'
+            with path.open('a') as stream:
+                stream.write(f"\n\n## Source coverage\n\n{source_contract.CONFIG['label']}. Semantic Scholar did not complete. Unchecked author identities are disclosed, not treated as no publications. [Coverage report](source-coverage-{week}.json).\n")
         site_builder.build_index(staging / 'docs', run_at=run_at, curator='dot')
         # Only after both renderers succeed, create an independent transactional state copy.
         with sqlite3.connect(staging / 'state.db') as conn:

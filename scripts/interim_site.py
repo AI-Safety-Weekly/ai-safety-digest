@@ -179,6 +179,8 @@ def build(root, site):
         subprocess.run([sys.executable,'-m','mkdocs','build','--strict','--config-file',
                         str(stage/'mkdocs.yml'),'--site-dir',str(site)],check=True)
         finish_site(site, root)
+        from safety_digest import source_contract
+        source_contract.finish_site(site, stage)
         entries = load(root)
         metadata = {'schema_version':1,'status':('complete_with_interim_archive' if (root/'docs/digest-2026-W43.md').exists() else 'interim') if entries else 'ordinary_build',
                     'source_commit':os.environ.get('GITHUB_SHA') or subprocess.check_output(

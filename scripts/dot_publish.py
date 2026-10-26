@@ -52,6 +52,8 @@ def site_build(stage, site, root=None):
                         str(config),'--site-dir',str(site)],check=True)
         if root is not None:
             helper.finish_site(site, root)
+        from safety_digest import source_contract
+        source_contract.finish_site(site, stage)
     finally:
         config.write_bytes(original)
 

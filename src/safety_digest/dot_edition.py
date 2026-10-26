@@ -160,7 +160,7 @@ def active_migration_policy(root, state, request):
     }
     if any(policy.get(k) != v for k, v in expected.items()):
         raise dot.Invalid('active migration policy differs from the fenced request')
-    if policy['kind'] == 'frozen_source_exclusions_v1' and request['bundle'] != request['checkpoint_source']:
+    if policy['kind'] in {'frozen_source_exclusions_v1','primary_source_contract_v1'} and request['bundle'] != request['checkpoint_source']:
         raise dot.Invalid('exclusion migration requires the exact current artifact as checkpoint source')
     if basis(root) != request['to_basis_sha256']:
         raise dot.Invalid('active migration target provenance changed')
@@ -291,6 +291,11 @@ def verify_active_completion(state, request, receipt, artifact):
         if (migration.get('author_edits') != policy['author_edits']
                 or migration.get('invalidated_parts') != sorted(policy['invalidate_parts'])):
             raise dot.Invalid('active migration completion policy/audit mismatch')
+    elif policy['kind'] == 'primary_source_contract_v1':
+        from . import source_contract
+        source_contract.verify_receipt(policy,migration)
+        if request['bundle'] != request['checkpoint_source']:
+            raise dot.Invalid('source contract requires identical current checkpoint artifact')
     elif policy['kind'] == 'frozen_source_exclusions_v1':
         from . import dot_dispositions
         dot_dispositions.verify_receipt(policy, migration)

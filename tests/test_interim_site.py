@@ -47,4 +47,8 @@ def test_real_strict_build_preserves_frozen_inputs(tmp_path,monkeypatch):
     html=(site/'interim/2026-10-25/index.html').read_text()
     assert '12 of 294' in html and '282' in html and '../2026-10-25-coverage.json' in html
     assert (site/'interim/2026-10-25-coverage.json').exists()
+    home=(site/'index.html').read_text()
+    assert 'aria-label="Interim bulletin"' in home and 'October 25 interim update is available' in home
+    m.finish_site(site,ROOT)
+    assert (site/'index.html').read_text()==home
     assert dot.provenance(ROOT)==before and (ROOT/'state.db').read_bytes()==state and (ROOT/'.dot/active-edition.json').read_bytes()==ownership

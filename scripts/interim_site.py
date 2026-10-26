@@ -143,6 +143,30 @@ def assemble(stage, root=ROOT):
         '\n'.join(f"- [{m['date']} — incomplete coverage]({m['date']}.md)" for m,_ in entries)+'\n')
 
 
+def finish_site(site, root):
+    """The editorial hook replaces index Markdown; add its notice after rendering."""
+    entries = load(root)
+    if not entries:
+        return
+    latest = entries[-1][0]
+    complete = (Path(site)/'digest-2026-W43/index.html').exists()
+    label = 'Interim bulletin archive' if complete else 'October 25 interim update is available'
+    message = ('An earlier incomplete-coverage bulletin is retained in the archive.' if complete else
+               f"Scholar coverage is {latest['coverage']['complete_profile_count']}/{latest['coverage']['required_profile_count']} profiles. "
+               'The completed weekly edition below remains October 18.')
+    notice = (f'<aside class="admonition warning" aria-label="Interim bulletin">'
+              f'<p class="admonition-title">{label}</p><p>'
+              f'<a href="interim/{latest["date"]}/">Read the October 25 interim bulletin</a>. '
+              f'{message}</p></aside>')
+    path = Path(site)/'index.html'
+    html = path.read_text()
+    if 'aria-label="Interim bulletin"' not in html:
+        html, count = re.subn(r'(<article\b[^>]*>)', lambda m:m[1]+notice, html, count=1)
+        if count != 1:
+            raise ValueError('homepage article missing; cannot display interim notice')
+        path.write_text(html)
+
+
 def build(root, site):
     root, site = Path(root).resolve(), Path(site).resolve()
     if site == root or root in site.parents and site != root/'site':
@@ -154,6 +178,7 @@ def build(root, site):
         assemble(stage, root)
         subprocess.run([sys.executable,'-m','mkdocs','build','--strict','--config-file',
                         str(stage/'mkdocs.yml'),'--site-dir',str(site)],check=True)
+        finish_site(site, root)
         entries = load(root)
         metadata = {'schema_version':1,'status':('complete_with_interim_archive' if (root/'docs/digest-2026-W43.md').exists() else 'interim') if entries else 'ordinary_build',
                     'source_commit':os.environ.get('GITHUB_SHA') or subprocess.check_output(

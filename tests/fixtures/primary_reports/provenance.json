@@ -1,0 +1,59 @@
+{
+  "anthropic-page2.json": {
+    "url": "https://www.anthropic.com/listing/team-alignment/default/2",
+    "sha256": "b26c7595517b7f167ef537c0c6065be4314404603ec37f19bcf23cc465bc83f4",
+    "capture": "2026-10-26"
+  },
+  "openai-index.html": {
+    "url": "https://alignment.openai.com/misalignment-reports/",
+    "sha256": "f4bb0a73c779464887a5ce584d34d408c12e64e8fa51c32b1ee3320c9463cc57",
+    "capture": "2026-10-26"
+  },
+  "anthropic-index.html": {
+    "url": "https://www.anthropic.com/research/team/alignment",
+    "sha256": "e1fcb05243d866af37daada056ff9d1ff152e165f307035dcd2d699e6d75d996",
+    "capture": "2026-10-26"
+  },
+  "damaging-the-task-environment-to-trigger-a-reset.html": {
+    "url": "https://alignment.openai.com/misalignment-reports/damaging-the-task-environment-to-trigger-a-reset/",
+    "capture": "2026-10-26",
+    "raw_response_sha256": "abd29c82b959b5d3fa5dac30d4f406aa5d25e7017b35db2bea11aab95da20da5",
+    "sha256": "4313661b57c276262c2be81824a803ec01cbfd9703ca9875398ff5201b6afcf9",
+    "transformation": "Primary metadata and main/article markup only; no executable site assets."
+  },
+  "obtaining-public-statistics-with-disallowed-requests.html": {
+    "url": "https://alignment.openai.com/misalignment-reports/obtaining-public-statistics-with-disallowed-requests/",
+    "capture": "2026-10-26",
+    "raw_response_sha256": "bcde1e8d1673bff5549c6c307969e0b1ada14e66baa6073ddccc6ff9910d5e45",
+    "sha256": "29d8b1481539c77454172b3fa0ba9b4c05eb35062b149de93f6c6008e6c2bf92",
+    "transformation": "Primary metadata and main/article markup only; no executable site assets."
+  },
+  "sending-disallowed-web-requests-and-reaching-a-public-file-service.html": {
+    "url": "https://alignment.openai.com/misalignment-reports/sending-disallowed-web-requests-and-reaching-a-public-file-service/",
+    "capture": "2026-10-26",
+    "raw_response_sha256": "cf5486520a999174cb589d7633282ad58086fd72e967e4aff78036982ceaeb6a",
+    "sha256": "fb47aa2279e876a6bbb324fe68ade3dc0e93bdce8a0600fc43cb09741ff3afeb",
+    "transformation": "Primary metadata and main/article markup only; no executable site assets."
+  },
+  "suppressing-misalignment-monitoring-alerts-and-disabling-misalignment-monitoring.html": {
+    "url": "https://alignment.openai.com/misalignment-reports/suppressing-misalignment-monitoring-alerts-and-disabling-misalignment-monitoring/",
+    "capture": "2026-10-26",
+    "raw_response_sha256": "52ab4e8b9fb162a452f7cf155f4a760a7ddb80ed4964ea0a593651f1b7f2e79f",
+    "sha256": "9d3ebf01f077c84da0ffb0a78f0fa6db12d8aa78a03240e5711c7c6958ef7a2e",
+    "transformation": "Primary metadata and main/article markup only; no executable site assets."
+  },
+  "investigating-unintended-model-actions.html": {
+    "url": "https://www.anthropic.com/research/investigating-unintended-model-actions",
+    "capture": "2026-10-26",
+    "raw_response_sha256": "fe7c338c6faa93f094f157e2a593c7a7b224bcbf0b255262b96c3ff162972da0",
+    "sha256": "6c1b7a7a5b5b04068347f2de5a61bf748ef36754a5547eb8762f2d7ff2828d66",
+    "transformation": "Primary metadata and main/article markup only; no executable site assets."
+  },
+  "alignment-assessment-ukaisi.html": {
+    "url": "https://www.anthropic.com/research/alignment-assessment-ukaisi",
+    "capture": "2026-10-26",
+    "raw_response_sha256": "f96bbbacbf7ec8e51ae843ae9f77d569b9e3133f35910385a17485867b7b89e4",
+    "sha256": "2e19fc078ac1bb6309aac09bcbe2a9982051922c4069a0db795b521cb1cc3fcf",
+    "transformation": "Primary metadata and main/article markup only; no executable site assets."
+  }
+}

@@ -150,12 +150,16 @@ def collect(
             if health is not None:
                 health.append({"source": src.get("name"), "status": "incomplete",
                                "record_count": len(e.partial_items), "failed_retrievals": e.failures})
+            if src.get("required"):
+                raise RuntimeError(f"Required primary-report source incomplete: {src['name']}") from e
             log.warning("lab source %s incomplete: %d child failures", src.get("name"), e.failures)
             continue
         except Exception as e:
             if health is not None:
                 health.append({"source": src.get("name"), "status": "failed",
                                "error_type": type(e).__name__})
+            if src.get("required"):
+                raise RuntimeError(f"Required primary-report source failed: {src['name']}") from e
             log.error("lab source %s failed: %s", src.get("name"), type(e).__name__,
                       extra={"source_http_status":getattr(getattr(e,"response",None),"status_code",None)})
             continue
@@ -168,6 +172,9 @@ def collect(
 
 def _collect_one(src: dict, cutoff: datetime, until: datetime) -> list[Paper]:
     strategy = src.get("strategy")
+    if strategy == "primary_reports":
+        from .primary_reports import collect_primary_reports
+        return collect_primary_reports(src, cutoff, until)
     if strategy == "rss":
         return _from_rss(src, cutoff, until)
     if strategy == "sitemap":

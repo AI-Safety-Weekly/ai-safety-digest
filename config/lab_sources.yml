@@ -16,6 +16,33 @@
 #   false — set matched_review instead (classifier judges normally)
 
 sources:
+  # First disclosures only; updates remain separate editorial-contract work.
+  - name: openai-misalignment
+    label: OpenAI
+    strategy: primary_reports
+    report_format: openai_misalignment
+    index_url: https://alignment.openai.com/misalignment-reports/
+    url_prefix: https://alignment.openai.com/misalignment-reports/
+    first_disclosures_only: true
+    required: true
+    max_articles: 200
+    max_index_pages: 10
+    auto_admit: false
+
+  - name: anthropic-alignment
+    label: Anthropic
+    strategy: primary_reports
+    report_format: dated_index
+    embedded_index: anthropic_publications
+    prefer_nested_article: true
+    index_url: https://www.anthropic.com/research/team/alignment
+    url_pattern: '^https://www\.anthropic\.com/(?:(?:news|research|institute)/[^/]+|constitution)/?$'
+    first_disclosures_only: true
+    required: true
+    max_articles: 200
+    max_index_pages: 10
+    auto_admit: false
+
   - name: openai
     label: "OpenAI"
     strategy: rss

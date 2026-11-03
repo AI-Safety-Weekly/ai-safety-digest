@@ -8,13 +8,14 @@
 
 A weekly reading list from the existing arXiv, tracked-author, lab, policy and forum sources, curated by dot. High means Aaron's coordination and verification lane; Medium means the catastrophic-risk technical backbone.
 
-!!! tip "Latest digest — Oct 19 – 25, 2026"
-    **Capabilities: 0 · Zone 1: 7 direct + 24 backbone · Zone 2: 0 · Zone 3: 29 · 60 items shown**
+!!! tip "Latest digest — Oct 26 – Nov 1, 2026"
+    **Capabilities: 1 · Zone 1: 5 direct + 10 backbone · Zone 2: 0 · Zone 3: 44 · 60 items shown**
 
-    [Read the full digest :material-arrow-right:](digest-2026-W43.md){ .md-button .md-button--primary }
+    [Read the full digest :material-arrow-right:](digest-2026-W44.md){ .md-button .md-button--primary }
 
 ## Recent weeks
 
+- [**Oct 26 – Nov 1, 2026**](digest-2026-W44.md)
 - [**Oct 19 – 25, 2026**](digest-2026-W43.md)
 - [**Oct 12 – 18, 2026**](digest-2026-W42.md)
 - [**Oct 5 – 11, 2026**](digest-2026-W41.md)
@@ -37,4 +38,4 @@ Every item is tagged **Paper**, **Blog post**, or **Other**, and each digest pag
 
 Spot something the bot missed? <a class="missed-paper" href="#">:material-email-plus-outline: Send it in</a> (password-gated).
 
-_Last updated: 2026-10-25_
+_Last updated: 2026-11-01_

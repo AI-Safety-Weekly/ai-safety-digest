@@ -47,6 +47,13 @@ def validate(state):
     approved_late = (state['edition_id'] == 'recovery-20261025'
                      and anchor == datetime(2026,10,25,10,17,tzinfo=timezone.utc)
                      and deadline == datetime(2026,10,27,18,tzinfo=timezone.utc))
+    # November 3 repair of the missed November 1 edition: a distinct recovery
+    # identity and exact historical window, expiring November 4 at 18:00 UTC.
+    # This does not extend ordinary weekly editions or restart completed W43.
+    approved_late = approved_late or (
+        state['edition_id'] == 'recovery-20261101'
+        and anchor == datetime(2026,11,1,10,17,tzinfo=timezone.utc)
+        and deadline == datetime(2026,11,4,18,tzinfo=timezone.utc))
     if not approved_late and (deadline.weekday()!=6 or (deadline.hour,deadline.minute,deadline.second,deadline.microsecond)!=(18,0,0,0)
             or anchor.isocalendar()[:2]!=deadline.isocalendar()[:2]):
         raise dot.Invalid('edition deadline must be Sunday 18:00 UTC of the anchored week')

@@ -504,6 +504,15 @@ def configured_source(name):
     return next(s for s in yaml.safe_load((Path(__file__).parents[1]/'config/lab_sources.yml').read_text())['sources'] if s['name']==name)
 
 
+def captured_source(name):
+    """Pinned October fixtures predate the publisher's site migration."""
+    src = configured_source(name)
+    if name == "openai-misalignment":
+        src.pop("embedded_index")
+        src.update(index_url=INDEX, url_prefix=INDEX)
+    return src
+
+
 def captured_http(monkeypatch, page2=None):
     provenance=json.loads((FIXTURES/'provenance.json').read_text())
     routes={v['url']:(FIXTURES/name).read_text() for name,v in provenance.items()}
@@ -536,7 +545,7 @@ def test_current_anthropic_schema_collects_all_48_unique_index_records(monkeypat
 
 @pytest.mark.parametrize('name,expected',[('openai-misalignment',3),('anthropic-alignment',1)])
 def test_real_friday_reports_primary_dates_and_bounded_article_fetch(monkeypatch,name,expected):
-    seen=captured_http(monkeypatch);src=configured_source(name)
+    seen=captured_http(monkeypatch);src=captured_source(name)
     papers=pr.collect_primary_reports(src,START,END)
     assert len(papers)==expected
     assert all(p.published.date().isoformat()=='2026-10-09' for p in papers)
@@ -551,7 +560,7 @@ def test_real_friday_reports_primary_dates_and_bounded_article_fetch(monkeypatch
 @pytest.mark.parametrize('name,date',[('openai-misalignment','2026-10-20'),('anthropic-alignment','2026-10-23')])
 def test_real_current_window_first_disclosures(monkeypatch,name,date):
     captured_http(monkeypatch)
-    papers=pr.collect_primary_reports(configured_source(name),datetime(2026,10,18,10,17,tzinfo=UTC),datetime(2026,10,25,10,17,tzinfo=UTC))
+    papers=pr.collect_primary_reports(captured_source(name),datetime(2026,10,18,10,17,tzinfo=UTC),datetime(2026,10,25,10,17,tzinfo=UTC))
     assert len(papers)==1 and papers[0].raw['first_posted'].startswith(date)
 
 
@@ -578,9 +587,9 @@ def test_utf8_length_framing_does_not_drop_following_json():
 
 def test_configured_intake_does_not_relabel_old_update_as_first_disclosure(monkeypatch):
     src=configured_source('openai-misalignment')
-    seen=mock_http(monkeypatch,{INDEX:index(row('old','2026-06-01','2026-10-09'))})
-    assert pr.collect_primary_reports(src,START,END)==[]
-    assert seen==[INDEX]
+    seen = mock_http(monkeypatch, {CURRENT_INDEX: public_index(("2026-06-01", "2026-10-09"))})
+    assert pr.collect_primary_reports(src, START, END) == []
+    assert seen == [CURRENT_INDEX]
 
 
 def test_required_source_failure_is_visible_to_legacy_and_hosted_callers(monkeypatch):
@@ -594,12 +603,13 @@ def test_required_source_failure_is_visible_to_legacy_and_hosted_callers(monkeyp
 
 @pytest.mark.parametrize('metadata',[
     '<link rel="canonical" href="https://outside.invalid/report">',
-    '<link rel="canonical" href="https://alignment.openai.com/misalignment-reports/different/">',
+    '<link rel="canonical" href="https://openai.com/safety-alignment/misalignment-reports/different/">',
     '<meta property="article:published_time" content="2026-09-01">',
 ])
 def test_narrow_route_rejects_conflicting_primary_identity_or_date(monkeypatch,metadata):
     src=configured_source('openai-misalignment')
-    mock_http(monkeypatch,{INDEX:index(row('report')),INDEX+'report/':article(metadata=metadata)})
+    mock_http(monkeypatch, {CURRENT_INDEX: public_index(('2026-10-09', '2026-10-09')),
+                             CURRENT_INDEX + 'report-0/': article(metadata=metadata)})
     with pytest.raises(pr.PrimaryReportCollectionError,match='Conflicting primary'):
         pr.collect_primary_reports(src,START,END)
 
@@ -660,3 +670,57 @@ def test_overlap_cannot_hide_missing_unique_records_or_changed_total(monkeypatch
     })
     with pytest.raises(pr.PrimaryReportCollectionError,match='(unique report count|advertised totals)'):
         pr.collect_primary_reports(SOURCE,START,END)
+
+
+CURRENT_INDEX = "https://openai.com/safety-alignment/misalignment-reports/"
+CURRENT = {**SOURCE, "index_url": CURRENT_INDEX, "url_prefix": CURRENT_INDEX,
+           "embedded_index": "openai_publication_index", "first_disclosures_only": True}
+
+
+def public_index(*records, count=None, rendered_date=None):
+    rows, visible = [], []
+    for i, (posted, updated) in enumerate(records):
+        href = f"{CURRENT_INDEX}report-{i}/"
+        dates = {"lastUpdated": updated, "incidents": ["2026-06-19"]}
+        if posted:
+            dates["firstPosted"] = posted
+        rows.append({"title": f"Report {i}", "href": href, "reportDates": dates,
+                     "filters": {"type": ["reports"]}})
+        first = rendered_date if i == 0 and rendered_date else posted
+        date = f"<span>First posted: <time datetime='{first}'>{first}</time></span>" if first else ""
+        visible.append(f"<li><a href='{href}'>Report {i}{date}<span>Last updated: "
+                       f"<time datetime='{updated}'>{updated}</time></span></a></li>")
+    payload = "1:" + json.dumps({"sortByReportDate": True, "items": rows}) + "\n"
+    count = len(rows) if count is None else count
+    return (f'<a href="#reports">Reports<span>{count}</span></a>'
+            '<a href="#notices">Notices<span>0</span></a>'
+            f'<section id="reports"><ul>{"".join(visible[:20])}</ul></section>'
+            '<section id="notices"><ul></ul></section>'
+            f'<script>self.__next_f.push({json.dumps([1, payload])})</script>')
+
+
+def test_openai_load_more_payload_and_strict_historical_date(monkeypatch):
+    rows = [("2026-09-23", "2026-09-23")] * 20
+    rows += [("2026-10-09", "2026-10-09"), (None, "2026-10-03")]
+    url = CURRENT_INDEX + "report-20/"
+    mock_http(monkeypatch, {CURRENT_INDEX: public_index(*rows), url: article()})
+    papers = pr.collect_primary_reports(CURRENT, START, END)
+    assert [p.url for p in papers] == [url]
+    assert papers[0].raw["first_posted"].startswith("2026-10-09")
+    assert papers[0].raw["incident_dates"] == ["2026-06-19"]
+
+
+def test_openai_missing_original_date_does_not_use_update(monkeypatch):
+    url = CURRENT_INDEX + "report-1/"
+    mock_http(monkeypatch, {CURRENT_INDEX: public_index((None, "2026-10-10"),
+              ("2026-10-09", "2026-10-09")), url: article()})
+    with pytest.raises(pr.PrimaryReportCollectionError, match="no first-posted") as result:
+        pr.collect_primary_reports(CURRENT, START, END)
+    assert [p.url for p in result.value.partial_items] == [url]
+
+
+@pytest.mark.parametrize("kwargs", [{"count": 2}, {"rendered_date": "2026-10-08"}])
+def test_openai_payload_requires_visible_evidence(monkeypatch, kwargs):
+    mock_http(monkeypatch, {CURRENT_INDEX: public_index(("2026-10-09", "2026-10-09"), **kwargs)})
+    with pytest.raises(pr.PrimaryReportCollectionError, match="mismatch|disagree"):
+        pr.collect_primary_reports(CURRENT, START, END)

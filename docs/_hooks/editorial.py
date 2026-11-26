@@ -31,6 +31,9 @@ def on_page_markdown(markdown, page, config, files):
             markdown += "\n\n" + suggestion[0]
     if not (page.file.src_uri == "index.md" or page.file.src_uri.startswith("digest-")):
         return markdown
+    # Allow MkDocs to resolve the Markdown URLs in current and archived continuity boxes.
+    markdown = markdown.replace('<div class="continuity">↩ ',
+                                '<div class="continuity" markdown="span">↩ ')
     for anchor, label in LABELS.items():
         markdown = re.sub(r"^## .*\{ #" + anchor + r" \}$",
                           f"## {label} {{ #{anchor} }}", markdown, flags=re.MULTILINE)

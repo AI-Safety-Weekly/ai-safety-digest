@@ -21,8 +21,9 @@ sources:
     label: OpenAI
     strategy: primary_reports
     report_format: openai_misalignment
-    index_url: https://alignment.openai.com/misalignment-reports/
-    url_prefix: https://alignment.openai.com/misalignment-reports/
+    embedded_index: openai_publication_index
+    index_url: https://openai.com/safety-alignment/misalignment-reports/
+    url_prefix: https://openai.com/safety-alignment/misalignment-reports/
     first_disclosures_only: true
     required: true
     max_articles: 200

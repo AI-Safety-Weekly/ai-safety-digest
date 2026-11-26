@@ -280,6 +280,115 @@ def _flight_records(text):
     return records
 
 
+def _openai_publication_index(soup, src, cutoff, until):
+    """Read the complete official report list sent to the public Load more control."""
+    index_url = "https://openai.com/safety-alignment/misalignment-reports/"
+    if src["index_url"] != index_url:
+        raise PrimaryReportCollectionError("Unexpected OpenAI report index URL")
+    chunks = []
+    total_bytes = 0
+    for script in soup.find_all("script"):
+        match = re.fullmatch(r"self\.__next_f\.push\((.*)\)\s*;?",
+                             script.get_text().strip(), re.DOTALL)
+        if match:
+            try:
+                item = json.loads(match[1])
+            except (ValueError, RecursionError) as error:
+                raise PrimaryReportCollectionError("Malformed OpenAI public index payload") from error
+            if isinstance(item, list) and len(item) == 2 and item[0] == 1 and isinstance(item[1], str):
+                total_bytes += len(item[1].encode("utf-8"))
+                if total_bytes > 4_000_000:
+                    raise PrimaryReportCollectionError("OpenAI public index payload too large")
+                chunks.append(item[1])
+    stack = _flight_records("".join(chunks))
+    listings = []
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if node.get("sortByReportDate") is True and "items" in node:
+                listings.append(node["items"])
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    if len(listings) != 1 or not isinstance(listings[0], list):
+        raise PrimaryReportCollectionError("Complete OpenAI report listing missing or ambiguous")
+    rows = listings[0]
+    if not 0 < len(rows) <= src.get("max_articles", 200):
+        raise PrimaryReportCollectionError("OpenAI listing exceeds bounds or is empty")
+    indexed = {"reports": {}, "notices": {}}
+    reports, failures = [], []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise PrimaryReportCollectionError("Invalid OpenAI listing row")
+        filters = row.get("filters")
+        kinds = filters.get("type") if isinstance(filters, dict) else None
+        title, href, dates = (row.get(k) for k in ("title", "href", "reportDates"))
+        if (kinds not in (["reports"], ["notices"]) or not isinstance(title, str)
+                or not title.strip() or not isinstance(href, str) or not isinstance(dates, dict)):
+            raise PrimaryReportCollectionError("Invalid OpenAI listing identity or dates")
+        kind = kinds[0]
+        url = urljoin(index_url, href)
+        if kind == "reports":
+            if not re.fullmatch(re.escape(index_url) + r"[a-z0-9-]+/", url):
+                raise PrimaryReportCollectionError("OpenAI report is not a canonical report URL")
+        else:
+            parsed = urlparse(url)
+            if parsed.scheme != "https" or parsed.netloc != "openai.com" or not parsed.fragment:
+                raise PrimaryReportCollectionError("Invalid OpenAI notice link")
+        if url in indexed[kind]:
+            raise PrimaryReportCollectionError("Duplicate OpenAI listing URL")
+        indexed[kind][url] = (title, dates)
+        if kind != "reports":
+            continue
+        updated_raw, posted_raw = dates.get("lastUpdated"), dates.get("firstPosted")
+        if not isinstance(updated_raw, str) or (posted_raw is not None and not isinstance(posted_raw, str)):
+            raise PrimaryReportCollectionError("Invalid OpenAI report date fields")
+        updated = _date(updated_raw, "last updated")
+        if posted_raw is None:
+            # A last update strictly before the cutoff proves that first posting
+            # is outside this first-disclosures-only window, not its exact date.
+            if not src.get("first_disclosures_only") or updated.date() >= cutoff.date():
+                failures.append(f"{url}: official index has no first-posted date")
+            continue
+        posted = _date(posted_raw, "first posted")
+        if updated < posted:
+            raise PrimaryReportCollectionError("OpenAI last updated precedes first posted")
+        incidents = dates.get("incidents", [])
+        if not isinstance(incidents, list) or any(not isinstance(value, str) for value in incidents):
+            raise PrimaryReportCollectionError("Invalid OpenAI incident dates")
+        summary = row.get("description")
+        reports.append(_Report(url, title, posted, updated,
+            [_date(value, "incident date").date().isoformat() for value in incidents],
+            summary if isinstance(summary, str) else "", _date_only(posted_raw), _date_only(updated_raw)))
+
+    for group, entries in indexed.items():
+        # Independently reconcile the public total and every server-rendered
+        # member with the payload. Notices are not part of the report feed.
+        count_tag = soup.select_one(f'a[href="#{group}"] span')
+        section = soup.select_one(f"section#{group}")
+        count = count_tag.get_text(strip=True) if count_tag else ""
+        if not re.fullmatch(r"[0-9]{1,4}", count) or int(count) != len(entries) or section is None:
+            raise PrimaryReportCollectionError(f"OpenAI {group} advertised total mismatch")
+        visible = section.select(":scope > ul > li > a[href]")
+        expected_visible = min(len(entries), 20) if group == "reports" else len(entries)
+        if len(visible) != expected_visible:
+            raise PrimaryReportCollectionError(f"OpenAI {group} rendered count mismatch")
+        seen = set()
+        for link in visible:
+            url = urljoin(index_url, link["href"])
+            record = entries.get(url)
+            if url in seen or record is None or record[0] not in link.get_text(" ", strip=True):
+                raise PrimaryReportCollectionError(f"OpenAI visible {group} disagree with payload")
+            seen.add(url)
+            for label, key in (("First posted:", "firstPosted"), ("Last updated:", "lastUpdated")):
+                published = [t.get("datetime") for t in link.select("time")
+                             if t.parent.get_text(" ", strip=True).startswith(label)]
+                expected = record[1].get(key)
+                if published != ([expected] if expected else []):
+                    raise PrimaryReportCollectionError("OpenAI visible dates disagree with payload")
+    return reports, failures
+
+
 def _anthropic_pages(listing, soup, src, index_url):
     """Public team listing, same bounded pagination route used by the official UI."""
     count=listing.get('articleCount'); options=listing.get('options',{})
@@ -516,22 +625,28 @@ def collect_primary_reports(src: dict, cutoff: datetime, until: datetime) -> lis
     index_url = src["index_url"]
     visited = set()
     advertised_total = None
+    index_failures = []
     reports: dict[str, _Report] = {}
     while index_url:
         if index_url in visited or len(visited) >= src.get("max_index_pages", 10):
             raise PrimaryReportCollectionError("Primary index pagination loop/limit; coverage incomplete")
         visited.add(index_url)
         soup = _get_soup(index_url)
-        if kind == 'openai_misalignment':
+        current_openai = (kind == "openai_misalignment" and
+                          src.get("embedded_index") == "openai_publication_index")
+        if kind == 'openai_misalignment' and not current_openai:
             count = _openai_count(soup)
             if count:
                 if advertised_total is not None and advertised_total != count[1]:
                     raise PrimaryReportCollectionError('Conflicting OpenAI advertised totals')
                 advertised_total = count[1]
         embedded = src.get('embedded_index')
-        if embedded and embedded != 'anthropic_publications':
+        if embedded and embedded != 'anthropic_publications' and not current_openai:
             raise PrimaryReportCollectionError('Unsupported embedded primary index format')
-        parsed = _anthropic_publications(soup, src, index_url) if embedded else None
+        if current_openai:
+            parsed, index_failures = _openai_publication_index(soup, src, cutoff, until)
+        else:
+            parsed = _anthropic_publications(soup, src, index_url) if embedded else None
         if kind == "dated_index" and parsed is None:
             for control in soup.select('a[href="#"], button'):
                 label = control.get_text(" ", strip=True).casefold()
@@ -541,6 +656,8 @@ def collect_primary_reports(src: dict, cutoff: datetime, until: datetime) -> lis
                         "Primary index requires client-side expansion; complete coverage is unverified")
         next_tag = soup.select_one(src.get("next_selector", 'a[rel~="next"][href]'))
         next_url = urljoin(index_url, next_tag["href"]) if next_tag and next_tag.get("href") else None
+        if current_openai and next_url:
+            raise PrimaryReportCollectionError("Unexpected OpenAI index pagination")
         if next_url and urlparse(next_url).netloc != urlparse(src["index_url"]).netloc:
             raise PrimaryReportCollectionError("Primary index pagination left the source domain")
         if parsed is None:
@@ -569,7 +686,7 @@ def collect_primary_reports(src: dict, cutoff: datetime, until: datetime) -> lis
     ]
     if len(candidates) > src.get("max_articles", 200):
         raise PrimaryReportCollectionError("Primary article fetch limit exceeded; coverage incomplete")
-    papers, failures = [], []
+    papers, failures = [], index_failures
     for report in candidates:
         try:
             soup = _get_soup(report.url)
@@ -666,7 +783,8 @@ def collect_primary_reports(src: dict, cutoff: datetime, until: datetime) -> lis
     papers.sort(key=lambda paper: (paper.published, paper.url), reverse=True)
     if failures:
         raise PrimaryReportCollectionError(
-            f"Primary coverage incomplete ({len(failures)} article failures): " + "; ".join(failures),
+            f"Primary coverage incomplete ({len(failures)} " +
+            ("report failures): " if index_failures else "article failures): ") + "; ".join(failures),
             partial_items=papers,
         )
     return papers

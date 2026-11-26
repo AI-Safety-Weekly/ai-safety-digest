@@ -58,3 +58,35 @@ def test_real_strict_build_preserves_frozen_inputs(tmp_path,monkeypatch):
     m.finish_site(site,ROOT)
     assert (site/'index.html').read_text()==home
     assert dot.provenance(ROOT)==before and (ROOT/'state.db').read_bytes()==state and (ROOT/'.dot/active-edition.json').read_bytes()==ownership
+
+
+def test_continuity_is_a_working_link_on_home_and_edition(tmp_path):
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin
+
+    class ContinuityLinks(HTMLParser):
+        inside = False
+        links = None
+        def __init__(self):
+            super().__init__()
+            self.links = []
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "div" and attrs.get("class") == "continuity":
+                self.inside = True
+            if self.inside and tag == "a" and "href" in attrs:
+                self.links.append(attrs["href"])
+        def handle_endtag(self, tag):
+            if tag == "div":
+                self.inside = False
+
+    site = tmp_path / "site"
+    m.build(ROOT, site)
+    origin = "https://example.com/ai-safety-digest/"
+    pages = (("index.html", ""), ("digest-2026-W44/index.html", "digest-2026-W44/"))
+    for path, browser_path in pages:
+        parser = ContinuityLinks()
+        parser.feed((site / path).read_text())
+        assert origin + "digest-2026-W43/" in {
+            urljoin(origin + browser_path, link) for link in parser.links
+        }
